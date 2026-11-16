@@ -14,8 +14,9 @@ PAGE = ROOT / "docs/local-kubernetes.md"
 def steps():
     blocks = re.findall(r"```sh\n(# tutorial-step: [\s\S]*?)\n```", PAGE.read_text())
     names = [block.splitlines()[0].removeprefix("# tutorial-step: ") for block in blocks]
-    expected = ["cli", "setup", "build", "cluster", "install", "application",
-                "rotation", "old-pod", "replacement", "cleanup"]
+    expected = ["cli", "setup", "create cluster", "install", "offer a runtime",
+                "build", "load app", "application", "rotation", "old-pod",
+                "replacement", "cleanup"]
     if names != expected:
         raise ValueError("tutorial steps missing, reordered or duplicated: " + repr(names))
     return blocks
