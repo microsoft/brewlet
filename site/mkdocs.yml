@@ -45,6 +45,7 @@ nav:
       - Compatibility policy: compatibility-policy.md
   - Try:
       - First local deployment: local-kubernetes.md
+      - Update a managed dependency: update-managed-dependency.md
       - Guided demonstration: demo.md
   - Enable infrastructure:
       - Installation: installation.md

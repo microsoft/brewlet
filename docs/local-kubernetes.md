@@ -226,6 +226,9 @@ anymore, and the application image digest is the same one you built in step 3.
 
 ## 8. Clean up
 
+To continue with [update a managed dependency](update-managed-dependency.md),
+skip this step and keep the cluster running.
+
 Delete the application, then let Brewlet remove the runtime and restore the
 node's configuration before deleting the cluster:
 
