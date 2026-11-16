@@ -25,7 +25,7 @@ version at or above 1.0.0 is a stable release and is marked latest.
 is authoritative. Its version maps unchanged to chart version/appVersion,
 Maven version and component image tags; Git tags add `v`. A candidate manifest
 records the immutable source commit, production/qualification-input hashes,
-payload hashes, image index/child digests and actual build tools. `brewlet version`
+payload hashes, image index/child digests and actual build tools. `brewlet version -o json`
 reports JSON with version, commit and native platform. A version of `dev` and
 commit `unknown` means the binary is not a release build.
 
