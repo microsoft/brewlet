@@ -71,7 +71,7 @@ cat > "$WORK/launch.json" <<'EOF'
 {"schemaVersion": 1, "process": {"entrypoint": ["/usr/bin/python3"],
  "args": ["/app/server.py"], "workingDir": "/app"}}
 EOF
-ARCH="$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')"
+ARCH="$(docker info --format '{{.Architecture}}' | sed 's/x86_64/amd64/; s/aarch64/arm64/')"
 brewlet build example.invalid/brewlet/hello:v1 --platform "linux/$ARCH" \
   --launch "$WORK/launch.json" --layer "app=$WORK/app:/app" --store "$WORK/image"
 APP="example.invalid/brewlet/hello@$(grep -o 'sha256:[0-9a-f]*' "$WORK/image/index.json")"
@@ -79,8 +79,9 @@ echo "$APP"
 ```
 
 `launch.json` tells Brewlet how to start the application with the
-node-supplied Python. `brewlet build` writes the image to `$WORK/image`, and
-`APP` refers to it by digest.
+node-supplied Python. `ARCH` is your Docker engine's architecture, which is
+also the architecture of the kind node in step 4. `brewlet build` writes the
+image to `$WORK/image`, and `APP` refers to it by digest.
 
 ## 4. Create the cluster and load the image
 
@@ -89,11 +90,17 @@ default node image runs containerd 2.x, which Brewlet requires:
 
 ```sh
 # tutorial-step: cluster
-kind create cluster --name brewlet
+DOCKER_DEFAULT_PLATFORM="linux/$ARCH" kind create cluster --name brewlet
 tar -C "$WORK/image" -cf - oci-layout index.json blobs \
   | docker exec -i brewlet-control-plane ctr -n k8s.io images import -
 docker exec brewlet-control-plane ctr -n k8s.io images tag example.invalid/brewlet/hello:v1 "$APP"
 ```
+
+Setting `DOCKER_DEFAULT_PLATFORM` for this command runs the node with the same
+architecture as the application image, even if your shell already sets the
+variable. A node on another architecture, such as `linux/amd64` on an Apple
+silicon Mac, runs under emulation and never starts its control plane, so kind
+fails with `unable to create ClusterRoleBinding: context deadline exceeded`.
 
 Loading the image directly keeps this example local. To publish images through
 a registry instead, see [registry and trust configuration](registry-trust.md).
@@ -191,23 +198,27 @@ kubectl wait runtimeimage/python --for=jsonpath='{.status.generation}'=2 --timeo
 kubectl wait runtimeimage/python --for=condition=RotationComplete --timeout=5m
 kubectl wait runtimeimage/python --for=condition=OldGenerationTasks=true --timeout=2m
 brewlet k8s runtime status python
+```
+
+The RuntimeImage is now at generation 2, but the running Pod still answers with
+Python 3.11.2:
+
+```sh
+# tutorial-step: old-pod
 docker exec brewlet-control-plane curl -s "http://$SERVICE_IP:8000/"
 ```
 
-The RuntimeImage is at generation 2, but the running Pod still answers with
-Python 3.11.2. Brewlet never swaps the runtime under a running process.
-
-Restart the Deployment. The replacement Pod uses the new runtime, with the same
+Now restart the Deployment. The replacement Pod uses the new runtime, with the same
 application image. Waiting for `OldGenerationTasks=false` ensures the old Pod
 has stopped before you call the Service:
 
 ```sh
 # tutorial-step: replacement
+brewlet k8s runtime status python
 kubectl rollout restart deployment/hello
 kubectl rollout status deployment/hello --timeout=5m
 kubectl wait runtimeimage/python --for=condition=OldGenerationTasks=false --timeout=2m
 docker exec brewlet-control-plane curl -s --retry 5 --retry-connrefused "http://$SERVICE_IP:8000/"
-brewlet k8s runtime status python
 ```
 
 The replacement Pod answers with Python 3.13.5. No Pod uses generation 1

@@ -15,7 +15,7 @@ def steps():
     blocks = re.findall(r"```sh\n(# tutorial-step: [\s\S]*?)\n```", PAGE.read_text())
     names = [block.splitlines()[0].removeprefix("# tutorial-step: ") for block in blocks]
     expected = ["cli", "setup", "build", "cluster", "install", "application",
-                "rotation", "replacement", "cleanup"]
+                "rotation", "old-pod", "replacement", "cleanup"]
     if names != expected:
         raise ValueError("tutorial steps missing, reordered or duplicated: " + repr(names))
     return blocks
