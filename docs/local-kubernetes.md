@@ -43,57 +43,18 @@ tutorial doesn't touch your existing clusters.
 ```sh
 # tutorial-step: setup
 WORK="$(mktemp -d)"
+ARCH="$(docker info --format '{{.Architecture}}' | sed 's/x86_64/amd64/; s/aarch64/arm64/')"
 export KUBECONFIG="$WORK/kubeconfig"
 ```
 
-## 3. Build the application image
+## 3. Create the cluster
 
-The application is a small Python HTTP server. Its image contains only the
-application: Python itself will come from the node.
-
-```sh
-# tutorial-step: build
-mkdir "$WORK/app"
-cat > "$WORK/app/server.py" <<'EOF'
-import json, os, sys
-from http.server import BaseHTTPRequestHandler, HTTPServer
-
-class Hello(BaseHTTPRequestHandler):
-    def do_GET(self):
-        body = json.dumps({"python": sys.version.split()[0], "uid": os.getuid()})
-        self.send_response(200)
-        self.end_headers()
-        self.wfile.write(body.encode() + b"\n")
-
-HTTPServer(("", 8000), Hello).serve_forever()
-EOF
-cat > "$WORK/launch.json" <<'EOF'
-{"schemaVersion": 1, "process": {"entrypoint": ["/usr/bin/python3"],
- "args": ["/app/server.py"], "workingDir": "/app"}}
-EOF
-ARCH="$(docker info --format '{{.Architecture}}' | sed 's/x86_64/amd64/; s/aarch64/arm64/')"
-brewlet build example.invalid/brewlet/hello:v1 --platform "linux/$ARCH" \
-  --launch "$WORK/launch.json" --layer "app=$WORK/app:/app" --store "$WORK/image"
-APP="example.invalid/brewlet/hello@$(grep -o 'sha256:[0-9a-f]*' "$WORK/image/index.json")"
-echo "$APP"
-```
-
-`launch.json` tells Brewlet how to start the application with the
-node-supplied Python. `ARCH` is your Docker engine's architecture, which is
-also the architecture of the kind node in step 4. `brewlet build` writes the
-image to `$WORK/image`, and `APP` refers to it by digest.
-
-## 4. Create the cluster and load the image
-
-Create a one-node kind cluster and load the application image into it. kind's
-default node image runs containerd 2.x, which Brewlet requires:
+Create a one-node kind cluster. kind's default node image runs containerd 2.x,
+which Brewlet requires:
 
 ```sh
-# tutorial-step: cluster
+# tutorial-step: create cluster
 DOCKER_DEFAULT_PLATFORM="linux/$ARCH" kind create cluster --name brewlet
-tar -C "$WORK/image" -cf - oci-layout index.json blobs \
-  | docker exec -i brewlet-control-plane ctr -n k8s.io images import -
-docker exec brewlet-control-plane ctr -n k8s.io images tag example.invalid/brewlet/hello:v1 "$APP"
 ```
 
 Setting `DOCKER_DEFAULT_PLATFORM` for this command runs the node with the same
@@ -102,10 +63,7 @@ variable. A node on another architecture, such as `linux/amd64` on an Apple
 silicon Mac, runs under emulation and never starts its control plane, so kind
 fails with `unable to create ClusterRoleBinding: context deadline exceeded`.
 
-Loading the image directly keeps this example local. To publish images through
-a registry instead, see [registry and trust configuration](registry-trust.md).
-
-## 5. Install Brewlet on the cluster and offer a runtime
+## 4. Install Brewlet on the cluster
 
 Install the latest released Helm chart. It includes the CRDs and
 digest-pinned component images:
@@ -114,7 +72,14 @@ digest-pinned component images:
 # tutorial-step: install
 helm install brewlet oci://ghcr.io/microsoft/charts/brewlet \
   --namespace brewlet --create-namespace --wait
+```
 
+## 5. Offer a runtime
+
+Now offer a runtime for Python:
+
+```sh
+# tutorial-step: offer a runtime
 cat > "$WORK/python.yaml" <<'EOF'
 apiVersion: node.brewlet.sh/v1alpha1
 kind: RuntimeImage
@@ -149,7 +114,56 @@ pinned by digest. The `local` profile tells Brewlet to install it on the cluster
 `includeControlPlane` allows that on this one-node cluster; leave it disabled
 for control-plane nodes in a shared cluster.
 
-## 6. Deploy and call the application
+## 6. Build the application image
+
+The application is a small Python HTTP server. Its image contains only the
+application: Python itself will come from the node.
+
+```sh
+# tutorial-step: build
+mkdir "$WORK/app"
+cat > "$WORK/app/server.py" <<'EOF'
+import json, os, sys
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
+class Hello(BaseHTTPRequestHandler):
+    def do_GET(self):
+        body = json.dumps({"python": sys.version.split()[0], "uid": os.getuid()})
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(body.encode() + b"\n")
+
+HTTPServer(("", 8000), Hello).serve_forever()
+EOF
+cat > "$WORK/launch.json" <<'EOF'
+{"schemaVersion": 1, "process": {"entrypoint": ["/usr/bin/python3"],
+ "args": ["/app/server.py"], "workingDir": "/app"}}
+EOF
+
+brewlet build example.invalid/brewlet/hello:v1 --platform "linux/$ARCH" \
+  --launch "$WORK/launch.json" --layer "app=$WORK/app:/app" --store "$WORK/image"
+APP="example.invalid/brewlet/hello@$(grep -o 'sha256:[0-9a-f]*' "$WORK/image/index.json")"
+echo "$APP"
+```
+
+`launch.json` tells Brewlet how to start the application with the
+node-supplied Python. `ARCH` is your Docker engine's architecture, which is
+also the architecture of the kind node in step 3. `brewlet build` writes the
+image to `$WORK/image`, and `APP` refers to it by digest.
+
+Load the application image into the local node:
+
+```sh
+# tutorial-step: load app
+tar -C "$WORK/image" -cf - oci-layout index.json blobs \
+  | docker exec -i brewlet-control-plane ctr -n k8s.io images import -
+docker exec brewlet-control-plane ctr -n k8s.io images tag example.invalid/brewlet/hello:v1 "$APP"
+```
+
+Loading the image directly keeps this example local. To publish images through
+a registry instead, see [registry and trust configuration](registry-trust.md).
+
+## 7. Deploy and call the application
 
 The annotation asks for the `python` runtime, and `runtimeClassName: brewlet`
 lets Brewlet supply it:
@@ -187,7 +201,7 @@ docker exec brewlet-control-plane curl -s --retry 5 --retry-connrefused "http://
 The response shows Python 3.11.2, supplied by the node, and the runtime's UID,
 65532.
 
-## 7. Rotate the runtime, not the application
+## 8. Rotate the runtime, not the application
 
 Point the RuntimeImage at Python 3.13.5, then wait for Brewlet to roll it out:
 
@@ -214,7 +228,6 @@ has stopped before you call the Service:
 
 ```sh
 # tutorial-step: replacement
-brewlet k8s runtime status python
 kubectl rollout restart deployment/hello
 kubectl rollout status deployment/hello --timeout=5m
 kubectl wait runtimeimage/python --for=condition=OldGenerationTasks=false --timeout=2m
@@ -222,9 +235,12 @@ docker exec brewlet-control-plane curl -s --retry 5 --retry-connrefused "http://
 ```
 
 The replacement Pod answers with Python 3.13.5. No Pod uses generation 1
-anymore, and the application image digest is the same one you built in step 3.
+anymore, and the application image digest is the same one you built in step 6.
 
-## 8. Clean up
+## 9. Clean up
+
+To continue with [update a managed dependency](update-managed-dependency.md),
+skip this step and keep the cluster running.
 
 Delete the application, then let Brewlet remove the runtime and restore the
 node's configuration before deleting the cluster:

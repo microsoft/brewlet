@@ -27,7 +27,7 @@ final class LayerSets {
     }
 
     static List<String> inspectCommand(String executable, String reference, Trust trust) {
-        List<String> command = new ArrayList<>(List.of(executable, "inspect", reference));
+        List<String> command = new ArrayList<>(List.of(executable, "inspect", reference, "-o", "json"));
         trust.append(command);
         return command;
     }

@@ -16,10 +16,26 @@ the built-in reference.
 | `brewlet run REF` | Run a local build on an explicitly chosen runtime image with Docker or Podman. |
 | `brewlet k8s ...` | Manage runtimes and node profiles on a Brewlet cluster: dashboard, runtime, profile, doctor. |
 | `brewlet inventory` | Export observed workload/dependency facts for external scanning; never mutate workloads or scan CVEs. |
-| `brewlet version` | Print JSON with the release version, source commit and native platform (for example `{"version":"0.8.1",...}`). |
+| `brewlet version` | Print the release version, source commit and native platform. |
 
 Usage errors exit with status 2, `--help` with 0, and `brewlet run` passes the
 container's exit status through.
+
+### Output formats
+
+`build`, `push`, `layer-set`, `index`, `inspect`, `bundle`, `verify`,
+`inventory` and `version` print readable text by default. Add `-o json` (or
+`--output json`) for indented JSON that scripts can parse:
+
+```sh
+brewlet version -o json | jq -r .version
+brewlet inspect REF -o json | jq '.platforms[].launch.process'
+```
+
+The format is never chosen from the environment: output stays text when piped
+or redirected, so scripts must request `-o json` explicitly. Files written by
+`--result`, `--push-result` and `inventory --report` are always compact JSON.
+`brewlet k8s` commands keep their own `-o table|wide|json|yaml`.
 
 ## Build and publish
 
@@ -84,8 +100,8 @@ atomic successful handoff.
 
 `verify REF --platform PLATFORM --policy FILE` checks a digest-pinned
 bundle without publication. `inventory` requires explicit `--kubeconfig`,
-`--context`, repeated `--namespace`, and `--policy`; use `--output FILE` for the
-JSON report (stdout otherwise), optional repeated `--workload Kind/namespace/name`
+`--context`, repeated `--namespace`, and `--policy`; use `--report FILE` to also
+write the JSON report (stdout shows a summary, or JSON with `-o json`), optional repeated `--workload Kind/namespace/name`
 selectors and `--max-age` (default and maximum `2m`) for node observation
 freshness. Incomplete evidence produces a partial report and nonzero exit.
 See [governed composition](managed-composition.md) for policy, provenance and

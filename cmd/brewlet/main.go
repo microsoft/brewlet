@@ -68,10 +68,8 @@ func commands() []command {
 		{"verify", "Verify a pinned release bundle against a release policy", groupRelease, releaseCommand("verify")},
 		{"run", "Run a local build on a chosen runtime image with Docker or Podman", groupLocal, runLocal},
 		{"k8s", "Manage runtimes on a Brewlet cluster (dashboard, list, add, rotate, remove, doctor)", groupCluster, runK8s},
-		{"inventory", "Report which dependency sets running workloads were built from", groupCluster, func(ctx context.Context, args []string, _, _ io.Writer) error {
-			return runInventory(ctx, args)
-		}},
-		{"version", "Print version, commit and platform as JSON", groupOther, func(_ context.Context, args []string, stdout, _ io.Writer) error {
+		{"inventory", "Report which dependency sets running workloads were built from", groupCluster, runInventory},
+		{"version", "Print version, commit and platform", groupOther, func(_ context.Context, args []string, stdout, _ io.Writer) error {
 			return writeVersion(stdout, args)
 		}},
 		{"help", "Show help for a command", groupOther, nil},
@@ -103,6 +101,9 @@ Usage:
   brewlet push  registry.example.com/apps/api:v1
 
 Run "brewlet <command> --help" for details on a command.
+
+Output: commands print readable text by default. Add -o json (or --output json)
+for machine-readable JSON; it is never chosen automatically, even when piped.
 `)
 }
 
@@ -207,7 +208,10 @@ func (t *trustFlags) load() (artifact.LayerSetTrust, error) {
 	return trust, nil
 }
 
-func writeResult(stdout io.Writer, file, ref string, target v1.Descriptor, store string) error {
+// writeResult reports a build, push or publish. The optional result file is
+// always compact JSON for tooling; stdout follows format and describes the
+// outcome with action (for example "Pushed image").
+func writeResult(stdout io.Writer, format, action, file, ref string, target v1.Descriptor, store string) error {
 	result := struct {
 		Reference string `json:"reference"`
 		Digest    string `json:"digest"`
@@ -215,17 +219,26 @@ func writeResult(stdout io.Writer, file, ref string, target v1.Descriptor, store
 		Size      int64  `json:"size"`
 		Store     string `json:"store,omitempty"`
 	}{ref, target.Digest.String(), target.MediaType, target.Size, store}
-	b, err := json.Marshal(result)
-	if err != nil {
-		return err
-	}
 	if file != "" {
+		b, err := json.Marshal(result)
+		if err != nil {
+			return err
+		}
 		if err = os.WriteFile(file, append(b, '\n'), 0644); err != nil {
 			return err
 		}
 	}
-	_, err = fmt.Fprintln(stdout, string(b))
-	return err
+	if format == outputJSON {
+		return writeJSON(stdout, result)
+	}
+	if _, err := fmt.Fprintf(stdout, "%s %s\n", action, ref); err != nil {
+		return err
+	}
+	return writeFields(stdout, "  ",
+		field{"Digest", result.Digest},
+		field{"Media type", result.MediaType},
+		field{"Size", humanSize(result.Size)},
+		field{"Store", store})
 }
 
 // withStore runs fn against an explicit layout, or a temporary one removed afterwards.
@@ -241,12 +254,12 @@ func withStore(dir string, fn func(artifact.Store) error) error {
 	return fn(artifact.Store{Dir: temp})
 }
 
-func publish(ctx context.Context, stdout io.Writer, reg *registryFlags, store artifact.Store, explicitStore bool, ref, resultFile string, target v1.Descriptor) error {
+func publish(ctx context.Context, stdout io.Writer, reg *registryFlags, store artifact.Store, explicitStore bool, noun, format, ref, resultFile string, target v1.Descriptor) error {
 	if explicitStore {
 		if e := store.WriteIndex(target, ref); e != nil {
 			return e
 		}
-		return writeResult(stdout, resultFile, ref, target, store.Dir)
+		return writeResult(stdout, format, "Wrote "+noun, resultFile, ref, target, store.Dir)
 	}
 	r, e := reg.registry(ref)
 	if e != nil {
@@ -255,7 +268,7 @@ func publish(ctx context.Context, stdout io.Writer, reg *registryFlags, store ar
 	if e = r.Push(ctx, store, target); e != nil {
 		return e
 	}
-	return writeResult(stdout, resultFile, ref, target, "")
+	return writeResult(stdout, format, "Published "+noun, resultFile, ref, target, "")
 }
 
 const buildSynopsis = `Usage: brewlet build REF --platform OS/ARCH[/VARIANT]... --launch launch.json --layer ROLE=DIR:/app/PATH... [flags]
@@ -288,10 +301,14 @@ func runBuild(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 	launchFile := fs.String("launch", "", "author-written launch.json (required)")
 	storeDir := fs.String("store", "", "output OCI layout (default .brewlet/images/<REF>)")
 	resultFile := fs.String("result", "", "also write the JSON result {reference,digest,mediaType,size,store} to FILE")
+	output := addOutputFlag(fs)
 	trustOpts := addTrustFlags(fs)
 	reg := addRegistryFlags(fs)
 	ref, err := parseRefCommand(fs, args)
 	if err != nil {
+		return err
+	}
+	if err = checkTextOutput("build", *output); err != nil {
 		return err
 	}
 	if err = reg.validate(); err != nil {
@@ -353,7 +370,7 @@ func runBuild(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 	if err = store.WriteIndex(target, ref); err != nil {
 		return err
 	}
-	return writeResult(stdout, *resultFile, ref, target, store.Dir)
+	return writeResult(stdout, *output, "Built image", *resultFile, ref, target, store.Dir)
 }
 
 const pushSynopsis = `Usage: brewlet push REF [--store DIR] [--source REF_OR_DIGEST] [flags]
@@ -384,9 +401,13 @@ func runPush(ctx context.Context, args []string, stdout, stderr io.Writer) error
 	storeDir := fs.String("store", "", "source OCI layout (default .brewlet/images/<REF>)")
 	sourceRef := fs.String("source", "", "image in the layout: reference name or sha256 digest")
 	resultFile := fs.String("push-result", "", "also write the JSON result {reference,digest,mediaType,size} to FILE")
+	output := addOutputFlag(fs)
 	reg := addRegistryFlags(fs)
 	ref, err := parseRefCommand(fs, args)
 	if err != nil {
+		return err
+	}
+	if err = checkTextOutput("push", *output); err != nil {
 		return err
 	}
 	if err = reg.validate(); err != nil {
@@ -419,7 +440,7 @@ func runPush(ctx context.Context, args []string, stdout, stderr io.Writer) error
 	if err = r.Push(ctx, store, target); err != nil {
 		return err
 	}
-	return writeResult(stdout, *resultFile, ref, target, "")
+	return writeResult(stdout, *output, "Pushed image", *resultFile, ref, target, "")
 }
 
 const layerSetSynopsis = `Usage: brewlet layer-set REF --config CONFIG.json --layer dependency=DIR:/app/PATH... [flags]
@@ -443,10 +464,14 @@ func runLayerSet(ctx context.Context, args []string, stdout, stderr io.Writer) e
 	builderIdentity := fs.String("builder-identity", "", "identity bound into the provenance (requires --signing-key)")
 	storeDir := fs.String("store", "", "write to this local OCI layout instead of publishing")
 	resultFile := fs.String("push-result", "", "also write the JSON result {reference,digest,mediaType,size} to FILE")
+	output := addOutputFlag(fs)
 	trustOpts := addTrustFlags(fs)
 	reg := addRegistryFlags(fs)
 	ref, err := parseRefCommand(fs, args)
 	if err != nil {
+		return err
+	}
+	if err = checkTextOutput("layer-set", *output); err != nil {
 		return err
 	}
 	if err = reg.validate(); err != nil {
@@ -509,7 +534,7 @@ func runLayerSet(ctx context.Context, args []string, stdout, stderr io.Writer) e
 		if e != nil {
 			return e
 		}
-		return publish(ctx, stdout, reg, store, *storeDir != "", ref, *resultFile, target)
+		return publish(ctx, stdout, reg, store, *storeDir != "", "layer set", *output, ref, *resultFile, target)
 	})
 }
 
@@ -526,9 +551,13 @@ func runIndex(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 	fs.Var(&manifests, "manifest", "OCI manifest descriptor JSON file with an explicit platform (repeatable)")
 	storeDir := fs.String("store", "", "local OCI layout holding the manifests; the index is written there")
 	resultFile := fs.String("push-result", "", "also write the JSON result {reference,digest,mediaType,size} to FILE")
+	output := addOutputFlag(fs)
 	reg := addRegistryFlags(fs)
 	ref, err := parseRefCommand(fs, args)
 	if err != nil {
+		return err
+	}
+	if err = checkTextOutput("index", *output); err != nil {
 		return err
 	}
 	if err = reg.validate(); err != nil {
@@ -539,7 +568,7 @@ func runIndex(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 		if e != nil {
 			return e
 		}
-		return publish(ctx, stdout, reg, store, *storeDir != "", ref, *resultFile, target)
+		return publish(ctx, stdout, reg, store, *storeDir != "", "index", *output, ref, *resultFile, target)
 	})
 }
 
@@ -555,10 +584,14 @@ func runInspect(ctx context.Context, args []string, stdout, stderr io.Writer) er
 	var platforms repeated
 	fs.Var(&platforms, "platform", "show only this OS/ARCH[/VARIANT]")
 	storeDir := fs.String("store", "", "local OCI layout to read REF from")
+	output := addOutputFlag(fs)
 	trustOpts := addTrustFlags(fs)
 	reg := addRegistryFlags(fs)
 	ref, err := parseRefCommand(fs, args)
 	if err != nil {
+		return err
+	}
+	if err = checkTextOutput("inspect", *output); err != nil {
 		return err
 	}
 	if err = reg.validate(); err != nil {
@@ -601,11 +634,10 @@ func runInspect(ctx context.Context, args []string, stdout, stderr io.Writer) er
 			}
 		}
 	}
-	return inspectTarget(ctx, stdout, store, target, platforms, trust)
+	return inspectTarget(ctx, stdout, *output, store, target, platforms, trust)
 }
 
-func inspectTarget(ctx context.Context, stdout io.Writer, store artifact.Store, target v1.Descriptor, platforms []string, trust artifact.LayerSetTrust) error {
-	out := json.NewEncoder(stdout)
+func inspectTarget(ctx context.Context, stdout io.Writer, format string, store artifact.Store, target v1.Descriptor, platforms []string, trust artifact.LayerSetTrust) error {
 	if target.MediaType == v1.MediaTypeImageManifest {
 		b, e := store.Read(target)
 		if e != nil {
@@ -632,13 +664,7 @@ func inspectTarget(ctx context.Context, stdout io.Writer, store artifact.Store, 
 					}
 				}
 			}
-			return out.Encode(struct {
-				Digest   string                    `json:"digest"`
-				Config   json.RawMessage           `json:"layerSet"`
-				Lock     json.RawMessage           `json:"lock,omitempty"`
-				Layers   []artifact.BuiltLayer     `json:"layers"`
-				Evidence artifact.LayerSetEvidence `json:"evidence"`
-			}{target.Digest.String(), config, lock, layers, evidence})
+			return renderLayerSet(stdout, format, layerSetInspection{target.Digest.String(), config, lock, layers, evidence})
 		}
 	}
 	if len(platforms) == 0 {
@@ -668,11 +694,6 @@ func inspectTarget(ctx context.Context, stdout io.Writer, store artifact.Store, 
 			target.Platform = &image.Platform
 			entries = []v1.Descriptor{target}
 		}
-		type platformInspection struct {
-			Platform *v1.Platform    `json:"platform"`
-			Launch   json.RawMessage `json:"launch"`
-			Layers   []v1.Descriptor `json:"layers"`
-		}
 		var output []platformInspection
 		for _, entry := range entries {
 			if entry.Platform == nil {
@@ -684,10 +705,7 @@ func inspectTarget(ctx context.Context, stdout io.Writer, store artifact.Store, 
 			}
 			output = append(output, platformInspection{entry.Platform, r.LaunchJSON, r.Manifest.Layers})
 		}
-		return out.Encode(struct {
-			Digest    string               `json:"digest"`
-			Platforms []platformInspection `json:"platforms"`
-		}{target.Digest.String(), output})
+		return renderImage(stdout, format, target.Digest.String(), output)
 	}
 	p, e := artifact.ParsePlatform(platforms[0])
 	if e != nil {
@@ -697,9 +715,5 @@ func inspectTarget(ctx context.Context, stdout io.Writer, store artifact.Store, 
 	if e != nil {
 		return e
 	}
-	return out.Encode(struct {
-		Digest string          `json:"digest"`
-		Launch json.RawMessage `json:"launch"`
-		Layers []v1.Descriptor `json:"layers"`
-	}{target.Digest.String(), json.RawMessage(resolved.LaunchJSON), resolved.Manifest.Layers})
+	return renderPlatform(stdout, format, platformDetail{target.Digest.String(), json.RawMessage(resolved.LaunchJSON), resolved.Manifest.Layers}, &resolved.Image.Platform)
 }

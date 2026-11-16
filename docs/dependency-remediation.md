@@ -31,7 +31,7 @@ Capture a read-only inventory for an explicit scope:
 ```sh
 brewlet inventory --kubeconfig "$KUBECONFIG" --context production \
   --namespace payments --namespace orders \
-  --policy release-policy.yaml --output before.json
+  --policy release-policy.yaml --report before.json
 ```
 
 Check the report before you use it:
@@ -143,7 +143,7 @@ Capture inventory again with the same scope:
 ```sh
 brewlet inventory --kubeconfig "$KUBECONFIG" --context production \
   --namespace payments --namespace orders \
-  --policy release-policy.yaml --output after.json
+  --policy release-policy.yaml --report after.json
 ```
 
 Remediation is complete only when every affected container in `after.json` is

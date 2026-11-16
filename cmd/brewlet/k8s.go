@@ -216,9 +216,7 @@ func k8sCheckOutput(name, output string, allowed ...string) error {
 // k8sEncode writes v as indented JSON or YAML.
 func k8sEncode(w io.Writer, format string, v any) error {
 	if format == "json" {
-		enc := json.NewEncoder(w)
-		enc.SetIndent("", "  ")
-		return enc.Encode(v)
+		return writeJSON(w, v)
 	}
 	b, err := yaml.Marshal(v)
 	if err != nil {

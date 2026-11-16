@@ -369,7 +369,7 @@ brewlet inventory \
   --kubeconfig /path/to/kubeconfig \
   --context "$(kubectl config current-context)" \
   --namespace payments --policy inventory-policy.yaml \
-  --output inventory.json
+  --report inventory.json
 ```
 
 Inventory observes and exports facts; it does not scan CVEs or mutate

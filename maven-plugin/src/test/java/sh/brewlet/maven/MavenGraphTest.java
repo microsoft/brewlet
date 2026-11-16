@@ -194,7 +194,7 @@ class MavenGraphTest {
         assertFalse(config.has("sourceBom"));
         var trust = new LayerSets.Trust(List.of("/key one.pem", "/key two.pem"), "builder identity", true);
         var inspect = LayerSets.inspectCommand("/cli path", "registry.test/repo:tag", trust);
-        assertEquals(List.of("/cli path", "inspect", "registry.test/repo:tag",
+        assertEquals(List.of("/cli path", "inspect", "registry.test/repo:tag", "-o", "json",
                 "--trust-key", "/key one.pem", "--trust-key", "/key two.pem",
                 "--signer-identity", "builder identity", "--require-provenance"), inspect);
         var publish = LayerSets.publishCommand("/cli path", "registry.test/repo:tag",
