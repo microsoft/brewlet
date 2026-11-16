@@ -9,7 +9,8 @@ CRD or hot replacement of libraries.
 This page covers the producer and release steps defined in
 [specification §16](../specs/SPECIFICATION.md#16-managed-dependency-composition).
 See [Verification and limitations](verification.md) for the runtimes and
-platforms that have been qualified.
+platforms that have been qualified. For a hands-on walkthrough on a local
+cluster, see [update a managed dependency](update-managed-dependency.md).
 
 ## Platform: publish the complete dependency closure
 
