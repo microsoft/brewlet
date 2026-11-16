@@ -198,23 +198,27 @@ kubectl wait runtimeimage/python --for=jsonpath='{.status.generation}'=2 --timeo
 kubectl wait runtimeimage/python --for=condition=RotationComplete --timeout=5m
 kubectl wait runtimeimage/python --for=condition=OldGenerationTasks=true --timeout=2m
 brewlet k8s runtime status python
+```
+
+The RuntimeImage is now at generation 2, but the running Pod still answers with
+Python 3.11.2:
+
+```sh
+# tutorial-step: old-pod
 docker exec brewlet-control-plane curl -s "http://$SERVICE_IP:8000/"
 ```
 
-The RuntimeImage is at generation 2, but the running Pod still answers with
-Python 3.11.2. Brewlet never swaps the runtime under a running process.
-
-Restart the Deployment. The replacement Pod uses the new runtime, with the same
+Now restart the Deployment. The replacement Pod uses the new runtime, with the same
 application image. Waiting for `OldGenerationTasks=false` ensures the old Pod
 has stopped before you call the Service:
 
 ```sh
 # tutorial-step: replacement
+brewlet k8s runtime status python
 kubectl rollout restart deployment/hello
 kubectl rollout status deployment/hello --timeout=5m
 kubectl wait runtimeimage/python --for=condition=OldGenerationTasks=false --timeout=2m
 docker exec brewlet-control-plane curl -s --retry 5 --retry-connrefused "http://$SERVICE_IP:8000/"
-brewlet k8s runtime status python
 ```
 
 The replacement Pod answers with Python 3.13.5. No Pod uses generation 1
