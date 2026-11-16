@@ -46,6 +46,13 @@ nav:
   - Try:
       - First local deployment: local-kubernetes.md
       - Guided demonstration: demo.md
+  - Enable infrastructure:
+      - Installation: installation.md
+      - Configuration: configuration.md
+      - Runtime images and pools: runtime-images.md
+      - Restrict runtime images by namespace: runtime-image-namespaces.md
+      - Providers and fencing: providers.md
+      - Multi-architecture fleets: multi-arch.md
   - Ship applications:
       - Package and deploy: applications.md
       - Workload guides:
@@ -61,13 +68,6 @@ nav:
       - Governed composition and external scanning: managed-composition.md
       - Resources and lifecycle: resources.md
       - Instrumentation: instrumentation.md
-  - Enable infrastructure:
-      - Installation: installation.md
-      - Configuration: configuration.md
-      - Runtime images and pools: runtime-images.md
-      - Restrict runtime images by namespace: runtime-image-namespaces.md
-      - Providers and fencing: providers.md
-      - Multi-architecture fleets: multi-arch.md
   - Operate:
       - Runtime dashboard: dashboard.md
       - Rotation and cleanup: operations.md
