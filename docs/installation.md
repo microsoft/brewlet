@@ -53,20 +53,24 @@ helm show crds oci://ghcr.io/microsoft/charts/brewlet | kubectl apply -f -
 helm upgrade --install brewlet \
   oci://ghcr.io/microsoft/charts/brewlet \
   --namespace brewlet --create-namespace \
+  --set dashboard.enabled=true \
   --wait --timeout 5m
 ```
 
-The chart installs the operator, admission webhook and `brewlet` RuntimeClass,
-using the component images of the same release. By default it provisions no
-node pool. To customize the installation, pass a values file with
-`--values values.yaml`; see [configuration](configuration.md).
+This command installs the operator, admission webhook, dashboard and `brewlet`
+RuntimeClass, using the component images of the same release. By default it
+provisions no node pool. To customize the installation, pass a values file
+with `--values values.yaml`; see [configuration](configuration.md).
 
-### Optional cluster dashboard
+### Cluster dashboard
 
-The chart's optional `dashboard.enabled=true` component installs a ClusterIP
-dashboard for platform teams. It uses each operator's Kubernetes bearer token,
-not a privileged shared pod identity. Use a release that includes the dashboard;
-its published chart contains the matching digest-pinned image. See
+The command above enables the ClusterIP dashboard for platform teams. If you
+do not want to install the dashboard, replace `--set dashboard.enabled=true`
+with `--set dashboard.enabled=false`.
+
+The dashboard uses each operator's Kubernetes bearer token, not a privileged
+shared pod identity. The published chart contains the matching digest-pinned image.
+See
 [dashboard installation and RBAC](dashboard.md#install-on-the-cluster) for
 Helm installation, port-forward, HTTPS ingress and access instructions.
 

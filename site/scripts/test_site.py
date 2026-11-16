@@ -29,6 +29,22 @@ class SiteTests(unittest.TestCase):
                     file=SimpleNamespace(abs_src_path=str(ROOT / "docs/index.md"))),
                     {"docs_dir": str(ROOT / "docs")}, None)
 
+    def test_specification_links_use_the_rendered_page(self):
+        from types import SimpleNamespace
+        docs = {"docs_dir": str(ROOT / "docs")}
+        guide = HOOKS.on_page_markdown("[§16](../specs/SPECIFICATION.md#part-ii--composition)",
+            SimpleNamespace(file=SimpleNamespace(abs_src_path=str(ROOT / "docs/index.md"),
+                                                 src_uri="index.md")), docs, None)
+        self.assertEqual(guide, "[§16](specification.md#part-ii-composition)")
+        page = SimpleNamespace(file=SimpleNamespace(abs_src_path=str(HOOKS.SPECIFICATION),
+                                                    src_uri=HOOKS.SPECIFICATION_PAGE))
+        specification = HOOKS.on_page_markdown(
+            "[Part I](#part-i--runtime) [guide](../docs/java.md#build) "
+            "[ledger](../release.json) `[a-z]([-a-z]*)`", page, docs, None)
+        self.assertEqual(specification, "[Part I](#part-i-runtime) [guide](java.md#build) "
+                         f"[ledger]({HOOKS.SOURCE}release.json) `[a-z]([-a-z]*)`")
+        self.assertEqual(page.edit_url, f"{HOOKS.EDIT}specs/SPECIFICATION.md")
+
     def test_site_is_assembly_not_production_deployment(self):
         source = (ROOT / "site/scripts/build.py").read_text()
         self.assertIn('"--strict"', source)
