@@ -174,7 +174,7 @@ Define a function so that you can publish release 2 the same way later:
 
 ```sh
 publish_bundle() {
-  mvn -B -q -f "bundle-release-$1/pom.xml" sh.brewlet:brewlet-maven-plugin:0.9.2:layer-set \
+  mvn -B -q -f "bundle-release-$1/pom.xml" sh.brewlet:brewlet-maven-plugin:0.10.0:layer-set \
     -Dbrewlet.sourceBom="sh.brewlet.examples:log4j-bundle:$1.0.0" \
     -Dbrewlet.layerSet="example.invalid/platform/log4j-bundle:$1.0.0" \
     -Dbrewlet.store="$DEMO/bundle-$1-set" \
@@ -193,7 +193,7 @@ The JARs land in `/app/lib`, and the set is signed with the publisher key.
 As the application team, build the application into an app-only image:
 
 ```sh
-mvn -B -q -f app/pom.xml package sh.brewlet:brewlet-maven-plugin:0.9.2:push \
+mvn -B -q -f app/pom.xml package sh.brewlet:brewlet-maven-plugin:0.10.0:push \
   -Dbrewlet.applicationOnly=true \
   -Dbrewlet.sourceBom=sh.brewlet.examples:log4j-bundle:1.0.0 \
   -Dbrewlet.image=example.invalid/brewlet/log4j-demo:app \
