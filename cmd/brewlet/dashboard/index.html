@@ -48,6 +48,11 @@ FORM: KubeRay-inspired resource lists and drill-downs, adapted to Brewlet's Runt
             <div id="sign-in-error" class="error-message" role="alert" hidden></div>
             <button id="sign-in" type="submit" class="primary">Sign in</button>
           </form>
+          <h3>Get a bearer token with kubectl</h3>
+          <p>With kubectl connected to this cluster, request a short-lived token for an administrator-provisioned reader account:</p>
+          <pre><code>kubectl -n brewlet create token runtime-reader --duration=15m</code></pre>
+          <p>Replace <code>brewlet</code> and <code>runtime-reader</code> with your namespace and ServiceAccount. The account needs dashboard read permissions, and you need permission to create its token. See <a href="https://brewlet.sh/docs/dashboard/#sign-in-and-kubernetes-rbac" target="_blank" rel="noreferrer">reader account setup and RBAC</a>.</p>
+          <p>Paste the output into the field above. Actions are attributed to the ServiceAccount, not your personal identity.</p>
         </section>
         <section id="summary" class="summary" aria-label="Inventory summary"></section>
         <section class="resource-ledger" aria-label="Cluster resources" aria-busy="true">
