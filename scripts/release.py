@@ -421,7 +421,7 @@ def smoke_cli(output, target, config):
         binary = Path(temp) / "brewlet"
         binary.write_bytes(data["brewlet"][0])
         binary.chmod(0o755)
-        require(json.loads(run([binary, "version"])) ==
+        require(json.loads(run([binary, "version", "-o", "json"])) ==
                 {"version": config["version"], "commit": document["candidate"]["checkout"], "platform": target},
                 "native CLI build identity mismatch")
     return document, name

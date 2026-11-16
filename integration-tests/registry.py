@@ -110,7 +110,7 @@ def main():
                 data = fetch(base + "/fixtures/python/blobs/" + blob_descriptor["digest"])
                 assert len(data) == blob_descriptor["size"]
                 assert "sha256:" + hashlib.sha256(data).hexdigest() == blob_descriptor["digest"]
-        output = command([executable, "inspect", reference, "--insecure", "--platform", "linux/amd64"],
+        output = command([executable, "inspect", reference, "--insecure", "--platform", "linux/amd64", "-o", "json"],
                          env=environment)
         assert "python3" in output and "launch" in output
         private_key = work / "test-signing-key.pem"
@@ -139,12 +139,12 @@ def main():
             executable, "layer-set", layer_set_reference, "--insecure",
             "--config", config_file, "--lock", lock_file,
             "--layer", f"dependency={fixture / 'dependencies'}:/app/dependencies",
-            "--signing-key", private_key, "--builder-identity", identity,
+            "--signing-key", private_key, "--builder-identity", identity, "-o", "json",
         ], env=environment))
         pinned_set = layer_set_reference.rsplit(":", 1)[0] + "@" + published["digest"]
         trust = ["--trust-key", public_key, "--signer-identity", identity, "--require-provenance"]
         inspected = json.loads(command([
-            executable, "inspect", pinned_set, "--insecure", *trust,
+            executable, "inspect", pinned_set, "--insecure", *trust, "-o", "json",
         ], env=environment))
         assert inspected["evidence"]["attestationDigest"]
         assert inspected["evidence"]["sbomDigest"]

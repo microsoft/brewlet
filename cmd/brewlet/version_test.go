@@ -8,19 +8,34 @@ import (
 )
 
 func TestVersion(t *testing.T) {
-	var out bytes.Buffer
-	if err := writeVersion(&out, nil); err != nil {
+	platform := runtime.GOOS + "/" + runtime.GOARCH
+
+	// A non-terminal writer still gets text: JSON is never inferred.
+	var text bytes.Buffer
+	if err := writeVersion(&text, nil); err != nil {
 		t.Fatal(err)
 	}
-	var value map[string]string
-	if err := json.Unmarshal(out.Bytes(), &value); err != nil {
-		t.Fatal(err)
+	if want := "brewlet " + version + " (commit " + commit + ", " + platform + ")\n"; text.String() != want {
+		t.Fatalf("version text = %q, want %q", text.String(), want)
 	}
-	if len(value) != 3 || value["version"] != version || value["commit"] != commit ||
-		value["platform"] != runtime.GOOS+"/"+runtime.GOARCH {
-		t.Fatalf("wrong build identity: %s", &out)
+
+	for _, args := range [][]string{{"-o", "json"}, {"--output=json"}} {
+		var out bytes.Buffer
+		if err := writeVersion(&out, args); err != nil {
+			t.Fatal(err)
+		}
+		var value map[string]string
+		if err := json.Unmarshal(out.Bytes(), &value); err != nil {
+			t.Fatal(err)
+		}
+		if len(value) != 3 || value["version"] != version || value["commit"] != commit || value["platform"] != platform {
+			t.Fatalf("wrong build identity: %s", &out)
+		}
 	}
-	if err := writeVersion(&out, []string{"unexpected"}); err == nil {
-		t.Fatal("accepted unexpected argument")
+
+	for _, args := range [][]string{{"unexpected"}, {"-o", "yaml"}} {
+		if err := writeVersion(&bytes.Buffer{}, args); err == nil {
+			t.Fatalf("accepted %q", args)
+		}
 	}
 }

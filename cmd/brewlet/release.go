@@ -156,8 +156,12 @@ func runRelease(ctx context.Context, command string, args []string, stdout io.Wr
 	authFile := fs.String("registry-auth", "", "JSON credentials keyed by exact scheme://host[:port]")
 	insecure := fs.Bool("insecure", false, "explicitly allow HTTP registries")
 	scheme := fs.String("registry-scheme", "", "explicit https for loopback TLS")
+	output := addOutputFlag(fs)
 	ref, err := parseRefCommand(fs, args)
 	if err != nil {
+		return err
+	}
+	if err = checkTextOutput(command, *output); err != nil {
 		return err
 	}
 	if *policyFile == "" || len(platforms) != 1 {
@@ -199,7 +203,11 @@ func runRelease(ctx context.Context, command string, args []string, stdout io.Wr
 		if err != nil {
 			return err
 		}
-		return json.NewEncoder(stdout).Encode(result)
+		if *output == outputJSON {
+			return writeJSON(stdout, result)
+		}
+		fmt.Fprintf(stdout, "Verified release bundle %s\n", ref)
+		return writeVerification(stdout, "  ", result)
 	}
 	application, err := pinnedReleaseInput(ctx, store, applications[0], registries)
 	if err != nil {
@@ -267,8 +275,42 @@ func runRelease(ctx context.Context, command string, args []string, stdout io.Wr
 			return err
 		}
 	}
-	_, err = stdout.Write(data)
-	return err
+	if *output == outputJSON {
+		return writeJSON(stdout, result)
+	}
+	fmt.Fprintf(stdout, "Bundled release %s\n", ref)
+	if err = writeFields(stdout, "  ",
+		field{"Digest", result.Digest.String()},
+		field{"Media type", result.MediaType},
+		field{"Size", humanSize(result.Size)}); err != nil {
+		return err
+	}
+	fmt.Fprintln(stdout, "\nVerification:")
+	return writeVerification(stdout, "  ", result.Verification)
+}
+
+// writeVerification prints the distinct verification checks and the inputs
+// they bind, so "not verified" is never mistaken for "verified".
+func writeVerification(w io.Writer, indent string, v artifact.CompositionInspection) error {
+	verified := func(ok bool) string {
+		if ok {
+			return "verified"
+		}
+		return "not verified"
+	}
+	p := v.Predicate
+	return writeFields(w, indent,
+		field{"Structure", verified(v.Structural)},
+		field{"Publisher provenance", verified(v.PublisherProvenance)},
+		field{"Composition signature", verified(v.CompositionSignature)},
+		field{"Test release approval", v.TestReleaseApproval},
+		field{"Policy mode", v.PolicyMode},
+		field{"Platform", platformLabel(&p.Platform)},
+		field{"Builder identity", p.BuilderIdentity},
+		field{"Output", p.Output.String()},
+		field{"Application", p.ApplicationRoot.Digest.String()},
+		field{"Dependency set", p.DependencySet.Digest.String()},
+		field{"Attestation", v.Attestation.Digest.String()})
 }
 
 func loadReleaseRegistries(authFile string, insecure, https bool) (releaseRegistryOptions, error) {
