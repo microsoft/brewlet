@@ -85,4 +85,4 @@ nav:
       - CLI reference: cli-reference.md
       - Third-party notices: third-party-notices.md
       - Specification: specification.md
-      - Source code: https://github.com/microsoft/brewlet/tree/main
+      - Source code: source-code.md
