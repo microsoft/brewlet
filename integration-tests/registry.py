@@ -116,7 +116,7 @@ def main():
         private_key = work / "test-signing-key.pem"
         public_key = work / "test-signing-public.pem"
         command(["openssl", "genpkey", "-algorithm", "EC", "-pkeyopt",
-                 "ec_paramgen_curve:P-256", "-out", private_key])
+                 "ec_paramgen_curve:P-256", "-pkeyopt", "ec_param_enc:named_curve", "-out", private_key])
         command(["openssl", "pkey", "-in", private_key, "-pubout", "-out", public_key])
         config_file = work / "layer-set-config.json"
         lock_file = work / "layer-set-lock.json"
@@ -151,7 +151,7 @@ def main():
         wrong_key = work / "untrusted-private.pem"
         wrong_public = work / "untrusted-public.pem"
         command(["openssl", "genpkey", "-algorithm", "EC", "-pkeyopt",
-                 "ec_paramgen_curve:P-256", "-out", wrong_key])
+                 "ec_paramgen_curve:P-256", "-pkeyopt", "ec_param_enc:named_curve", "-out", wrong_key])
         command(["openssl", "pkey", "-in", wrong_key, "-pubout", "-out", wrong_public])
         untrusted = subprocess.run([
             str(executable), "inspect", pinned_set, "--insecure", "--trust-key", str(wrong_public),

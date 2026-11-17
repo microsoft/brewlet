@@ -132,7 +132,8 @@ that each signature must match:
 
 ```sh
 for key in publisher composer; do
-  openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out "$DEMO/$key.key"
+  openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 \
+    -pkeyopt ec_param_enc:named_curve -out "$DEMO/$key.key"
   chmod 600 "$DEMO/$key.key"
   openssl pkey -in "$DEMO/$key.key" -pubout -out "$DEMO/$key.pub"
 done

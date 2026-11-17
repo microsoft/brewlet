@@ -96,7 +96,7 @@ def create_release_policy(h):
     for role in ("publisher", "composer"):
         key, public = (h.work / (role + suffix) for suffix in (".key", ".pub"))
         h.run(["openssl", "genpkey", "-algorithm", "EC", "-pkeyopt",
-               "ec_paramgen_curve:P-256", "-out", key])
+               "ec_paramgen_curve:P-256", "-pkeyopt", "ec_param_enc:named_curve", "-out", key])
         os.chmod(key, 0o600)
         h.run(["openssl", "pkey", "-in", key, "-pubout", "-out", public])
         authority[role] = {"identity": "https://ci.brewlet.test/" + role,
