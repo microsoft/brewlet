@@ -32,6 +32,8 @@ type RestartEngine struct {
 	Leadership               *RestartLeadership
 	// Namespaces limits restart candidates; empty means cluster-wide.
 	Namespaces []string
+	// ArgoRollouts is set when the Rollout CRD is discoverable at startup.
+	ArgoRollouts bool
 }
 
 func (e *RestartEngine) now() time.Time {
@@ -162,7 +164,7 @@ func (e *RestartEngine) Reconcile(ctx context.Context, im *api.RuntimeImage) err
 		return nil
 	}
 	allowPatches := meta.IsStatusConditionTrue(im.Status.Conditions, "RotationComplete")
-	workloads, err := listRestartWorkloads(ctx, e.Reader, e.Namespaces)
+	workloads, err := listRestartWorkloads(ctx, e.Reader, e.Namespaces, e.ArgoRollouts)
 	if err != nil {
 		return err
 	}

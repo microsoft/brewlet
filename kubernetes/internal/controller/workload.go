@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -11,10 +12,21 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
+
+var argoRolloutGVK = schema.GroupVersionKind{Group: "argoproj.io", Version: "v1alpha1", Kind: "Rollout"}
+
+func newArgoRollout() *unstructured.Unstructured {
+	o := &unstructured.Unstructured{}
+	o.SetGroupVersionKind(argoRolloutGVK)
+	return o
+}
 
 type restartWorkload struct {
 	kind          string
@@ -73,15 +85,63 @@ func describeWorkload(obj client.Object) (restartWorkload, error) {
 		w.onDelete = o.Spec.UpdateStrategy.Type == appsv1.OnDeleteDaemonSetStrategyType
 		want := o.Status.DesiredNumberScheduled
 		w.complete = o.Status.ObservedGeneration >= o.Generation && o.Status.UpdatedNumberScheduled == want && o.Status.NumberAvailable == want && o.Status.NumberReady == want && o.Status.NumberUnavailable == 0
+	case *unstructured.Unstructured:
+		return describeArgoRollout(o)
 	default:
 		return w, fmt.Errorf("unsupported restart workload %T", obj)
 	}
 	return w, nil
 }
 
+func describeArgoRollout(o *unstructured.Unstructured) (restartWorkload, error) {
+	w := restartWorkload{kind: "Rollout", object: o}
+	if o.GroupVersionKind() != argoRolloutGVK {
+		return w, fmt.Errorf("unsupported restart workload %s", o.GroupVersionKind())
+	}
+	template, found, err := unstructured.NestedMap(o.Object, "spec", "template")
+	if err != nil || !found {
+		return w, fmt.Errorf("Argo Rollout must define spec.template; workloadRef is not supported")
+	}
+	podTemplate := new(corev1.PodTemplateSpec)
+	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(template, podTemplate); err != nil {
+		return w, fmt.Errorf("decode Argo Rollout spec.template: %w", err)
+	}
+	w.template = podTemplate
+	selector, found, err := unstructured.NestedMap(o.Object, "spec", "selector")
+	if err != nil || !found {
+		return w, fmt.Errorf("Argo Rollout must define spec.selector")
+	}
+	w.selector = new(metav1.LabelSelector)
+	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(selector, w.selector); err != nil {
+		return w, fmt.Errorf("decode Argo Rollout spec.selector: %w", err)
+	}
+
+	if paused, _, _ := unstructured.NestedBool(o.Object, "spec", "paused"); paused {
+		w.deferred = "Argo Rollout is paused; resume it to replace old-generation pods"
+	}
+	if phase, _, _ := unstructured.NestedString(o.Object, "status", "phase"); phase == "Paused" {
+		w.deferred = "Argo Rollout is paused at a strategy step; resume it to replace old-generation pods"
+	}
+	if conditions, found, _ := unstructured.NestedSlice(o.Object, "status", "pauseConditions"); found && len(conditions) > 0 {
+		w.deferred = "Argo Rollout is paused at a strategy step; resume it to replace old-generation pods"
+	}
+
+	replicas := int64(1)
+	if desired, found, err := unstructured.NestedInt64(o.Object, "spec", "replicas"); err == nil && found {
+		replicas = desired
+	}
+	observedGeneration, observed, _ := unstructured.NestedString(o.Object, "status", "observedGeneration")
+	statusReplicas, _, _ := unstructured.NestedInt64(o.Object, "status", "replicas")
+	updatedReplicas, _, _ := unstructured.NestedInt64(o.Object, "status", "updatedReplicas")
+	availableReplicas, _, _ := unstructured.NestedInt64(o.Object, "status", "availableReplicas")
+	w.complete = observed && observedGeneration == strconv.FormatInt(o.GetGeneration(), 10) &&
+		statusReplicas == replicas && updatedReplicas == replicas && availableReplicas == replicas
+	return w, nil
+}
+
 // listRestartWorkloads lists candidate workloads cluster-wide, or only in the
 // configured namespaces when restarts are namespace-scoped (§7.6 Enablement).
-func listRestartWorkloads(ctx context.Context, r client.Reader, namespaces []string) ([]restartWorkload, error) {
+func listRestartWorkloads(ctx context.Context, r client.Reader, namespaces []string, argoRollouts bool) ([]restartWorkload, error) {
 	scopes := [][]client.ListOption{nil}
 	if len(namespaces) > 0 {
 		scopes = nil
@@ -115,6 +175,21 @@ func listRestartWorkloads(ctx context.Context, r client.Reader, namespaces []str
 			w, _ := describeWorkload(daemonsets.Items[i].DeepCopy())
 			out = append(out, w)
 		}
+		if argoRollouts {
+			var rollouts unstructured.UnstructuredList
+			rollouts.SetGroupVersionKind(argoRolloutGVK.GroupVersion().WithKind("RolloutList"))
+			if err := r.List(ctx, &rollouts, opts...); err != nil {
+				return nil, err
+			}
+			for i := range rollouts.Items {
+				rollouts.Items[i].SetGroupVersionKind(argoRolloutGVK)
+				w, err := describeWorkload(rollouts.Items[i].DeepCopy())
+				if err != nil {
+					continue
+				}
+				out = append(out, w)
+			}
+		}
 	}
 	return out, nil
 }
@@ -146,6 +221,8 @@ func refreshWorkload(ctx context.Context, r client.Reader, w restartWorkload) (r
 		o = new(appsv1.StatefulSet)
 	case "DaemonSet":
 		o = new(appsv1.DaemonSet)
+	case "Rollout":
+		o = newArgoRollout()
 	default:
 		return w, fmt.Errorf("unsupported kind")
 	}
@@ -158,8 +235,8 @@ func refreshWorkload(ctx context.Context, r client.Reader, w restartWorkload) (r
 	return describeWorkload(o)
 }
 func workloadPods(ctx context.Context, r client.Reader, w restartWorkload) ([]corev1.Pod, error) {
-	// UID-bound controller ownership, including a Deployment's ReplicaSet hop,
-	// is the authority. Label drift must not hide an old owned running pod.
+	// UID-bound controller ownership, including ReplicaSet hops, is the
+	// authority. Label drift must not hide an old owned running pod.
 	_, err := metav1.LabelSelectorAsSelector(w.selector)
 	if err != nil {
 		return nil, err
@@ -169,13 +246,13 @@ func workloadPods(ctx context.Context, r client.Reader, w restartWorkload) ([]co
 		return nil, err
 	}
 	rsUIDs := map[types.UID]bool{}
-	if w.kind == "Deployment" {
+	if w.kind == "Deployment" || w.kind == "Rollout" {
 		var replicasets appsv1.ReplicaSetList
 		if err := r.List(ctx, &replicasets, client.InNamespace(w.object.GetNamespace())); err != nil {
 			return nil, err
 		}
 		for _, rs := range replicasets.Items {
-			if owner := metav1.GetControllerOf(&rs); owner != nil && owner.UID == w.object.GetUID() && owner.Kind == "Deployment" {
+			if owner := metav1.GetControllerOf(&rs); owner != nil && owner.UID == w.object.GetUID() && owner.Kind == w.kind {
 				rsUIDs[rs.UID] = true
 			}
 		}
@@ -187,7 +264,7 @@ func workloadPods(ctx context.Context, r client.Reader, w restartWorkload) ([]co
 			continue
 		}
 		owned := owner.UID == w.object.GetUID() && owner.Kind == w.kind
-		if w.kind == "Deployment" {
+		if w.kind == "Deployment" || w.kind == "Rollout" {
 			owned = owner.Kind == "ReplicaSet" && rsUIDs[owner.UID]
 		}
 		if owned {

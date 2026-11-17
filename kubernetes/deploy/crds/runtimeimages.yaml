@@ -198,7 +198,7 @@ spec:
                         type: object
                         required: [kind, name, namespace, uid, inventoryUID, generation, phase, reason]
                         properties:
-                          kind: {type: string, enum: [Deployment, StatefulSet, DaemonSet]}
+                          kind: {type: string, enum: [Deployment, StatefulSet, DaemonSet, Rollout]}
                           name: {type: string}
                           namespace: {type: string}
                           uid: {type: string}

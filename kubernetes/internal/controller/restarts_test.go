@@ -12,6 +12,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -40,7 +41,7 @@ func restartSetup(t *testing.T) *restartFixture {
 	_ = encodeJournal(f.image, journalFor(f.image, 7))
 	c := fake.NewClientBuilder().WithScheme(s).WithStatusSubresource(&api.RuntimeImage{}, &appsv1.Deployment{}, &appsv1.StatefulSet{}, &appsv1.DaemonSet{}, &corev1.Pod{}).WithObjects(f.image).WithInterceptorFuncs(interceptor.Funcs{Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, p client.Patch, opts ...client.PatchOption) error {
 		switch obj.(type) {
-		case *appsv1.Deployment, *appsv1.StatefulSet, *appsv1.DaemonSet:
+		case *appsv1.Deployment, *appsv1.StatefulSet, *appsv1.DaemonSet, *unstructured.Unstructured:
 			f.patches++
 			data, err := p.Data(obj)
 			if err != nil {
@@ -79,6 +80,45 @@ func (f *restartFixture) deployment(t *testing.T, name string) *appsv1.Deploymen
 	}
 	return d
 }
+func (f *restartFixture) rollout(t *testing.T, name string) *unstructured.Unstructured {
+	t.Helper()
+	controller := true
+	rollout := newArgoRollout()
+	rollout.Object = map[string]any{
+		"apiVersion": argoRolloutGVK.GroupVersion().String(),
+		"kind":       argoRolloutGVK.Kind,
+		"metadata": map[string]any{
+			"name": name, "namespace": "apps", "uid": "rollout-" + name, "generation": int64(1),
+			"annotations": map[string]any{"brewlet.sh/restart-on-rotation": "true"},
+		},
+		"spec": map[string]any{
+			"replicas": int64(1),
+			"selector": map[string]any{"matchLabels": map[string]any{"app": name}},
+			"template": map[string]any{
+				"metadata": map[string]any{
+					"labels":      map[string]any{"app": name},
+					"annotations": map[string]any{api.RuntimeAnnotation: f.image.Name},
+				},
+				"spec": map[string]any{
+					"runtimeClassName": "brewlet",
+					"containers":       []any{map[string]any{"name": "app", "image": "registry.example.com/app@sha256:" + strings.Repeat("a", 64)}},
+				},
+			},
+		},
+	}
+	if err := f.engine.Client.Create(context.Background(), rollout); err != nil {
+		t.Fatal(err)
+	}
+	rs := &appsv1.ReplicaSet{ObjectMeta: metav1.ObjectMeta{Name: "rs-" + name, Namespace: "apps", UID: types.UID("rs-" + name), OwnerReferences: []metav1.OwnerReference{{APIVersion: argoRolloutGVK.GroupVersion().String(), Kind: "Rollout", Name: name, UID: rollout.GetUID(), Controller: &controller}}}}
+	if err := f.engine.Client.Create(context.Background(), rs); err != nil {
+		t.Fatal(err)
+	}
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "pod-" + name, Namespace: "apps", UID: types.UID("pod-" + name), OwnerReferences: []metav1.OwnerReference{{APIVersion: "apps/v1", Kind: "ReplicaSet", Name: rs.Name, UID: rs.UID, Controller: &controller}}}, Spec: corev1.PodSpec{NodeName: "node"}, Status: corev1.PodStatus{Phase: corev1.PodRunning, StartTime: timePtr(f.now.Add(-time.Hour))}}
+	if err := f.engine.Client.Create(context.Background(), pod); err != nil {
+		t.Fatal(err)
+	}
+	return rollout
+}
 func timePtr(t time.Time) *metav1.Time { v := metav1.NewTime(t); return &v }
 func (f *restartFixture) run(t *testing.T) {
 	t.Helper()
@@ -113,6 +153,36 @@ func (f *restartFixture) healthyDeployment(t *testing.T, d *appsv1.Deployment) {
 		t.Fatal(err)
 	}
 }
+func (f *restartFixture) healthyRollout(t *testing.T, rollout *unstructured.Unstructured) {
+	t.Helper()
+	ctx := context.Background()
+	if err := f.engine.Client.Get(ctx, client.ObjectKeyFromObject(rollout), rollout); err != nil {
+		t.Fatal(err)
+	}
+	for path, value := range map[string]any{
+		"observedGeneration": "1",
+		"replicas":           int64(1),
+		"updatedReplicas":    int64(1),
+		"availableReplicas":  int64(1),
+	} {
+		if err := unstructured.SetNestedField(rollout.Object, value, "status", path); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rollout.SetGeneration(2)
+	if err := f.engine.Client.Update(ctx, rollout); err != nil {
+		t.Fatal(err)
+	}
+	pod := new(corev1.Pod)
+	if err := f.engine.Client.Get(ctx, client.ObjectKey{Name: "pod-" + rollout.GetName(), Namespace: rollout.GetNamespace()}, pod); err != nil {
+		t.Fatal(err)
+	}
+	pod.Status.Phase = corev1.PodRunning
+	pod.Status.StartTime = timePtr(f.now)
+	if err := f.engine.Client.Status().Update(ctx, pod); err != nil {
+		t.Fatal(err)
+	}
+}
 func TestRestartSelectionPatchIdempotenceAndRecovery(t *testing.T) {
 	f := restartSetup(t)
 	d := f.deployment(t, "api")
@@ -142,6 +212,91 @@ func TestRestartSelectionPatchIdempotenceAndRecovery(t *testing.T) {
 		t.Fatal("completed restart repeated")
 	}
 }
+func TestRestartArgoRolloutTemplateBarrierAndCompletion(t *testing.T) {
+	f := restartSetup(t)
+	f.engine.ArgoRollouts = true
+	rollout := f.rollout(t, "api")
+	f.run(t)
+	record := f.record(t, rollout.GetUID())
+	if f.patches != 1 || record.Kind != "Rollout" || record.Phase != "Rolling" || !record.Patched {
+		t.Fatalf("Argo Rollout restart not recorded: patches=%d record=%+v", f.patches, record)
+	}
+	if err := f.engine.Client.Get(context.Background(), client.ObjectKeyFromObject(rollout), rollout); err != nil {
+		t.Fatal(err)
+	}
+	templateAnnotations, found, err := unstructured.NestedStringMap(rollout.Object, "spec", "template", "metadata", "annotations")
+	if err != nil || !found {
+		t.Fatalf("patched Rollout template annotations missing: %v", err)
+	}
+	barrier, err := barrierValue(templateAnnotations[api.BarrierAnnotation], f.image.Name, f.image.UID)
+	if err != nil || barrier.Generation != f.image.Status.Generation {
+		t.Fatalf("wrong Rollout barrier: %+v %v", barrier, err)
+	}
+
+	f.healthyRollout(t, rollout)
+	f.run(t)
+	if record := f.record(t, rollout.GetUID()); record.Phase != "Rolling" {
+		t.Fatalf("Rollout completed before observing the patched generation: %+v", record)
+	}
+	if err := f.engine.Client.Get(context.Background(), client.ObjectKeyFromObject(rollout), rollout); err != nil {
+		t.Fatal(err)
+	}
+	if err := unstructured.SetNestedField(rollout.Object, "2", "status", "observedGeneration"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.engine.Client.Update(context.Background(), rollout); err != nil {
+		t.Fatal(err)
+	}
+	f.run(t)
+	if record := f.record(t, rollout.GetUID()); record.Phase != "Complete" {
+		t.Fatalf("healthy Argo Rollout not observed as complete: %+v", record)
+	}
+	if f.patches != 1 {
+		t.Fatal("completed Argo Rollout was patched again")
+	}
+	for i := range f.image.Status.Conditions {
+		f.image.Status.Conditions[i].LastTransitionTime = metav1.NewTime(f.now)
+	}
+	assertRuntimeStatusConformsToCRD(t, f.image)
+}
+
+func TestRestartSkipsArgoWorkloadRefWithoutBlockingNativeWorkloads(t *testing.T) {
+	f := restartSetup(t)
+	f.engine.ArgoRollouts = true
+	rollout := newArgoRollout()
+	rollout.Object = map[string]any{
+		"apiVersion": argoRolloutGVK.GroupVersion().String(),
+		"kind":       argoRolloutGVK.Kind,
+		"metadata":   map[string]any{"name": "external", "namespace": "apps", "uid": "rollout-external"},
+		"spec":       map[string]any{"workloadRef": map[string]any{"apiVersion": "apps/v1", "kind": "Deployment", "name": "external"}},
+	}
+	if err := f.engine.Client.Create(context.Background(), rollout); err != nil {
+		t.Fatal(err)
+	}
+	deployment := f.deployment(t, "api")
+	f.run(t)
+	if f.record(t, deployment.UID).Phase != "Rolling" || len(f.image.Status.Restarts.Workloads) != 1 {
+		t.Fatalf("unsupported workloadRef blocked native restart: %+v", f.image.Status.Restarts.Workloads)
+	}
+}
+
+func TestRestartArgoRolloutPauseRemainsDeferred(t *testing.T) {
+	f := restartSetup(t)
+	f.engine.ArgoRollouts = true
+	rollout := f.rollout(t, "paused")
+	if err := unstructured.SetNestedField(rollout.Object, "Paused", "status", "phase"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.engine.Client.Update(context.Background(), rollout); err != nil {
+		t.Fatal(err)
+	}
+	f.run(t)
+	record := f.record(t, rollout.GetUID())
+	if f.patches != 1 || record.Phase != "Deferred" || !record.Patched || !record.NonActionable {
+		t.Fatalf("paused Argo Rollout did not remain deferred after barrier patch: patches=%d record=%+v", f.patches, record)
+	}
+}
+
 func TestRestartIgnoresNewPodsAndForeignOwnerChains(t *testing.T) {
 	f := restartSetup(t)
 	d := f.deployment(t, "new")

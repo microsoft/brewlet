@@ -38,6 +38,9 @@ rules:
   - apiGroups: [apps]
     resources: [replicasets, deployments, statefulsets]
     verbs: [get]
+  - apiGroups: [argoproj.io]
+    resources: [rollouts]
+    verbs: [get]
   - apiGroups: [batch]
     resources: [jobs]
     verbs: [get]
@@ -52,6 +55,13 @@ rules:
   - apiGroups: [apps]
     resources: [replicasets]
     verbs: [get, list, watch]
+  - apiGroups: [argoproj.io]
+    resources: [rollouts]
+{{- if .Values.operator.rotationRestarts.namespaces }}
+    verbs: [get, list, watch]
+{{- else }}
+    verbs: [get, list, watch, patch]
+{{- end }}
 {{- end }}
   - apiGroups: [""]
     resources: [events]

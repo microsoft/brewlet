@@ -16,6 +16,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -441,6 +442,14 @@ func (r *RuntimeReconciler) SetupWithManager(m ctrl.Manager) error {
 	builder := ctrl.NewControllerManagedBy(m).For(&api.RuntimeImage{}).WithOptions(runtimecontroller.Options{MaxConcurrentReconciles: 1}).Watches(&corev1.Node{}, mapAll).Watches(&api.NodeProfile{}, mapAll).Watches(&api.NodeRetirementEvidence{}, mapAll)
 	if r.Restarts != nil {
 		builder = builder.Watches(&appsv1.Deployment{}, mapAll).Watches(&appsv1.StatefulSet{}, mapAll).Watches(&appsv1.DaemonSet{}, mapAll).Watches(&corev1.Pod{}, mapAll)
+		if _, err := m.GetRESTMapper().RESTMapping(argoRolloutGVK.GroupKind(), argoRolloutGVK.Version); err == nil {
+			r.Restarts.ArgoRollouts = true
+			rollout := &unstructured.Unstructured{}
+			rollout.SetGroupVersionKind(argoRolloutGVK)
+			builder = builder.Watches(rollout, mapAll)
+		} else if !meta.IsNoMatchError(err) {
+			return err
+		}
 	}
 	return builder.Complete(r)
 }

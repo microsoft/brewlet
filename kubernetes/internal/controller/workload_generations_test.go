@@ -187,6 +187,32 @@ func TestWorkloadGenerationChangesAreRecordedPerOwningWorkload(t *testing.T) {
 	assertRuntimeStatusConformsToCRD(t, im)
 }
 
+func TestWorkloadOwnerAttributesArgoRolloutReplicaSet(t *testing.T) {
+	r, _, _, _ := revocationSetup(t)
+	ctx := context.Background()
+	controller := true
+	rollout := newArgoRollout()
+	rollout.Object = map[string]any{
+		"apiVersion": argoRolloutGVK.GroupVersion().String(),
+		"kind":       argoRolloutGVK.Kind,
+		"metadata":   map[string]any{"name": "api", "namespace": "apps", "uid": "rollout-api"},
+	}
+	rs := &appsv1.ReplicaSet{ObjectMeta: metav1.ObjectMeta{Name: "api-rs", Namespace: "apps", UID: "rs-api", OwnerReferences: []metav1.OwnerReference{{APIVersion: argoRolloutGVK.GroupVersion().String(), Kind: "Rollout", Name: "api", UID: rollout.GetUID(), Controller: &controller}}}}
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "api-pod", Namespace: "apps", UID: "pod-api", OwnerReferences: []metav1.OwnerReference{{APIVersion: "apps/v1", Kind: "ReplicaSet", Name: rs.Name, UID: rs.UID, Controller: &controller}}}}
+	for _, obj := range []client.Object{rollout, rs, pod} {
+		if err := r.Create(ctx, obj); err != nil {
+			t.Fatal(err)
+		}
+	}
+	owner, found, err := r.workloadOwner(ctx, pod.UID, pod.Namespace, pod.Name)
+	if err != nil || !found {
+		t.Fatalf("Rollout owner lookup failed: found=%t error=%v", found, err)
+	}
+	if owner.Kind != "Rollout" || owner.APIVersion != argoRolloutGVK.GroupVersion().String() || owner.UID != rollout.GetUID() {
+		t.Fatalf("ReplicaSet Pod was not attributed to its Argo Rollout: %+v", owner)
+	}
+}
+
 func assertRuntimeStatusConformsToCRD(t *testing.T, im *api.RuntimeImage) {
 	t.Helper()
 	for _, path := range []string{"../../deploy/crds/runtimeimages.yaml", "../../charts/brewlet/crds/runtimeimages.yaml"} {

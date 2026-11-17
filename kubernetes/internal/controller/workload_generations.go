@@ -212,7 +212,9 @@ func (r *RuntimeReconciler) workloadOwner(ctx context.Context, podUID types.UID,
 			return workloadRef{}, false, err
 		}
 		if err == nil && rs.UID == owner.UID {
-			if d := metav1.GetControllerOf(rs); d != nil && d.Kind == "Deployment" && d.APIVersion == "apps/v1" {
+			if d := metav1.GetControllerOf(rs); d != nil &&
+				((d.Kind == "Deployment" && d.APIVersion == "apps/v1") ||
+					(d.Kind == "Rollout" && d.APIVersion == argoRolloutGVK.GroupVersion().String())) {
 				ref = workloadRef{d.APIVersion, d.Kind, d.Name, namespace, d.UID}
 			}
 		}

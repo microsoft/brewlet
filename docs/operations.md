@@ -46,6 +46,16 @@ once, with a ten-minute progress deadline per workload. Workloads using
 Pods on nodes still installing or excluded from rotation, can stay deferred.
 A patched template does not mean the restart succeeded; check the rollout.
 
+Argo Rollout Pods use the standard Brewlet Pod admission path when their
+template requests a Brewlet runtime. For controller-driven rotation restarts,
+the `argoproj.io/v1alpha1` CRD must be installed before the Brewlet operator
+starts with rotation restarts enabled. Put
+`brewlet.sh/restart-on-rotation: "true"` on the Rollout's metadata, and put the
+runtime annotation and `runtimeClassName: brewlet` on `spec.template`. Brewlet
+sets only the template barrier; Argo Rollouts continues to control canary or
+blue-green progression. Paused Rollouts remain deferred until resumed.
+Rollouts using `spec.workloadRef` are not supported for rotation restarts.
+
 A workload is restarted when one of its running Pods uses an older generation,
 or started before the rotation completed and its node has not reported a
 fresh, complete view. If a node's report is missing or stale, Brewlet restarts

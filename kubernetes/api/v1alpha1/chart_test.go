@@ -220,6 +220,16 @@ func TestChartRotationRestartAdmissionPolicyAndNamespacedRBAC(t *testing.T) {
 	if actions := bindings[0]["spec"].(map[string]any)["validationActions"].([]any); len(actions) != 1 || actions[0] != "Deny" {
 		t.Fatalf("restart policy binding must deny: %v", actions)
 	}
+	rolloutRule := false
+	for _, value := range spec["matchConstraints"].(map[string]any)["resourceRules"].([]any) {
+		rule := value.(map[string]any)
+		if slices.Contains(rule["apiGroups"].([]any), any("argoproj.io")) && slices.Contains(rule["resources"].([]any), any("rollouts")) {
+			rolloutRule = true
+		}
+	}
+	if !rolloutRule {
+		t.Fatal("restart admission policy does not cover Argo Rollouts")
+	}
 	for _, want := range []string{
 		`request.userInfo.username == "system:serviceaccount:brewlet-system:brewlet-operator"`,
 		`values: ["brewlet-system"]`,
@@ -236,6 +246,20 @@ func TestChartRotationRestartAdmissionPolicyAndNamespacedRBAC(t *testing.T) {
 	if bytes.Contains(out, []byte("name: test-brewlet-rotation-restarts\n  namespace:")) || bytes.Contains(out, []byte("--restart-namespaces")) {
 		t.Fatal("cluster-wide restart mode rendered namespaced restart RBAC")
 	}
+	clusterRolloutPatch := false
+	for _, role := range kinds(all, "ClusterRole") {
+		for _, value := range role["rules"].([]any) {
+			rule := value.(map[string]any)
+			if slices.Contains(rule["apiGroups"].([]any), any("argoproj.io")) &&
+				slices.Contains(rule["resources"].([]any), any("rollouts")) &&
+				slices.Contains(rule["verbs"].([]any), any("patch")) {
+				clusterRolloutPatch = true
+			}
+		}
+	}
+	if !clusterRolloutPatch {
+		t.Fatal("cluster-wide restart mode does not grant Rollout patch access")
+	}
 
 	scoped, err := command("--set", "operator.rotationRestarts.namespaces={apps,payments}")
 	if err != nil {
@@ -246,7 +270,8 @@ func TestChartRotationRestartAdmissionPolicyAndNamespacedRBAC(t *testing.T) {
 		for _, value := range cr["rules"].([]any) {
 			rule := value.(map[string]any)
 			for _, v := range rule["verbs"].([]any) {
-				if slices.Contains(rule["apiGroups"].([]any), any("apps")) && v != "get" && v != "list" && v != "watch" {
+				groups := rule["apiGroups"].([]any)
+				if (slices.Contains(groups, any("apps")) || slices.Contains(groups, any("argoproj.io"))) && v != "get" && v != "list" && v != "watch" {
 					t.Fatalf("namespaced restarts kept cluster-wide workload mutation: %v", rule)
 				}
 			}
@@ -259,8 +284,26 @@ func TestChartRotationRestartAdmissionPolicyAndNamespacedRBAC(t *testing.T) {
 			continue
 		}
 		rules := role["rules"].([]any)
-		if len(rules) != 1 || len(rules[0].(map[string]any)["verbs"].([]any)) != 1 {
+		if len(rules) != 2 {
 			t.Fatalf("restart role grants more than patch: %v", rules)
+		}
+		covered := map[string]bool{}
+		for _, value := range rules {
+			rule := value.(map[string]any)
+			if len(rule["verbs"].([]any)) != 1 || rule["verbs"].([]any)[0] != "patch" {
+				t.Fatalf("restart role grants verbs beyond patch: %v", rule)
+			}
+			groups := rule["apiGroups"].([]any)
+			resources := rule["resources"].([]any)
+			if slices.Contains(groups, any("apps")) && slices.Equal(resources, []any{"deployments", "statefulsets", "daemonsets"}) {
+				covered["apps"] = true
+			}
+			if slices.Contains(groups, any("argoproj.io")) && len(resources) == 1 && resources[0] == "rollouts" {
+				covered["argoproj.io"] = true
+			}
+		}
+		if !covered["apps"] || !covered["argoproj.io"] {
+			t.Fatalf("restart Role does not narrowly cover native workloads and Rollouts: %v", rules)
 		}
 		patchRoles[meta["namespace"].(string)] = true
 	}
