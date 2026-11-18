@@ -57,6 +57,10 @@ spec:
       expression: "has(oldObject.spec.template.metadata.annotations) ? oldObject.spec.template.metadata.annotations : {}"
     - name: newTemplateAnnotations
       expression: "has(object.spec.template.metadata.annotations) ? object.spec.template.metadata.annotations : {}"
+    - name: changedBarriers
+      expression: >-
+        variables.newTemplateAnnotations.filter(k, k.startsWith(variables.barrierPrefix) &&
+          (!(k in variables.oldTemplateAnnotations) || variables.oldTemplateAnnotations[k] != variables.newTemplateAnnotations[k]))
   validations:
     - expression: request.operation == 'UPDATE'
       reason: Forbidden
@@ -77,32 +81,28 @@ spec:
         has(oldObject.spec.template.spec.runtimeClassName) &&
         oldObject.spec.template.spec.runtimeClassName == 'brewlet' &&
         ((has(oldObject.spec.template.spec.containers) && oldObject.spec.template.spec.containers.exists(c,
-          variables.oldTemplateAnnotations.exists(k, k == variables.selectionPrefix + c.name))) ||
+          (variables.selectionPrefix + c.name) in variables.oldTemplateAnnotations)) ||
          (has(oldObject.spec.template.spec.initContainers) && oldObject.spec.template.spec.initContainers.exists(c,
-          variables.oldTemplateAnnotations.exists(k, k == variables.selectionPrefix + c.name))) ||
+          (variables.selectionPrefix + c.name) in variables.oldTemplateAnnotations)) ||
          (has(oldObject.spec.template.spec.ephemeralContainers) && oldObject.spec.template.spec.ephemeralContainers.exists(c,
-          variables.oldTemplateAnnotations.exists(k, k == variables.selectionPrefix + c.name))))
+          (variables.selectionPrefix + c.name) in variables.oldTemplateAnnotations)))
       reason: Forbidden
       message: workload has not opted in to Brewlet rotation restarts
     - expression: >-
+        variables.oldTemplateAnnotations.all(k, k in variables.newTemplateAnnotations) &&
         variables.newTemplateAnnotations.all(k, k.startsWith(variables.barrierPrefix) ||
           (k in variables.oldTemplateAnnotations && variables.oldTemplateAnnotations[k] == variables.newTemplateAnnotations[k])) &&
-        variables.oldTemplateAnnotations.all(k, k.startsWith(variables.barrierPrefix) || k in variables.newTemplateAnnotations) &&
-        variables.newTemplateAnnotations.filter(k, k.startsWith(variables.barrierPrefix) &&
-          (!variables.oldTemplateAnnotations.exists(oldKey, oldKey == k) ||
-           variables.oldTemplateAnnotations[k] != variables.newTemplateAnnotations[k])).size() <= 1 &&
-        variables.newTemplateAnnotations.all(k, !k.startsWith(variables.barrierPrefix) ||
-          (!variables.oldTemplateAnnotations.exists(oldKey, oldKey == k) ||
-           variables.oldTemplateAnnotations[k] == variables.newTemplateAnnotations[k] ||
-           ((has(object.spec.template.spec.containers) && object.spec.template.spec.containers.exists(c,
-             variables.newTemplateAnnotations.exists(selectionKey, selectionKey == variables.selectionPrefix + c.name &&
-               k == variables.barrierPrefix + variables.newTemplateAnnotations[selectionKey]))) ||
-            (has(object.spec.template.spec.initContainers) && object.spec.template.spec.initContainers.exists(c,
-             variables.newTemplateAnnotations.exists(selectionKey, selectionKey == variables.selectionPrefix + c.name &&
-               k == variables.barrierPrefix + variables.newTemplateAnnotations[selectionKey]))) ||
-            (has(object.spec.template.spec.ephemeralContainers) && object.spec.template.spec.ephemeralContainers.exists(c,
-             variables.newTemplateAnnotations.exists(selectionKey, selectionKey == variables.selectionPrefix + c.name &&
-               k == variables.barrierPrefix + variables.newTemplateAnnotations[selectionKey]))))))
+        variables.changedBarriers.size() <= 1 &&
+        variables.changedBarriers.all(k,
+          (has(object.spec.template.spec.containers) && object.spec.template.spec.containers.exists(c,
+            (variables.selectionPrefix + c.name) in variables.newTemplateAnnotations &&
+            k == variables.barrierPrefix + variables.newTemplateAnnotations[variables.selectionPrefix + c.name])) ||
+          (has(object.spec.template.spec.initContainers) && object.spec.template.spec.initContainers.exists(c,
+            (variables.selectionPrefix + c.name) in variables.newTemplateAnnotations &&
+            k == variables.barrierPrefix + variables.newTemplateAnnotations[variables.selectionPrefix + c.name])) ||
+          (has(object.spec.template.spec.ephemeralContainers) && object.spec.template.spec.ephemeralContainers.exists(c,
+            (variables.selectionPrefix + c.name) in variables.newTemplateAnnotations &&
+            k == variables.barrierPrefix + variables.newTemplateAnnotations[variables.selectionPrefix + c.name])))
       reason: Forbidden
       message: brewlet-operator may only advance one selected runtime-generation barrier and must preserve every other template annotation
     - expression: >-

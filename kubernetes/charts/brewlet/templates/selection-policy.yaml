@@ -14,7 +14,7 @@ spec:
     - name: prefix
       expression: "'runtime-image.brewlet.sh/'"
     - name: oldAnnotations
-      expression: "has(oldObject) && has(oldObject.metadata.annotations) ? oldObject.metadata.annotations : {}"
+      expression: "oldObject != null && has(oldObject.metadata.annotations) ? oldObject.metadata.annotations : {}"
     - name: newAnnotations
       expression: "has(object.metadata.annotations) ? object.metadata.annotations : {}"
   validations:
@@ -28,16 +28,16 @@ spec:
       reason: Invalid
       message: runtime selection annotations must map valid container names to RuntimeImage IDs
     - expression: >-
-        request.operation != 'UPDATE' || !has(oldObject) ||
+        request.operation != 'UPDATE' || oldObject == null ||
         (oldObject.spec.containers.all(c,
-          (variables.oldAnnotations.exists(k, k == variables.prefix + c.name) ? variables.oldAnnotations[variables.prefix + c.name] : '') ==
-          (variables.newAnnotations.exists(k, k == variables.prefix + c.name) ? variables.newAnnotations[variables.prefix + c.name] : '')) &&
+          ((variables.prefix + c.name) in variables.oldAnnotations ? variables.oldAnnotations[variables.prefix + c.name] : '') ==
+          ((variables.prefix + c.name) in variables.newAnnotations ? variables.newAnnotations[variables.prefix + c.name] : '')) &&
          (!has(oldObject.spec.initContainers) || oldObject.spec.initContainers.all(c,
-          (variables.oldAnnotations.exists(k, k == variables.prefix + c.name) ? variables.oldAnnotations[variables.prefix + c.name] : '') ==
-          (variables.newAnnotations.exists(k, k == variables.prefix + c.name) ? variables.newAnnotations[variables.prefix + c.name] : ''))) &&
+          ((variables.prefix + c.name) in variables.oldAnnotations ? variables.oldAnnotations[variables.prefix + c.name] : '') ==
+          ((variables.prefix + c.name) in variables.newAnnotations ? variables.newAnnotations[variables.prefix + c.name] : ''))) &&
          (!has(oldObject.spec.ephemeralContainers) || oldObject.spec.ephemeralContainers.all(c,
-          (variables.oldAnnotations.exists(k, k == variables.prefix + c.name) ? variables.oldAnnotations[variables.prefix + c.name] : '') ==
-          (variables.newAnnotations.exists(k, k == variables.prefix + c.name) ? variables.newAnnotations[variables.prefix + c.name] : ''))))
+          ((variables.prefix + c.name) in variables.oldAnnotations ? variables.oldAnnotations[variables.prefix + c.name] : '') ==
+          ((variables.prefix + c.name) in variables.newAnnotations ? variables.newAnnotations[variables.prefix + c.name] : ''))))
       reason: Forbidden
       message: runtime selection is immutable after a container is declared; reserve a future name before adding a managed ephemeral container
 ---

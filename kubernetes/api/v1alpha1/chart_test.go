@@ -8,10 +8,14 @@ import (
 	"slices"
 	"testing"
 
+	admissionv1 "k8s.io/api/admissionregistration/v1"
 	corev1 "k8s.io/api/core/v1"
 	nodev1 "k8s.io/api/node/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	kyaml "k8s.io/apimachinery/pkg/util/yaml"
+	plugincel "k8s.io/apiserver/pkg/admission/plugin/cel"
+	"k8s.io/apiserver/pkg/admission/plugin/policy/validating"
+	"k8s.io/apiserver/pkg/cel/environment"
 )
 
 func TestRuntimeClassOverhead(t *testing.T) {
@@ -297,6 +301,55 @@ func TestChartRotationRestartAdmissionPolicyAndNamespacedRBAC(t *testing.T) {
 		defaultPolicies := kinds(docs(defaults), "ValidatingAdmissionPolicy")
 		if len(defaultPolicies) != 1 || defaultPolicies[0]["metadata"].(map[string]any)["name"] != "test-brewlet-container-selection" {
 			t.Fatalf("selection policy must be independent of rotation opt-in: %+v", defaultPolicies)
+		}
+	}
+}
+
+func TestChartAdmissionPolicyCELCompiles(t *testing.T) {
+	requireHelm(t)
+	out, err := exec.Command("helm", "template", "test", "../../charts/brewlet", "--namespace", "brewlet-system",
+		"--set", "operator.rotationRestarts.enabled=true", "--set", "operator.rotationRestarts.namespaces={apps}").CombinedOutput()
+	if err != nil {
+		t.Fatalf("template: %v: %s", err, out)
+	}
+	var policies []admissionv1.ValidatingAdmissionPolicy
+	decoder := kyaml.NewYAMLOrJSONDecoder(bytes.NewReader(out), 4096)
+	for {
+		var policy admissionv1.ValidatingAdmissionPolicy
+		if err := decoder.Decode(&policy); err == io.EOF {
+			break
+		} else if err != nil {
+			t.Fatal(err)
+		}
+		if policy.Kind == "ValidatingAdmissionPolicy" {
+			policies = append(policies, policy)
+		}
+	}
+	if len(policies) != 2 {
+		t.Fatalf("expected selection and restart policies, got %d", len(policies))
+	}
+	for _, policy := range policies {
+		compiler, err := plugincel.NewCompositedCompiler(environment.MustBaseEnvSet(environment.DefaultCompatibilityVersion()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		options := plugincel.OptionalVariableDeclarations{}
+		for _, v := range policy.Spec.Variables {
+			if result := compiler.CompileAndStoreVariable(&validating.Variable{Name: v.Name, Expression: v.Expression}, options, environment.NewExpressions); result.Error != nil {
+				t.Errorf("%s variable %s: %v", policy.Name, v.Name, result.Error)
+			}
+		}
+		var conditions []string
+		for _, c := range policy.Spec.MatchConditions {
+			conditions = append(conditions, c.Expression)
+		}
+		for _, v := range policy.Spec.Validations {
+			conditions = append(conditions, v.Expression)
+		}
+		for _, expression := range conditions {
+			if result := compiler.CompileCELExpression(&validating.ValidationCondition{Expression: expression}, options, environment.NewExpressions); result.Error != nil {
+				t.Errorf("%s expression %q: %v", policy.Name, expression, result.Error)
+			}
 		}
 	}
 }
