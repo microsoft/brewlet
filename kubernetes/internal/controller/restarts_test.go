@@ -9,6 +9,7 @@ import (
 	"time"
 
 	api "github.com/microsoft/brewlet/kubernetes/api/v1alpha1"
+	runtimeworkload "github.com/microsoft/brewlet/pkg/workload"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -65,7 +66,7 @@ func (f *restartFixture) deployment(t *testing.T, name string) *appsv1.Deploymen
 	t.Helper()
 	controller := true
 	runtimeClass := "brewlet"
-	d := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "apps", UID: types.UID("deployment-" + name), Generation: 1, Annotations: map[string]string{"brewlet.sh/restart-on-rotation": "true"}}, Spec: appsv1.DeploymentSpec{Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": name}}, Template: corev1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": name}, Annotations: map[string]string{api.RuntimeAnnotation: f.image.Name}}, Spec: corev1.PodSpec{RuntimeClassName: &runtimeClass, Containers: []corev1.Container{{Name: "app", Image: "registry.example.com/app@sha256:" + strings.Repeat("a", 64)}}}}}}
+	d := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "apps", UID: types.UID("deployment-" + name), Generation: 1, Annotations: map[string]string{"brewlet.sh/restart-on-rotation": "true"}}, Spec: appsv1.DeploymentSpec{Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": name}}, Template: corev1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": name}, Annotations: map[string]string{"runtime-image.brewlet.sh/app": f.image.Name}}, Spec: corev1.PodSpec{RuntimeClassName: &runtimeClass, Containers: []corev1.Container{{Name: "app", Image: "registry.example.com/app@sha256:" + strings.Repeat("a", 64)}}}}}}
 	if err := f.engine.Client.Create(context.Background(), d); err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +74,7 @@ func (f *restartFixture) deployment(t *testing.T, name string) *appsv1.Deploymen
 	if err := f.engine.Client.Create(context.Background(), rs); err != nil {
 		t.Fatal(err)
 	}
-	p := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "pod-" + name, Namespace: "apps", UID: types.UID("pod-" + name), Labels: map[string]string{"app": name}, OwnerReferences: []metav1.OwnerReference{{APIVersion: "apps/v1", Kind: "ReplicaSet", Name: rs.Name, UID: rs.UID, Controller: &controller}}}, Spec: corev1.PodSpec{NodeName: "node"}, Status: corev1.PodStatus{Phase: corev1.PodRunning, StartTime: timePtr(f.now.Add(-time.Hour))}}
+	p := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "pod-" + name, Namespace: "apps", UID: types.UID("pod-" + name), Labels: map[string]string{"app": name}, Annotations: map[string]string{"runtime-image.brewlet.sh/app": f.image.Name}, OwnerReferences: []metav1.OwnerReference{{APIVersion: "apps/v1", Kind: "ReplicaSet", Name: rs.Name, UID: rs.UID, Controller: &controller}}}, Spec: corev1.PodSpec{NodeName: "node"}, Status: corev1.PodStatus{Phase: corev1.PodRunning, StartTime: timePtr(f.now.Add(-time.Hour))}}
 	if err := f.engine.Client.Create(context.Background(), p); err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +123,8 @@ func TestRestartSelectionPatchIdempotenceAndRecovery(t *testing.T) {
 		t.Fatalf("restart not durably recorded: patches=%d record=%+v", f.patches, r)
 	}
 	_ = f.engine.Client.Get(context.Background(), client.ObjectKeyFromObject(d), d)
-	b, err := barrierValue(d.Spec.Template.Annotations[api.BarrierAnnotation], f.image.Name, f.image.UID)
+	barrierKey := runtimeworkload.RuntimeGenerationAnnotation(f.image.Name)
+	b, err := barrierValue(d.Spec.Template.Annotations[barrierKey], f.image.Name, f.image.UID)
 	if err != nil || b.Generation != 7 {
 		t.Fatalf("wrong barrier: %+v %v", b, err)
 	}
@@ -164,17 +166,18 @@ func TestRestartEpochMismatchRequiresOwnerAcknowledgement(t *testing.T) {
 	f := restartSetup(t)
 	d := f.deployment(t, "api")
 	ctx := context.Background()
-	d.Spec.Template.Annotations[api.BarrierAnnotation] = `{"id":"python-3.12","inventoryUID":"retired-epoch","generation":6}`
+	barrierKey := runtimeworkload.RuntimeGenerationAnnotation(f.image.Name)
+	d.Spec.Template.Annotations[barrierKey] = `{"id":"python-3.12","inventoryUID":"retired-epoch","generation":6}`
 	_ = f.engine.Client.Update(ctx, d)
 	f.run(t)
 	if f.patches != 0 || f.record(t, d.UID).Phase != "EpochMismatch" {
 		t.Fatal("old epoch silently rewritten")
 	}
 	_ = f.engine.Client.Get(ctx, client.ObjectKeyFromObject(d), d)
-	if !strings.Contains(d.Spec.Template.Annotations[api.BarrierAnnotation], "retired-epoch") {
+	if !strings.Contains(d.Spec.Template.Annotations[barrierKey], "retired-epoch") {
 		t.Fatal("owner acknowledgement bypassed")
 	}
-	delete(d.Spec.Template.Annotations, api.BarrierAnnotation)
+	delete(d.Spec.Template.Annotations, barrierKey)
 	_ = f.engine.Client.Update(ctx, d)
 	f.run(t)
 	if f.patches != 1 || f.record(t, d.UID).Phase != "Rolling" {

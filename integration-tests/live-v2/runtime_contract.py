@@ -217,7 +217,7 @@ def rotation_participants(h):
     require(not cold["status"]["rotation"].get("participants"),
             "uninstalled cold OnDemand entry was counted as an installed participant")
     pod = h.pod("rotation-participant", "python")
-    pod["metadata"]["annotations"]["brewlet.sh/runtime-image"] = rid
+    pod["metadata"]["annotations"]["runtime-image.brewlet.sh/app"] = rid
     h.apply(pod)
     running = h.wait("rotation proof actual first use", lambda: h.ready("rotation-participant"))
     lease = h.lease(running)

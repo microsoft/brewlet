@@ -404,7 +404,7 @@ class Lifecycle:
     def pod(self, rid, suffix, *, minimum=None):
         name = "life-" + suffix + "-" + self.h.run_id
         obj = self.h.pod(name, "python", bound=True, barrier=minimum)
-        obj["metadata"]["annotations"]["brewlet.sh/runtime-image"] = rid
+        obj["metadata"]["annotations"]["runtime-image.brewlet.sh/app"] = rid
         container = obj["spec"]["containers"][0]
         container.update(command=["python3"], args=["-c", MAIN], imagePullPolicy="IfNotPresent")
         container.pop("readinessProbe", None)
@@ -941,7 +941,7 @@ class Lifecycle:
         sandbox = {"metadata": {"name": "life-cri-" + self.h.run_id,
                                "namespace": self.h.namespace, "uid": sandbox_uid, "attempt": 0},
                    "log_directory": "/var/log/life-" + self.h.run_id,
-                   "annotations": {"brewlet.sh/runtime-image": rid},
+                   "annotations": {"runtime-image.brewlet.sh/app": rid},
                    "linux": {"cgroup_parent": "system.slice",
                              "security_context": {"namespace_options": {"network": 2, "pid": 0}}}}
         initial = self.h.initial["python"]["pod"]

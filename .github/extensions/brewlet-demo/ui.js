@@ -7,7 +7,7 @@ const snippets = {
     local: "mvn -pl spring-boot -am -Djib.skip=true package\njava -jar showmyjvm-springboot.jar",
     package: "java -Djarmode=tools -jar app.jar extract\nbrewlet build <ref> --launch launch.json \\\n  --layer dependency=lib:/app/lib --layer app=app:/app",
     artifact: "brewlet inspect <ref> --store <oci>\ntar -tvf <layer-blob>",
-    deploy: 'kubectl apply -f deployment.yaml\nruntimeClassName: brewlet\nbrewlet.sh/runtime-image: temurin-25',
+    deploy: 'kubectl apply -f deployment.yaml\nruntimeClassName: brewlet\nruntime-image.brewlet.sh/app: temurin-25',
     upgrade: 'kubectl patch runtimeimage temurin-25\nspec.source.image: <golden JDK digest>',
     rollback: 'kubectl patch runtimeimage temurin-25\nspec.source.image: <original JDK digest>',
 };
@@ -372,7 +372,7 @@ function renderArtifactProof() {
         `Latest inspection (not historical rollout evidence): ${state.evidence.inspect.vendor} ${state.evidence.inspect.version} | Pod ${state.evidence.inspect.pod} | ${state.evidence.inspect.runtime}`));
     const diff = element("details");
     diff.append(element("summary", "Only intended change: RuntimeImage source digest"),
-        element("pre", 'RuntimeImage/temurin-25:\n- spec.source.image: <Temurin 25.0.4.1+1 digest>\n+ spec.source.image: <Temurin 25.0.5+8 digest>\n\nRollback restores the original digest on the same RuntimeImage object.\nThe Deployment keeps brewlet.sh/runtime-image: temurin-25.\nBrewlet waits for node rotation, then advances the opted-in workload barrier.\nThe application image and its digest remain unchanged.', "preview-code"));
+        element("pre", 'RuntimeImage/temurin-25:\n- spec.source.image: <Temurin 25.0.4.1+1 digest>\n+ spec.source.image: <Temurin 25.0.5+8 digest>\n\nRollback restores the original digest on the same RuntimeImage object.\n        The Deployment keeps runtime-image.brewlet.sh/app: temurin-25.\nBrewlet waits for node rotation, then advances the opted-in workload barrier.\nThe application image and its digest remain unchanged.', "preview-code"));
     panel.append(diff);
 }
 

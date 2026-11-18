@@ -25,13 +25,6 @@ subjects:
   - {kind: ServiceAccount, name: brewlet-operator, namespace: {{ $.Release.Namespace }}}
 roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: {{ $.Release.Name }}-brewlet-rotation-restarts}
 {{- end }}
-{{- /* admissionregistration.k8s.io/v1 ValidatingAdmissionPolicy is GA and always served from 1.30. */}}
-{{- $vap := semverCompare ">=1.30.0-0" .Capabilities.KubeVersion.Version }}
-{{- if not $vap }}
-{{- if $r.requireAdmissionPolicy }}
-{{- fail "operator.rotationRestarts.enabled requires admissionregistration.k8s.io/v1 ValidatingAdmissionPolicy (Kubernetes 1.30+); set operator.rotationRestarts.requireAdmissionPolicy=false to accept RBAC as the only bound on operator workload patches" }}
-{{- end }}
-{{- else }}
 ---
 # Confines the operator's apps/v1 workload writes outside the release namespace
 # to the rotation restart barrier on opted-in Brewlet workloads (§7.6).
@@ -54,14 +47,20 @@ spec:
     - name: brewlet-operator
       expression: request.userInfo.username == {{ $operator | quote }}
   variables:
-    - name: barrier
-      expression: "'brewlet.sh/rotated-to-generation'"
+    - name: barrierPrefix
+      expression: "'runtime-generation.brewlet.sh/'"
+    - name: selectionPrefix
+      expression: "'runtime-image.brewlet.sh/'"
     - name: oldMeta
       expression: "has(oldObject.metadata.annotations) ? oldObject.metadata.annotations : {}"
     - name: oldTemplateAnnotations
       expression: "has(oldObject.spec.template.metadata.annotations) ? oldObject.spec.template.metadata.annotations : {}"
     - name: newTemplateAnnotations
       expression: "has(object.spec.template.metadata.annotations) ? object.spec.template.metadata.annotations : {}"
+    - name: changedBarriers
+      expression: >-
+        variables.newTemplateAnnotations.filter(k, k.startsWith(variables.barrierPrefix) &&
+          (!(k in variables.oldTemplateAnnotations) || variables.oldTemplateAnnotations[k] != variables.newTemplateAnnotations[k]))
   validations:
     - expression: request.operation == 'UPDATE'
       reason: Forbidden
@@ -81,16 +80,31 @@ spec:
         variables.oldMeta['brewlet.sh/restart-on-rotation'] == 'true' &&
         has(oldObject.spec.template.spec.runtimeClassName) &&
         oldObject.spec.template.spec.runtimeClassName == 'brewlet' &&
-        'brewlet.sh/runtime-image' in variables.oldTemplateAnnotations
+        ((has(oldObject.spec.template.spec.containers) && oldObject.spec.template.spec.containers.exists(c,
+          (variables.selectionPrefix + c.name) in variables.oldTemplateAnnotations)) ||
+         (has(oldObject.spec.template.spec.initContainers) && oldObject.spec.template.spec.initContainers.exists(c,
+          (variables.selectionPrefix + c.name) in variables.oldTemplateAnnotations)) ||
+         (has(oldObject.spec.template.spec.ephemeralContainers) && oldObject.spec.template.spec.ephemeralContainers.exists(c,
+          (variables.selectionPrefix + c.name) in variables.oldTemplateAnnotations)))
       reason: Forbidden
       message: workload has not opted in to Brewlet rotation restarts
     - expression: >-
-        variables.barrier in variables.newTemplateAnnotations &&
-        variables.newTemplateAnnotations.all(k, k == variables.barrier ||
+        variables.oldTemplateAnnotations.all(k, k in variables.newTemplateAnnotations) &&
+        variables.newTemplateAnnotations.all(k, k.startsWith(variables.barrierPrefix) ||
           (k in variables.oldTemplateAnnotations && variables.oldTemplateAnnotations[k] == variables.newTemplateAnnotations[k])) &&
-        variables.oldTemplateAnnotations.all(k, k == variables.barrier || k in variables.newTemplateAnnotations)
+        variables.changedBarriers.size() <= 1 &&
+        variables.changedBarriers.all(k,
+          (has(object.spec.template.spec.containers) && object.spec.template.spec.containers.exists(c,
+            (variables.selectionPrefix + c.name) in variables.newTemplateAnnotations &&
+            k == variables.barrierPrefix + variables.newTemplateAnnotations[variables.selectionPrefix + c.name])) ||
+          (has(object.spec.template.spec.initContainers) && object.spec.template.spec.initContainers.exists(c,
+            (variables.selectionPrefix + c.name) in variables.newTemplateAnnotations &&
+            k == variables.barrierPrefix + variables.newTemplateAnnotations[variables.selectionPrefix + c.name])) ||
+          (has(object.spec.template.spec.ephemeralContainers) && object.spec.template.spec.ephemeralContainers.exists(c,
+            (variables.selectionPrefix + c.name) in variables.newTemplateAnnotations &&
+            k == variables.barrierPrefix + variables.newTemplateAnnotations[variables.selectionPrefix + c.name])))
       reason: Forbidden
-      message: brewlet-operator may only set the brewlet.sh/rotated-to-generation pod template annotation
+      message: brewlet-operator may only advance one selected runtime-generation barrier and must preserve every other template annotation
     - expression: >-
         object.spec.template.spec == oldObject.spec.template.spec &&
         object.spec.template.metadata.all(k, k == 'annotations' || (k in oldObject.spec.template.metadata && object.spec.template.metadata[k] == oldObject.spec.template.metadata[k])) &&
@@ -117,5 +131,4 @@ metadata:
 spec:
   policyName: {{ .Release.Name }}-brewlet-rotation-restarts
   validationActions: [Deny]
-{{- end }}
 {{- end }}

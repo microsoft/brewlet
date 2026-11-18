@@ -1018,9 +1018,9 @@ class Harness:
         return process["entrypoint"] + process.get("args", []) + ["--probe", "two words"]
 
     def pod(self, name, language, *, barrier=None, overrides=False, bound=False):
-        annotations = {"brewlet.sh/runtime-image": IDS[language]}
+        annotations = {"runtime-image.brewlet.sh/app": IDS[language]}
         if barrier is not None:
-            annotations["brewlet.sh/rotated-to-generation"] = (
+            annotations["runtime-generation.brewlet.sh/" + IDS[language]] = (
                 barrier if isinstance(barrier, str) else json.dumps(barrier))
         container = {"name": "app", "image": self.app_images[language],
                      "imagePullPolicy": "Never",

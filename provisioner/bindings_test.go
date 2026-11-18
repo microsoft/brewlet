@@ -8,7 +8,7 @@ import (
 
 func TestBindingUsesActualLeasedEpochGenerationAndProtectedPodIdentity(t *testing.T) {
 	lease := node.Lease{TaskID: "container-one", Namespace: "k8s.io", Metadata: node.Metadata{ID: "static", InventoryUID: "old-epoch", Generation: 7, SourceDigest: "sha256:old"}}
-	annotations := map[string]string{"io.kubernetes.cri.sandbox-uid": "pod-one", "io.kubernetes.cri.sandbox-name": "workload", "io.kubernetes.cri.sandbox-namespace": "apps", "io.kubernetes.cri.container-name": "main", "brewlet.sh/runtime-image": "static"}
+	annotations := map[string]string{"io.kubernetes.cri.sandbox-uid": "pod-one", "io.kubernetes.cri.sandbox-name": "workload", "io.kubernetes.cri.sandbox-namespace": "apps", "io.kubernetes.cri.container-name": "main", "runtime-image.brewlet.sh/main": "static"}
 	binding, err := bindingFromAnnotations(lease, annotations, "running")
 	if err != nil {
 		t.Fatal(err)
@@ -21,7 +21,7 @@ func TestBindingUsesActualLeasedEpochGenerationAndProtectedPodIdentity(t *testin
 		t.Fatal("missing protected Pod identity inferred")
 	}
 	annotations["io.kubernetes.cri.sandbox-uid"] = "pod-one"
-	annotations["brewlet.sh/runtime-image"] = "different"
+	annotations["runtime-image.brewlet.sh/main"] = "different"
 	if _, err := bindingFromAnnotations(lease, annotations, "running"); err == nil {
 		t.Fatal("inconsistent actual runtime selection accepted")
 	}

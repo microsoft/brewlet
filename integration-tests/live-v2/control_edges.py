@@ -56,8 +56,8 @@ GAPS = (
     "FENCE-04 production uninstall while stale provider pins remain: callback "
     "proves live retention/recovery, not uninstall retention",
 )
-BARRIER = "brewlet.sh/rotated-to-generation"
-RUNTIME = "brewlet.sh/runtime-image"
+BARRIER = "runtime-generation.brewlet.sh/"
+RUNTIME = "runtime-image.brewlet.sh/"
 OPT_IN = "brewlet.sh/restart-on-rotation"
 CASE = "acceptance.brewlet.test/control-case"
 PROBE = "acceptance.brewlet.test/cas-probe"
@@ -75,7 +75,9 @@ def barrier_for(image):
 
 
 def template_barrier(obj):
-    raw = obj["spec"]["template"].get("metadata", {}).get("annotations", {}).get(BARRIER)
+    annotations = obj["spec"]["template"].get("metadata", {}).get("annotations", {})
+    runtime_id = annotations.get(RUNTIME + "app")
+    raw = annotations.get(BARRIER + runtime_id) if runtime_id else None
     return json.loads(raw) if raw else None
 
 
@@ -215,8 +217,9 @@ def verify_restart(image, workload, before, after, record, *, expected):
         old = {p["metadata"]["uid"] for p in before}
         require(not old.intersection(p["metadata"]["uid"] for p in after),
                 "old pods survived a claimed completed restart")
-        require(all(p["metadata"].get("annotations", {}).get(BARRIER)
-                    and json.loads(p["metadata"]["annotations"][BARRIER]) == barrier_for(image)
+        barrier_key = BARRIER + image["metadata"]["name"]
+        require(all(p["metadata"].get("annotations", {}).get(barrier_key)
+                    and json.loads(p["metadata"]["annotations"][barrier_key]) == barrier_for(image)
                     for p in after), "replacement pods did not inherit the barrier")
     elif expected in ("Deferred", "NotApplicable"):
         require(record.get("reason") == "Restart" + expected,
@@ -563,7 +566,7 @@ class ControlEdges:
                  gated=False):
         template = copy.deepcopy(self.h.pod("unused", "python", bound=bound))
         template["metadata"] = {"labels": {OWNER: self.h.run_id, CASE: name},
-                                "annotations": {RUNTIME: runtime_id}}
+                                "annotations": {RUNTIME + "app": runtime_id}}
         if not opted:
             # Template-only annotation is intentionally not the object opt-in.
             template["metadata"]["annotations"][OPT_IN] = "true"
@@ -893,7 +896,8 @@ class ControlEdges:
         self.patch_workload("old-epoch", {"spec": {"paused": True}})
         old_barrier = {"id": b, "inventoryUID": old_epoch, "generation": 1}
         self.patch_workload("old-epoch", {
-            "spec": {"template": {"metadata": {"annotations": {BARRIER: json.dumps(old_barrier)}}}}})
+            "spec": {"template": {"metadata": {"annotations": {
+                BARRIER + old_barrier["id"]: json.dumps(old_barrier)}}}}})
         self.rotate(a, "after")
         self.rotate(b, "after")
         self.complete_rotation(a)
@@ -1089,7 +1093,7 @@ class ControlEdges:
                     and any(r and r["phase"] == "Pending" for r in rows)):
                 running_name = active[0]["name"]
                 pods = self.pods(running_name)
-                if any(p.get("metadata", {}).get("annotations", {}).get(BARRIER)
+                if any(any(key.startswith(BARRIER) for key in p.get("metadata", {}).get("annotations", {}))
                        and not pod_ready(p) and p.get("status", {}).get("phase") == "Running"
                        for p in pods):
                     saw_blocked_pending = True

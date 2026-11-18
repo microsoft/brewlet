@@ -128,7 +128,7 @@ The Wasmtime descriptor,
 ```
 
 `runtimeImages` is an optional allowlist, not a selector. The Pod still names
-its runtime with `brewlet.sh/runtime-image: wasmtime-wasip1`. If your platform
+its runtime with `runtime-image.brewlet.sh/app: wasmtime-wasip1`. If your platform
 uses different IDs, list them here or omit `runtimeImages`.
 
 The Spin descriptor,
@@ -188,7 +188,7 @@ metadata:
   name: wasmtime-demo
   namespace: apps
   annotations:
-    brewlet.sh/runtime-image: wasmtime-wasip1
+    runtime-image.brewlet.sh/app: wasmtime-wasip1
 spec:
   runtimeClassName: brewlet
   restartPolicy: Never

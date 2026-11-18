@@ -34,11 +34,13 @@ Explicit OCI platforms are producer assertions; they do not schedule Pods.
 
 | Annotation | Location | Meaning |
 | --- | --- | --- |
-| `brewlet.sh/runtime-image` | Pod metadata | Required explicit approved runtime ID. |
-| `brewlet.sh/rotated-to-generation` | Pod/template metadata | JSON `{id,inventoryUID,generation}` minimum-generation barrier. |
+| `runtime-image.brewlet.sh/<container-name>` | Pod metadata | Optional explicit approved runtime ID for that container; absent means ordinary OCI. |
+| `runtime-generation.brewlet.sh/<id>` | Pod/template metadata | JSON `{id,inventoryUID,generation}` minimum-generation barrier for the selected runtime ID. |
 | `brewlet.sh/restart-on-rotation` | Native workload controller metadata | Opt-in `"true"` when restart coordination is enabled cluster-wide. |
 
-The barrier's generation is a positive integer and its epoch must match.
+Selections are immutable after a container is declared. A future managed
+ephemeral name may be reserved before adding it through the ephemeral-container
+subresource. The barrier's generation is a positive integer and its epoch must match.
 Duplicate/escaped duplicate JSON members are rejected; do not construct a
 barrier from a mutable tag or a Kubernetes metadata generation.
 
@@ -52,7 +54,7 @@ application inputs to patch.
 | Reason/category | Meaning |
 | --- | --- |
 | `UnsupportedArtifact`, `LaunchConfigMismatch`, `LayerPathViolation` | Invalid app graph, mirror or confinement. |
-| `NoCompatibleRuntime` | No valid offered runtime matching the explicit request. |
+| `NoCompatibleRuntime` | No valid NodeProfile offers all selected runtime IDs. |
 | `RuntimeImageInstalling`, `RuntimeImageInstallFailed` | Cold publication pending or installation failed. |
 | `RuntimePATHRequired` | Relative executable without a runtime PATH. |
 | `RootNotSupported`, `PrivilegeEscalationNotSupported` | Prohibited process identity/security. |

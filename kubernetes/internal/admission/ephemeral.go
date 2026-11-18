@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/microsoft/brewlet/pkg/workload"
 	corev1 "k8s.io/api/core/v1"
 	webhook "sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
@@ -22,10 +23,14 @@ func (h *PodHandler) ephemeralUpdate(ctx context.Context, req webhook.Request, p
 	for _, c := range old.Spec.EphemeralContainers {
 		existing[c.Name] = true
 	}
+	selections, err := workload.ParseSelections(p.Annotations)
+	if err != nil {
+		return webhook.Denied(err.Error())
+	}
 	contexts := map[int]*corev1.SecurityContext{}
 	warnings := []string{}
 	for i, c := range p.Spec.EphemeralContainers {
-		if existing[c.Name] {
+		if existing[c.Name] || selections[c.Name] == "" {
 			continue
 		}
 		// Reuse executable security/inventory checks on an isolated candidate.

@@ -105,9 +105,9 @@ func k8sWorkloads(id string, optIn bool) []client.Object {
 		ann["brewlet.sh/restart-on-rotation"] = "true"
 	}
 	dep := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Namespace: "apps", Name: "web", Annotations: ann},
-		Spec: appsv1.DeploymentSpec{Template: corev1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{api.RuntimeAnnotation: id}}, Spec: corev1.PodSpec{RuntimeClassName: &rc}}}}
-	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Namespace: "apps", Name: "web-abc", Annotations: map[string]string{api.RuntimeAnnotation: id}},
-		Spec: corev1.PodSpec{NodeName: "node-a", RuntimeClassName: &rc}, Status: corev1.PodStatus{Phase: corev1.PodRunning}}
+		Spec: appsv1.DeploymentSpec{Template: corev1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{"runtime-image.brewlet.sh/app": id}}, Spec: corev1.PodSpec{RuntimeClassName: &rc, Containers: []corev1.Container{{Name: "app"}}}}}}
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Namespace: "apps", Name: "web-abc", Annotations: map[string]string{"runtime-image.brewlet.sh/app": id}},
+		Spec: corev1.PodSpec{NodeName: "node-a", RuntimeClassName: &rc, Containers: []corev1.Container{{Name: "app"}}}, Status: corev1.PodStatus{Phase: corev1.PodRunning}}
 	return []client.Object{dep, pod}
 }
 

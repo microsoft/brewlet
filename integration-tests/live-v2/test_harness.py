@@ -607,7 +607,7 @@ class SafetyTests(ProjectWork):
         self.assertEqual(instance.kubectl.call_count, 2)
         for call in instance.apply.call_args_list:
             pod = call.args[0]
-            self.assertEqual(pod["metadata"]["annotations"]["brewlet.sh/runtime-image"], h.IDS["node"])
+            self.assertEqual(pod["metadata"]["annotations"]["runtime-image.brewlet.sh/app"], h.IDS["node"])
             self.assertEqual(pod["spec"]["containers"][0]["image"], instance.app_images["node"])
         instance.restore_admission.assert_called_once()
         instance.start_held_exec.assert_called_once_with("node")
@@ -859,7 +859,7 @@ class ContractTests(ProjectWork):
         self.assertFalse(security["allowPrivilegeEscalation"])
         self.assertEqual(security["capabilities"]["drop"], ["ALL"])
         self.assertEqual(json.loads(pod["metadata"]["annotations"][
-            "brewlet.sh/rotated-to-generation"]), barrier)
+            "runtime-generation.brewlet.sh/" + h.IDS["python"]]), barrier)
 
     def test_profile_has_explicit_controlplane_pool_and_exact_toleration(self):
         profile = self.harness().profile_object()

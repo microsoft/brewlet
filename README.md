@@ -84,7 +84,7 @@ distinct from real-node evidence. See the
                |                     +-------------+--------------+
                |                                   |
                |                       runtimeClassName: brewlet
-               |                       brewlet.sh/runtime-image: ID
+               |                       runtime-image.brewlet.sh/<name>: ID
                |                                   |
                v                                   v
  +----------------------------------------------------------------+
@@ -103,9 +103,11 @@ distinct from real-node evidence. See the
    node is ready. OnDemand policy can defer fetching a root until first use.
 3. The developer packages application and dependency layers confined to `/app`,
    with an explicit, language-neutral `launch.json`, and publishes the artifact.
-4. An ordinary Kubernetes workload selects `runtimeClassName: brewlet` and an
-   explicit `brewlet.sh/runtime-image` annotation. Admission validates its runtime
-   requirements and placement; Kubernetes schedules it onto a compatible node.
+4. An ordinary Kubernetes workload selects `runtimeClassName: brewlet` and
+   explicitly selects a runtime for each managed container with
+   `runtime-image.brewlet.sh/<container-name>: <id>`. Unselected containers
+   keep ordinary OCI behavior. Admission validates selections and joint
+   placement; Kubernetes schedules the Pod onto a compatible node.
 5. The shim assembles the application's OCI bundle and launches it with the
    selected runtime generation. Running tasks retain that generation across
    rotations.

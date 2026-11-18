@@ -23,6 +23,7 @@ def main():
                         help="retry only against this exact already-created zero-capacity profile UID")
     args = parser.parse_args()
     base = ["kubectl", "--kubeconfig", str(args.kubeconfig.resolve())]
+    selection = f"runtime-image.brewlet.sh/app"
 
     def kubectl(arguments, document=None, success=True):
         result = subprocess.run(base + arguments, text=True, input=(
@@ -78,7 +79,7 @@ def main():
         "apiVersion": "v1", "kind": "Pod",
         "metadata": {
             "name": "v2-admission-contract",
-            "annotations": {"brewlet.sh/runtime-image": args.runtime_id,
+            "annotations": {selection: args.runtime_id,
                             "brewlet.sh/artifact-container": "untrusted",
                             "brewlet.sh/artifact-ref": "untrusted",
                             "brewlet.sh/artifact-digest": "sha256:untrusted"},
@@ -132,15 +133,17 @@ def main():
     assert preferred[0] == pod["spec"]["affinity"]["nodeAffinity"][
         "preferredDuringSchedulingIgnoredDuringExecution"][0]
     assert preferred[-1]["weight"] == 100
-    for container in result["spec"]["initContainers"] + result["spec"]["containers"]:
-        context = container["securityContext"]
-        assert context["runAsNonRoot"] is True
-        assert context["allowPrivilegeEscalation"] is False
-        assert context["capabilities"]["drop"] == ["ALL"]
-        if container["name"] == "sidecar":
-            assert context["runAsUser"] == 3000 and context["runAsGroup"] == 4000
-        else:
-            assert context.get("runAsUser", 2000) == 2000 and context["runAsGroup"] == 65532
+    app = result["spec"]["containers"][0]
+    context = app["securityContext"]
+    assert context["runAsNonRoot"] is True
+    assert context["allowPrivilegeEscalation"] is False
+    assert context["capabilities"]["drop"] == ["ALL"]
+    assert context["readOnlyRootFilesystem"] is True
+    assert context.get("runAsUser", 2000) == 2000 and context["runAsGroup"] == 65532
+    assert "securityContext" not in result["spec"]["initContainers"][0]
+    assert result["spec"]["containers"][1]["securityContext"] == {
+        "runAsUser": 3000, "runAsGroup": 4000,
+    }, "unselected OCI sidecar must not receive Brewlet security defaults"
     group_only = copy.deepcopy(pod)
     group_only["spec"]["securityContext"].pop("runAsUser")
     group_only["spec"]["containers"][0]["securityContext"] = {"runAsGroup": 5000}
@@ -156,12 +159,14 @@ def main():
         assert response.returncode != 0, f"{name}: invalid Pod admitted"
         assert reason in response.stderr, f"{name}: expected {reason}: {response.stderr}"
 
-    denied("missing selection", "RuntimeImageRequired",
-           lambda item: item["metadata"]["annotations"].clear())
-    denied("invalid ID", "InvalidRuntimeImageID",
-           lambda item: item["metadata"]["annotations"].update({"brewlet.sh/runtime-image": "python:3.12"}))
+    unselected = copy.deepcopy(pod)
+    unselected["metadata"]["annotations"].pop(selection)
+    admitted_oci = kubectl(["create", "--dry-run=server", "-f", "-", "-o", "json"], unselected)
+    assert "securityContext" not in json.loads(admitted_oci.stdout)["spec"]["containers"][0]
+    denied("invalid ID", "Invalid",
+           lambda item: item["metadata"]["annotations"].update({selection: "python:3.12"}))
     denied("unknown ID", "UnknownRuntimeImage",
-           lambda item: item["metadata"]["annotations"].update({"brewlet.sh/runtime-image": "unknown-runtime"}))
+           lambda item: item["metadata"]["annotations"].update({selection: "unknown-runtime"}))
     for annotation in ("brewlet.sh/jdk", "brewlet.sh/jvm-args", "brewlet.sh/arch"):
         denied("old annotation", "UnsupportedAnnotation",
                lambda item, annotation=annotation: item["metadata"]["annotations"].update({annotation: "forbidden"}))

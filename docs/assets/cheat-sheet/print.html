@@ -146,7 +146,7 @@ brewlet run "$APP" --platform linux/amd64 \
         <p class="note">Merge this fragment into <code>Deployment.spec.template</code>. Keep your labels, probes, resources and volumes.</p>
         <pre>metadata:
   annotations:
-    brewlet.sh/runtime-image: python-3.13
+    runtime-image.brewlet.sh/app: python-3.13
 spec:
   runtimeClassName: brewlet
   nodeSelector:
@@ -155,7 +155,7 @@ spec:
     - name: api
       image: &gt;-
         registry.example.com/apps/api@sha256:&lt;digest&gt;</pre>
-        <p class="note">Use the actual published digest and a runtime approved for your architecture. All application containers in a Pod use the same runtime ID.</p>
+        <p class="note">Use the actual published digest and a runtime approved for your architecture. Select runtimes per managed container; unselected containers use ordinary OCI behavior.</p>
         <pre>kubectl -n apps apply -f deployment.yaml
 kubectl -n apps rollout status deployment/api</pre>
         <p class="note">Use an existing application namespace. Admission defaults the required read-only root to <code>true</code>; explicit <code>false</code> is rejected.</p>

@@ -71,6 +71,7 @@ func TestEphemeralAdditionMutatesOnlyNewSecurityContext(t *testing.T) {
 	old.Spec.Containers[0].SecurityContext = &corev1.SecurityContext{Privileged: ptr(true)}
 	old.Spec.EphemeralContainers[0].Image = "existing-debug:tag"
 	old.Spec.SecurityContext = &corev1.PodSecurityContext{RunAsUser: ptr(int64(4242))}
+	old.Annotations["runtime-image.brewlet.sh/new-debug"] = "python-3.12"
 	old.Spec.NodeSelector = map[string]string{"kubernetes.io/arch": "arm64"}
 	old.Spec.Affinity = &corev1.Affinity{NodeAffinity: &corev1.NodeAffinity{RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{}}}
 	old.Spec.Tolerations = []corev1.Toleration{{Operator: corev1.TolerationOpExists}}
@@ -100,6 +101,7 @@ func TestEphemeralAdditionsEnforceOnlyNewExecutableAndLiveApproval(t *testing.T)
 			m, old := setup(t)
 			ctx := context.Background()
 			c := m.Reader.(client.Client)
+			old.Annotations["runtime-image.brewlet.sh/new"] = "python-3.12"
 			current := old.DeepCopy()
 			newContainer := corev1.EphemeralContainer{EphemeralContainerCommon: corev1.EphemeralContainerCommon{Name: "new", Image: "registry.example.com/debug@sha256:" + strings.Repeat("a", 64)}}
 			switch scenario {

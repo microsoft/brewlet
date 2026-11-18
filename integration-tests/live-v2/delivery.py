@@ -705,7 +705,7 @@ auth:
 
     def native_pod(self, arch, name):
         pod = self.pod(name, self.h.probe_language)
-        pod["metadata"]["annotations"]["brewlet.sh/runtime-image"] = self.static_id
+        pod["metadata"]["annotations"]["runtime-image.brewlet.sh/app"] = self.static_id
         pod["spec"]["nodeSelector"] = {"kubernetes.io/arch": arch, "brewlet.test/pool": self.h.run_id}
         pod["spec"]["containers"][0].update(image=self.native[arch],
             readinessProbe={"exec": {"command": ["/app/bin/native", "--probe"]},

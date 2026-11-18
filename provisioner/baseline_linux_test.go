@@ -9,14 +9,14 @@ import (
 )
 
 func TestLiveCRIConfigurationRequiresHandlerAndBothAnnotations(t *testing.T) {
-	valid := []byte(`{"config":{"containerd":{"runtimes":{"brewlet":{"runtimeType":"io.containerd.brewlet.v2","PodAnnotations":["brewlet.sh/runtime-image","brewlet.sh/rotated-to-generation"]}}}}}`)
+	valid := []byte(`{"config":{"containerd":{"runtimes":{"brewlet":{"runtimeType":"io.containerd.brewlet.v2","PodAnnotations":["runtime-image.brewlet.sh/*","runtime-generation.brewlet.sh/*"]}}}}}`)
 	if err := validateLiveConfig(valid); err != nil {
 		t.Fatal(err)
 	}
 	for _, data := range []string{
 		`{}`,
 		`{"config":{"containerd":{"runtimes":{"brewlet":{"runtimeType":"io.containerd.runc.v2","PodAnnotations":["brewlet.sh/*"]}}}}}`,
-		`{"config":{"containerd":{"runtimes":{"brewlet":{"runtimeType":"io.containerd.brewlet.v2","PodAnnotations":["brewlet.sh/runtime-image"]}}}}}`,
+		`{"config":{"containerd":{"runtimes":{"brewlet":{"runtimeType":"io.containerd.brewlet.v2","PodAnnotations":["runtime-image.brewlet.sh/*"]}}}}}`,
 	} {
 		if err := validateLiveConfig([]byte(data)); err == nil {
 			t.Fatalf("accepted %s", data)
@@ -42,7 +42,7 @@ func TestEffectiveBaselineDeniesMissingOrUnsafePackedLayerRetention(t *testing.T
 }
 
 func TestLiveCRIRetentionCheckedOnlyWhenExposed(t *testing.T) {
-	base := `{"config":{"containerd":{"runtimes":{"brewlet":{"runtimeType":"io.containerd.brewlet.v2","PodAnnotations":["brewlet.sh/*"]}}%s}%s}}`
+	base := `{"config":{"containerd":{"runtimes":{"brewlet":{"runtimeType":"io.containerd.brewlet.v2","PodAnnotations":["runtime-image.brewlet.sh/*","runtime-generation.brewlet.sh/*"]}}%s}%s}}`
 	for _, section := range []string{"containerd", "images"} {
 		for _, value := range []string{"false", "true", "null", `"false"`} {
 			field := `,"discardUnpackedLayers":` + value
@@ -77,7 +77,7 @@ func TestEffectiveBaselineAcceptsMigratedVersion4Dump(t *testing.T) {
       [plugins.'io.containerd.cri.v1.runtime'.containerd.runtimes]
         [plugins.'io.containerd.cri.v1.runtime'.containerd.runtimes.brewlet]
           runtime_type = 'io.containerd.brewlet.v2'
-          pod_annotations = ['brewlet.sh/runtime-image', 'brewlet.sh/rotated-to-generation']
+          pod_annotations = ['runtime-image.brewlet.sh/*', 'runtime-generation.brewlet.sh/*']
 `)
 	if err := validateEffectiveConfig(dump); err != nil {
 		t.Fatal(err)

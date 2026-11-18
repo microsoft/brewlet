@@ -197,7 +197,7 @@ the resolved input, including the application digest.
 Pod template; the restart-on-rotation opt-in belongs to the Deployment.*
 
 The important fields are `runtimeClassName: brewlet`,
-`brewlet.sh/runtime-image: temurin-25`, and
+`runtime-image.brewlet.sh/app: temurin-25`, and
 `brewlet.sh/restart-on-rotation: "true"`. Deployment imports the app artifact
 directly into the private node's containerd; it does not push it to a registry.
 

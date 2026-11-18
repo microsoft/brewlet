@@ -11,6 +11,7 @@ import (
 	api "github.com/microsoft/brewlet/kubernetes/api/v1alpha1"
 	"github.com/microsoft/brewlet/kubernetes/policy"
 	"github.com/microsoft/brewlet/pkg/node"
+	runtimeworkload "github.com/microsoft/brewlet/pkg/workload"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -201,7 +202,11 @@ func (e *RestartEngine) Reconcile(ctx context.Context, im *api.RuntimeImage) err
 		idx := slices.IndexFunc(im.Status.Restarts.Workloads, func(s api.WorkloadRestart) bool {
 			return s.UID == w.object.GetUID() && s.InventoryUID == im.UID && s.Generation == im.Status.Generation
 		})
-		opted := w.object.GetAnnotations()["brewlet.sh/restart-on-rotation"] == "true" && w.template.Annotations[api.RuntimeAnnotation] == im.Name && w.template.Spec.RuntimeClassName != nil && *w.template.Spec.RuntimeClassName == "brewlet"
+		usesRuntime, err := templateUsesRuntime(w.template, im.Name)
+		if err != nil {
+			return err
+		}
+		opted := w.object.GetAnnotations()["brewlet.sh/restart-on-rotation"] == "true" && usesRuntime && w.template.Spec.RuntimeClassName != nil && *w.template.Spec.RuntimeClassName == "brewlet"
 		if !opted {
 			if idx >= 0 && im.Status.Restarts.Workloads[idx].Phase != "Complete" {
 				e.outcome(w, &im.Status.Restarts.Workloads[idx], "Deferred", "RestartDeferred", "workload opted out or changed runtime; existing barrier is not removed")
@@ -240,7 +245,8 @@ func (e *RestartEngine) Reconcile(ctx context.Context, im *api.RuntimeImage) err
 		s.BlockedPods = runtimeBlockers
 		taskBlockers := olderTaskBlockers(im, s)
 		s.BlockedPods = append(s.BlockedPods, taskBlockers...)
-		raw := w.template.Annotations[api.BarrierAnnotation]
+		barrierKey := runtimeworkload.RuntimeGenerationAnnotation(im.Name)
+		raw := w.template.Annotations[barrierKey]
 		hasBarrier := false
 		if raw != "" {
 			b, err := barrierValue(raw, im.Name, im.UID)
@@ -350,7 +356,11 @@ func (e *RestartEngine) Reconcile(ctx context.Context, im *api.RuntimeImage) err
 		if err != nil {
 			return err
 		}
-		if fresh.object.GetAnnotations()["brewlet.sh/restart-on-rotation"] != "true" || fresh.template.Annotations[api.RuntimeAnnotation] != im.Name || fresh.template.Spec.RuntimeClassName == nil || *fresh.template.Spec.RuntimeClassName != "brewlet" {
+		freshUsesRuntime, err := templateUsesRuntime(fresh.template, im.Name)
+		if err != nil {
+			return err
+		}
+		if fresh.object.GetAnnotations()["brewlet.sh/restart-on-rotation"] != "true" || !freshUsesRuntime || fresh.template.Spec.RuntimeClassName == nil || *fresh.template.Spec.RuntimeClassName != "brewlet" {
 			e.outcome(w, s, "Deferred", "RestartDeferred", "workload changed while reserving restart intent")
 			continue
 		}
@@ -369,7 +379,7 @@ func (e *RestartEngine) Reconcile(ctx context.Context, im *api.RuntimeImage) err
 				continue
 			}
 		}
-		if value := fresh.template.Annotations[api.BarrierAnnotation]; value != "" {
+		if value := fresh.template.Annotations[barrierKey]; value != "" {
 			b, err := barrierValue(value, im.Name, im.UID)
 			if err != nil {
 				phase := "Failed"
@@ -407,7 +417,7 @@ func (e *RestartEngine) Reconcile(ctx context.Context, im *api.RuntimeImage) err
 			return err
 		}
 		target, _ := json.Marshal(api.Barrier{ID: im.Name, InventoryUID: im.UID, Generation: im.Status.Generation})
-		patch, _ := json.Marshal(map[string]any{"metadata": map[string]any{"uid": s.UID, "resourceVersion": fresh.object.GetResourceVersion()}, "spec": map[string]any{"template": map[string]any{"metadata": map[string]any{"annotations": map[string]string{api.BarrierAnnotation: string(target)}}}}})
+		patch, _ := json.Marshal(map[string]any{"metadata": map[string]any{"uid": s.UID, "resourceVersion": fresh.object.GetResourceVersion()}, "spec": map[string]any{"template": map[string]any{"metadata": map[string]any{"annotations": map[string]string{barrierKey: string(target)}}}}})
 		if err := e.Client.Patch(ctx, fresh.object, client.RawPatch(types.MergePatchType, patch)); err != nil {
 			e.outcome(w, s, "Pending", "RestartPatchFailed", err.Error())
 			continue
@@ -416,7 +426,7 @@ func (e *RestartEngine) Reconcile(ctx context.Context, im *api.RuntimeImage) err
 		if err != nil {
 			return err
 		}
-		if observed.template.Annotations[api.BarrierAnnotation] != string(target) {
+		if observed.template.Annotations[barrierKey] != string(target) {
 			return fmt.Errorf("restart barrier patch was not observed for %s/%s", s.Namespace, s.Name)
 		}
 		s.Patched = true

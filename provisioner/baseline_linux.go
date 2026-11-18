@@ -67,8 +67,8 @@ func validateEffectiveConfig(data []byte) error {
 	selection, barrier := false, false
 	for _, raw := range allow {
 		annotation, _ := raw.(string)
-		selection = selection || annotation == "brewlet.sh/runtime-image" || annotation == "brewlet.sh/*"
-		barrier = barrier || annotation == "brewlet.sh/rotated-to-generation" || annotation == "brewlet.sh/*"
+		selection = selection || annotation == "runtime-image.brewlet.sh/*"
+		barrier = barrier || annotation == "runtime-generation.brewlet.sh/*"
 	}
 	if handler["runtime_type"] != "io.containerd.brewlet.v2" || !selection || !barrier {
 		return fmt.Errorf("brewlet handler or required pod_annotations forwarding missing")
@@ -129,8 +129,8 @@ func validateLiveConfig(data []byte) error {
 	}
 	selection, barrier := false, false
 	for _, annotation := range handler.Annotations {
-		selection = selection || annotation == "brewlet.sh/runtime-image" || annotation == "brewlet.sh/*"
-		barrier = barrier || annotation == "brewlet.sh/rotated-to-generation" || annotation == "brewlet.sh/*"
+		selection = selection || annotation == "runtime-image.brewlet.sh/*"
+		barrier = barrier || annotation == "runtime-generation.brewlet.sh/*"
 	}
 	if !selection || !barrier {
 		return fmt.Errorf("running CRI required annotation forwarding missing")

@@ -3,7 +3,7 @@ kind: Pod
 metadata:
   name: v2-python-first-use
   annotations:
-    brewlet.sh/runtime-image: python-3.12
+    runtime-image.brewlet.sh/app: python-3.12
 spec:
   runtimeClassName: brewlet
   nodeSelector:

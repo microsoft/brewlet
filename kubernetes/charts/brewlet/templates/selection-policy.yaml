@@ -1,0 +1,50 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: {{ .Release.Name }}-brewlet-container-selection
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE]
+        resources: [pods, pods/ephemeralcontainers]
+  variables:
+    - name: prefix
+      expression: "'runtime-image.brewlet.sh/'"
+    - name: oldAnnotations
+      expression: "oldObject != null && has(oldObject.metadata.annotations) ? oldObject.metadata.annotations : {}"
+    - name: newAnnotations
+      expression: "has(object.metadata.annotations) ? object.metadata.annotations : {}"
+  validations:
+    - expression: >-
+        variables.newAnnotations.all(k,
+          !k.startsWith(variables.prefix) ||
+          (k.matches('^runtime-image\\.brewlet\\.sh/[a-z0-9]([-a-z0-9]*[a-z0-9])?$') &&
+           k.size() <= variables.prefix.size() + 63 &&
+           variables.newAnnotations[k].size() <= 55 &&
+           variables.newAnnotations[k].matches('^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$')))
+      reason: Invalid
+      message: runtime selection annotations must map valid container names to RuntimeImage IDs
+    - expression: >-
+        request.operation != 'UPDATE' || oldObject == null ||
+        (oldObject.spec.containers.all(c,
+          ((variables.prefix + c.name) in variables.oldAnnotations ? variables.oldAnnotations[variables.prefix + c.name] : '') ==
+          ((variables.prefix + c.name) in variables.newAnnotations ? variables.newAnnotations[variables.prefix + c.name] : '')) &&
+         (!has(oldObject.spec.initContainers) || oldObject.spec.initContainers.all(c,
+          ((variables.prefix + c.name) in variables.oldAnnotations ? variables.oldAnnotations[variables.prefix + c.name] : '') ==
+          ((variables.prefix + c.name) in variables.newAnnotations ? variables.newAnnotations[variables.prefix + c.name] : ''))) &&
+         (!has(oldObject.spec.ephemeralContainers) || oldObject.spec.ephemeralContainers.all(c,
+          ((variables.prefix + c.name) in variables.oldAnnotations ? variables.oldAnnotations[variables.prefix + c.name] : '') ==
+          ((variables.prefix + c.name) in variables.newAnnotations ? variables.newAnnotations[variables.prefix + c.name] : ''))))
+      reason: Forbidden
+      message: runtime selection is immutable after a container is declared; reserve a future name before adding a managed ephemeral container
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: {{ .Release.Name }}-brewlet-container-selection
+spec:
+  policyName: {{ .Release.Name }}-brewlet-container-selection
+  validationActions: [Deny]

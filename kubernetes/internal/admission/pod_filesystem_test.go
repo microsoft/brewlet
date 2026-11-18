@@ -60,7 +60,7 @@ func TestAllContainerKindsEnforceReadOnlyRootsAndMountPolicy(t *testing.T) {
 	}
 	m, p = setup(t)
 	inventory := new(api.RuntimeImage)
-	if err := m.Reader.Get(t.Context(), client.ObjectKey{Name: p.Annotations[api.RuntimeAnnotation]}, inventory); err != nil {
+	if err := m.Reader.Get(t.Context(), client.ObjectKey{Name: p.Annotations["runtime-image.brewlet.sh/app"]}, inventory); err != nil {
 		t.Fatal(err)
 	}
 	inventory.Spec.VolumeMountPaths = []string{"/tmp"}

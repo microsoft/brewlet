@@ -38,7 +38,7 @@ metadata:
 ```
 
 The operator restarts a workload by setting the
-`brewlet.sh/rotated-to-generation` barrier annotation on its Pod template, so
+`runtime-generation.brewlet.sh/<id>` barrier annotation on its Pod template, so
 the workload's own rollout strategy replaces its Pods. It does not delete Pods
 or change update strategies. By default it restarts up to five workloads at
 once, with a ten-minute progress deadline per workload. Workloads using
@@ -57,13 +57,11 @@ the workload to be safe.
 
 The annotation is the workload owner's consent, so platform operators need no
 patch rights in application namespaces. The chart pairs the operator's patch
-RBAC with a `ValidatingAdmissionPolicy` that only lets the operator set the
-barrier annotation on opted-in Brewlet workloads. It denies all other changes,
+RBAC with a `ValidatingAdmissionPolicy` that only lets the operator advance one
+selected runtime barrier on opted-in Brewlet workloads. It denies all other changes,
 creates and deletes, workloads without the annotation, and the
-`kube-system`, `kube-public` and `kube-node-lease` namespaces. The policy needs
-Kubernetes 1.30 or later; set
-`operator.rotationRestarts.requireAdmissionPolicy=false` only if you accept
-RBAC as the only safeguard. To limit restarts to specific namespaces, list
+`kube-system`, `kube-public` and `kube-node-lease` namespaces. The policy
+requires Kubernetes 1.30 or later. To limit restarts to specific namespaces, list
 them; patch rights then come from a Role in each namespace instead of a
 ClusterRole:
 

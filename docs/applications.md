@@ -107,7 +107,7 @@ spec:
       labels:
         app: api
       annotations:
-        brewlet.sh/runtime-image: python-3.13
+        runtime-image.brewlet.sh/app: python-3.13
     spec:
       runtimeClassName: brewlet
       nodeSelector:

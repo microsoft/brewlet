@@ -28,7 +28,6 @@ const (
 	RuntimeLabel        = "brewlet.sh/runtime"
 	InventoryAnnotation = "brewlet.sh/runtime-images"
 	RuntimeAnnotation   = "brewlet.sh/runtime-image"
-	BarrierAnnotation   = "brewlet.sh/rotated-to-generation"
 	CleanupFinalizer    = "node.brewlet.sh/cleanup"
 	EvidenceFinalizer   = "node.brewlet.sh/retain-retirement-evidence"
 )

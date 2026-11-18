@@ -40,7 +40,8 @@ def workload(kind="Deployment"):
     value = {"apiVersion": "apps/v1", "kind": kind, "metadata": meta("work", UID, NS),
              "spec": {"replicas": 1, "selector": {"matchLabels": {ce.CASE: "work"}},
                       "template": {"metadata": {"annotations": {
-                          ce.BARRIER: json.dumps(ce.barrier_for(image()))}}}},
+                          ce.RUNTIME + "app": RID,
+                          ce.BARRIER + RID: json.dumps(ce.barrier_for(image()))}}}},
              "status": {"observedGeneration": 2}}
     if kind == "Deployment":
         value["status"].update(replicas=1, updatedReplicas=1, readyReplicas=1, availableReplicas=1)
@@ -60,7 +61,10 @@ def pod(uid="new-pod", kind="ReplicaSet", owner="rs-owned", *, ready=True):
                         "conditions": [{"type": "Ready", "status": "True" if ready else "False"}],
                         "containerStatuses": [{"containerID": "containerd://" + uid,
                                                "restartCount": 0, "state": {"running": {}}}]}}
-    value["metadata"]["annotations"] = {ce.BARRIER: json.dumps(ce.barrier_for(image()))}
+    value["metadata"]["annotations"] = {
+        ce.RUNTIME + "app": RID,
+        ce.BARRIER + RID: json.dumps(ce.barrier_for(image())),
+    }
     value["metadata"]["ownerReferences"] = [{"kind": kind, "uid": owner, "controller": True}]
     return value
 
@@ -497,7 +501,8 @@ class ManifestTests(unittest.TestCase):
     def setUp(self):
         self.h = fake_harness()
         self.h.pod = Mock(return_value={
-            "metadata": {"namespace": self.h.namespace, "annotations": {ce.RUNTIME: ce.IDS["python"]}},
+            "metadata": {"namespace": self.h.namespace,
+                         "annotations": {ce.RUNTIME + "app": ce.IDS["python"]}},
             "spec": {"runtimeClassName": "brewlet", "restartPolicy": "Never",
                      "containers": [{"name": "app", "image": self.h.app_images["python"],
                                      "imagePullPolicy": "Never", "readinessProbe": {
@@ -512,8 +517,9 @@ class ManifestTests(unittest.TestCase):
                 self.assertEqual(obj["apiVersion"], "apps/v1")
                 self.assertEqual(obj["metadata"]["namespace"], NS)
                 self.assertEqual(obj["metadata"]["annotations"][ce.OPT_IN], "true")
-                self.assertEqual(obj["spec"]["template"]["metadata"]["annotations"][ce.RUNTIME], RID)
-                self.assertNotIn(ce.BARRIER, obj["spec"]["template"]["metadata"]["annotations"])
+                annotations = obj["spec"]["template"]["metadata"]["annotations"]
+                self.assertEqual(annotations[ce.RUNTIME + "app"], RID)
+                self.assertFalse(any(key.startswith(ce.BARRIER) for key in annotations))
                 self.assertEqual(obj["spec"]["template"]["spec"]["restartPolicy"], "Always")
                 self.assertEqual(obj["spec"]["template"]["spec"]["containers"][0]["image"],
                                  self.h.app_images["python"])
@@ -656,7 +662,7 @@ class RolloutTests(unittest.TestCase):
 
     def test_missing_pod_barrier_refuses_completion(self):
         p = pod()
-        del p["metadata"]["annotations"][ce.BARRIER]
+        del p["metadata"]["annotations"][ce.BARRIER + RID]
         with self.assertRaises(ce.Failure):
             ce.verify_restart(image(), workload(), [pod("old")], [p], row(), expected="Complete")
 

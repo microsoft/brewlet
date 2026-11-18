@@ -47,7 +47,7 @@ class ManagedWasmTests(unittest.TestCase):
             self.assertEqual(pod["spec"]["imagePullSecrets"], [{"name": "owned-registry"}])
             self.assertEqual(pod["spec"]["containers"][0]["imagePullPolicy"], "Always")
             self.assertEqual([v["name"] for v in pod["spec"]["volumes"]], ["work", "cache"])
-            self.assertEqual(pod["metadata"]["annotations"]["brewlet.sh/runtime-image"],
+            self.assertEqual(pod["metadata"]["annotations"]["runtime-image.brewlet.sh/app"],
                              managed_wasm.IDS[engine])
 
     def test_qualification_checks_real_initial_guest_hashes_owner_export_and_cleanup(self):

@@ -164,7 +164,7 @@ spec:
     metadata:
       labels: {app: node-demo}
       annotations:
-        brewlet.sh/runtime-image: node-22
+        runtime-image.brewlet.sh/app: node-22
     spec:
       runtimeClassName: brewlet
       nodeSelector: {kubernetes.io/arch: arm64}

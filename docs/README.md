@@ -17,7 +17,7 @@ separate administrator-owned IDs. Runtime rotations never remediate dependency
 copies packaged by the application under `/app`.
 
 All application, init, sidecar and ephemeral containers use v1 artifacts and the
-same pod-wide ID. The infrastructure sandbox alone follows the ordinary runc
+runtime selected for that container. Unselected containers follow ordinary runc
 path. Workload manifests must explicitly select native-content architectures
 using standard `kubernetes.io/arch` selection; artifact platform declarations
 are not scheduler instructions. The CLI never infers either.

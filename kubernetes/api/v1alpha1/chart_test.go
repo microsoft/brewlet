@@ -8,10 +8,14 @@ import (
 	"slices"
 	"testing"
 
+	admissionv1 "k8s.io/api/admissionregistration/v1"
 	corev1 "k8s.io/api/core/v1"
 	nodev1 "k8s.io/api/node/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	kyaml "k8s.io/apimachinery/pkg/util/yaml"
+	plugincel "k8s.io/apiserver/pkg/admission/plugin/cel"
+	"k8s.io/apiserver/pkg/admission/plugin/policy/validating"
+	"k8s.io/apiserver/pkg/cel/environment"
 )
 
 func TestRuntimeClassOverhead(t *testing.T) {
@@ -210,10 +214,20 @@ func TestChartRotationRestartAdmissionPolicyAndNamespacedRBAC(t *testing.T) {
 	all := docs(out)
 	policies := kinds(all, "ValidatingAdmissionPolicy")
 	bindings := kinds(all, "ValidatingAdmissionPolicyBinding")
-	if len(policies) != 1 || len(bindings) != 1 {
-		t.Fatalf("restart opt-in must ship exactly one policy and binding: %d/%d", len(policies), len(bindings))
+	if len(policies) != 2 || len(bindings) != 2 {
+		t.Fatalf("selection and restart policies must both be installed: %d/%d", len(policies), len(bindings))
 	}
-	spec := policies[0]["spec"].(map[string]any)
+	var restartPolicy map[string]any
+	for _, policy := range policies {
+		metadata := policy["metadata"].(map[string]any)
+		if metadata["name"] == "test-brewlet-rotation-restarts" {
+			restartPolicy = policy
+		}
+	}
+	if restartPolicy == nil {
+		t.Fatal("restart policy missing when rotation restarts are enabled")
+	}
+	spec := restartPolicy["spec"].(map[string]any)
 	if spec["failurePolicy"] != "Fail" {
 		t.Fatal("restart policy must fail closed")
 	}
@@ -226,6 +240,8 @@ func TestChartRotationRestartAdmissionPolicyAndNamespacedRBAC(t *testing.T) {
 		`request.operation == 'UPDATE'`,
 		`["kube-system","kube-public","kube-node-lease"]`,
 		`'brewlet.sh/restart-on-rotation' in variables.oldMeta`,
+		`'runtime-generation.brewlet.sh/'`,
+		`'runtime-image.brewlet.sh/'`,
 		`object.spec.template.spec == oldObject.spec.template.spec`,
 		`k == 'template'`,
 	} {
@@ -276,14 +292,64 @@ func TestChartRotationRestartAdmissionPolicyAndNamespacedRBAC(t *testing.T) {
 			t.Fatalf("restart allowlist accepted %s: %s", ns, out)
 		}
 	}
-	if out, err := command("--kube-version", "1.29.0"); err == nil || !bytes.Contains(out, []byte("requireAdmissionPolicy=false")) {
-		t.Fatalf("restarts enabled without ValidatingAdmissionPolicy support: %v: %s", err, out)
+	if out, err := command("--kube-version", "1.29.0"); err == nil || !bytes.Contains(out, []byte("kubeVersion")) {
+		t.Fatalf("chart accepted Kubernetes below 1.30: %v: %s", err, out)
 	}
-	unbounded, err := command("--kube-version", "1.29.0", "--set", "operator.rotationRestarts.requireAdmissionPolicy=false")
-	if err != nil || bytes.Contains(unbounded, []byte("ValidatingAdmissionPolicy")) || !bytes.Contains(unbounded, []byte("--rotation-restarts=true")) {
-		t.Fatalf("explicit policy waiver not honoured: %v", err)
+	if defaults, err := exec.Command("helm", "template", "test", "../../charts/brewlet", "--namespace", "brewlet-system").CombinedOutput(); err != nil {
+		t.Fatalf("default chart render: %v", err)
+	} else {
+		defaultPolicies := kinds(docs(defaults), "ValidatingAdmissionPolicy")
+		if len(defaultPolicies) != 1 || defaultPolicies[0]["metadata"].(map[string]any)["name"] != "test-brewlet-container-selection" {
+			t.Fatalf("selection policy must be independent of rotation opt-in: %+v", defaultPolicies)
+		}
 	}
-	if defaults, err := exec.Command("helm", "template", "test", "../../charts/brewlet", "--namespace", "brewlet-system").CombinedOutput(); err != nil || bytes.Contains(defaults, []byte("ValidatingAdmissionPolicy")) {
-		t.Fatalf("restart policy rendered without restart opt-in: %v", err)
+}
+
+func TestChartAdmissionPolicyCELCompiles(t *testing.T) {
+	requireHelm(t)
+	out, err := exec.Command("helm", "template", "test", "../../charts/brewlet", "--namespace", "brewlet-system",
+		"--set", "operator.rotationRestarts.enabled=true", "--set", "operator.rotationRestarts.namespaces={apps}").CombinedOutput()
+	if err != nil {
+		t.Fatalf("template: %v: %s", err, out)
+	}
+	var policies []admissionv1.ValidatingAdmissionPolicy
+	decoder := kyaml.NewYAMLOrJSONDecoder(bytes.NewReader(out), 4096)
+	for {
+		var policy admissionv1.ValidatingAdmissionPolicy
+		if err := decoder.Decode(&policy); err == io.EOF {
+			break
+		} else if err != nil {
+			t.Fatal(err)
+		}
+		if policy.Kind == "ValidatingAdmissionPolicy" {
+			policies = append(policies, policy)
+		}
+	}
+	if len(policies) != 2 {
+		t.Fatalf("expected selection and restart policies, got %d", len(policies))
+	}
+	for _, policy := range policies {
+		compiler, err := plugincel.NewCompositedCompiler(environment.MustBaseEnvSet(environment.DefaultCompatibilityVersion()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		options := plugincel.OptionalVariableDeclarations{}
+		for _, v := range policy.Spec.Variables {
+			if result := compiler.CompileAndStoreVariable(&validating.Variable{Name: v.Name, Expression: v.Expression}, options, environment.NewExpressions); result.Error != nil {
+				t.Errorf("%s variable %s: %v", policy.Name, v.Name, result.Error)
+			}
+		}
+		var conditions []string
+		for _, c := range policy.Spec.MatchConditions {
+			conditions = append(conditions, c.Expression)
+		}
+		for _, v := range policy.Spec.Validations {
+			conditions = append(conditions, v.Expression)
+		}
+		for _, expression := range conditions {
+			if result := compiler.CompileCELExpression(&validating.ValidationCondition{Expression: expression}, options, environment.NewExpressions); result.Error != nil {
+				t.Errorf("%s expression %q: %v", policy.Name, expression, result.Error)
+			}
+		}
 	}
 }

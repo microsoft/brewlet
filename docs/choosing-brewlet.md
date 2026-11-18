@@ -20,7 +20,7 @@ can break its expected loader, library and filesystem paths.
 | Recheck runtime authorization on every container Create | Pod admission does not rerun on restart; registry checks can gate starts with an availability cost. | Same tradeoff; see restart policies below. | Renewable node-local authorization must remain valid even when the root is cached. |
 | Apply application launch metadata | Container image config and Pod settings. | Render explicit command, arguments, environment and working directory; a volume's image config is not executed. | Validated explicit launch descriptor with runtime-owned PATH and protected Exec state. |
 | Use native Kubernetes controllers | Supported. | Supported. | Supported; no replacement workload CRD. |
-| Mix heterogeneous sidecars in one Pod | Supported, subject to cluster policy. | Supported, subject to cluster policy. | All application containers require the same runtime ID and v1 artifact contract. |
+| Mix heterogeneous sidecars in one Pod | Supported, subject to cluster policy. | Supported, subject to cluster policy. | Each managed container selects its own runtime; unselected containers use ordinary OCI behavior. |
 | Avoid custom node runtime administration | Normally uses the installed CRI runtime. | Requires image-volume support in Kubernetes and the CRI runtime. | Requires Brewlet provisioning, containerd configuration and the shim. |
 | Obtain stronger isolation than runc | Choose an appropriate sandboxed runtime. | Image volumes do not add a sandbox boundary. | Not provided by Brewlet's runc backend. |
 | Protect the container's runtime view from writes | Requires a read-only root and suitable mount policy. | Same requirement; read-only app volumes alone do not protect the runtime root. | Read-only root enforced by admission and shim; workload mounts constrained to platform-approved data/configuration zones. |
@@ -131,8 +131,7 @@ the chosen rollout strategy controlling disruption.
 
 - **Choose native image volumes** when independent delivery, explicit-digest
   rollouts and existing platform policies meet the requirements. They also
-  allow heterogeneous sidecars without Brewlet's same-runtime-ID constraint
-  and avoid installing a custom privileged node runtime integration.
+  avoid installing a custom privileged node runtime integration.
 - **Choose Brewlet** when integrated approval, pool provisioning, generation
   visibility, opt-in rotation, restart authorization and retirement evidence
   are worth that integration's operating cost. Its value is supplying and
@@ -176,9 +175,7 @@ results.
 
 ## Coexistence
 
-Non-Brewlet Pods keep their ordinary runtime. Within a Brewlet Pod, every
-application/init/sidecar/ephemeral container must use the v1 artifact contract
-and the same runtime ID. The infrastructure sandbox is the exception.
-
-If a sidecar requires an incompatible runtime, reconsider the Pod boundary or
-use an ordinary container deployment; do not assume per-container runtime IDs.
+Non-Brewlet Pods keep their ordinary runtime. Within a Brewlet Pod, each selected application, init, sidecar or ephemeral
+container uses the v1 artifact contract and its own selected runtime ID.
+Unselected containers retain ordinary OCI behavior, including conventional
+debug containers. The infrastructure sandbox is not an application container.
