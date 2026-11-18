@@ -466,7 +466,7 @@ const k8sRemoveHelp = `Usage: brewlet k8s runtime remove ID [--force] [--yes] [-
 Revoke and delete RuntimeImage ID.
 
 remove refuses while the ID is still referenced by NodeProfiles (placement),
-Deployments/StatefulSets/DaemonSets or live pods (brewlet.sh/runtime-image),
+Deployments/StatefulSets/DaemonSets or live pods (runtime-image.brewlet.sh/<container-name>),
 or containers bound to it on nodes (status.taskObservations).
 
 --force removes the ID from every referencing NodeProfile and then deletes the

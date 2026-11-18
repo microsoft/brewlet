@@ -97,7 +97,7 @@ test("deployment template is a plain Deployment selecting a runtime by annotatio
     const rendered = renderDeploymentYaml(template, { namespace: "ns", image: "example.invalid/a@sha256:1", runtime: BASE_RUNTIME, arch: "arm64" });
     assert.doesNotMatch(rendered, /__[A-Z]+__/);
     assert.match(rendered, /runtimeClassName: brewlet/);
-    assert.match(rendered, /brewlet\.sh\/runtime-image: "temurin-25"/);
+    assert.match(rendered, /runtime-image\.brewlet\.sh\/app: "temurin-25"/);
     assert.match(rendered, /brewlet\.sh\/restart-on-rotation: "true"/);
     assert.match(rendered, /image: "example\.invalid\/a@sha256:1"/);
     assert.match(rendered, /readOnlyRootFilesystem: true/);
@@ -129,7 +129,7 @@ test("pod proof follows controller UIDs and links imageID to the OCI artifact", 
     const replicasets = [{ metadata: { uid: "rs", ownerReferences: [{ controller: true, kind: "Deployment", uid: "d" }] } },
         { metadata: { uid: "foreign", ownerReferences: [{ controller: true, kind: "Deployment", uid: "other" }] } }];
     const pod = (name, owner, imageID) => ({
-        metadata: { name, uid: `${name}-uid`, annotations: { "brewlet.sh/runtime-image": BASE_RUNTIME }, ownerReferences: [{ controller: true, kind: "ReplicaSet", uid: owner }] },
+        metadata: { name, uid: `${name}-uid`, annotations: { "runtime-image.brewlet.sh/app": BASE_RUNTIME }, ownerReferences: [{ controller: true, kind: "ReplicaSet", uid: owner }] },
         spec: { nodeName: "n", runtimeClassName: "brewlet", containers: [{ name: "app", image }] },
         status: { phase: "Running", conditions: [{ type: "Ready", status: "True" }], containerStatuses: [{ name: "app", ready: true, state: { running: {} }, imageID }] },
     });
@@ -178,7 +178,7 @@ test("names are session-scoped and previews never use the user's current context
     assert.match(previews.upgrade.commands[0], /"op":"replace","path":"\/spec\/source\/image"/);
     assert.match(previews.upgrade.commands[0], /patch runtimeimage temurin-25/);
     assert.match(previews.upgrade.commands.join("\n"), /get runtimeimage temurin-25/);
-    assert.match(previews.upgrade.commands.join("\n"), /rotated-to-generation/);
+    assert.match(previews.upgrade.commands.join("\n"), /runtime-generation/);
     assert.match(previews.upgrade.note, /RotationComplete/);
 });
 
@@ -368,7 +368,7 @@ test("verified rollouts bind measured trust-store evidence to the unchanged app 
     }])) };
     manager.fetcher = async () => ({ ok: true, json: async () => inspection(expected()) });
     manager.deployment = async () => ({ metadata: { uid: "deployment" }, spec: { template: {
-        metadata: { annotations: { "brewlet.sh/runtime-image": BASE_RUNTIME } }, spec: { containers: [{ name: "app" }] },
+        metadata: { annotations: { "runtime-image.brewlet.sh/app": BASE_RUNTIME } }, spec: { containers: [{ name: "app" }] },
     } } });
     const node = () => ({ metadata: { uid: "node", annotations: { "brewlet.sh/runtime-bindings": JSON.stringify({
         complete: true, nodeUID: "node", observedAt: new Date().toISOString(),
@@ -379,7 +379,7 @@ test("verified rollouts bind measured trust-store evidence to the unchanged app 
         if (args[1] === "node") return node();
         if (args[1] === "replicasets") return { items: [{ metadata: { uid: "rs", ownerReferences: [{ controller: true, kind: "Deployment", uid: "deployment" }] } }] };
         return { items: [{
-            metadata: { name: "pod", uid: "pod-uid", annotations: { "brewlet.sh/runtime-image": BASE_RUNTIME },
+            metadata: { name: "pod", uid: "pod-uid", annotations: { "runtime-image.brewlet.sh/app": BASE_RUNTIME },
                 ownerReferences: [{ controller: true, kind: "ReplicaSet", uid: "rs" }] },
             spec: { nodeName: "node", runtimeClassName: "brewlet", containers: [{ name: "app", image: fixture.image }] },
             status: { phase: "Running", conditions: [{ type: "Ready", status: "True" }],
@@ -441,7 +441,7 @@ test("upgrade and rollback rotate one RuntimeImage and wait for node and workloa
     manager.deployment = async () => ({
         spec: { template: { metadata: { annotations: {
             [RUNTIME_ANNOTATION]: BASE_RUNTIME,
-            "brewlet.sh/rotated-to-generation": live.barrier,
+            ["runtime-generation.brewlet.sh/" + BASE_RUNTIME]: live.barrier,
         } } } },
     });
     manager.kube = async (args) => {

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	api "github.com/microsoft/brewlet/kubernetes/api/v1alpha1"
+	runtimeworkload "github.com/microsoft/brewlet/pkg/workload"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -42,7 +43,7 @@ func TestRestartBlockersRetainNeverStartedRuntimeFailureDuringBackoff(t *testing
 				LastTerminationState: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{
 					Reason: "StartError", ExitCode: 128, StartedAt: metav1.NewTime(time.Unix(0, 0)),
 					Message: "failed to create task: RuntimeImageInstalling: example"}}}
-			pod := corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "blocked", Namespace: "apps", UID: "pod-one"},
+			pod := corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "blocked", Namespace: "apps", UID: "pod-one", Annotations: map[string]string{"runtime-image.brewlet.sh/app": "python-3.12"}},
 				Spec: corev1.PodSpec{NodeName: "cold-node"}, Status: corev1.PodStatus{Phase: corev1.PodPending}}
 			switch role {
 			case "main":
@@ -52,7 +53,7 @@ func TestRestartBlockersRetainNeverStartedRuntimeFailureDuringBackoff(t *testing
 			case "ephemeral":
 				pod.Status.EphemeralContainerStatuses = []corev1.ContainerStatus{status}
 			}
-			image := &api.RuntimeImage{Status: api.RuntimeImageStatus{Generation: 2}}
+			image := &api.RuntimeImage{ObjectMeta: metav1.ObjectMeta{Name: "python-3.12"}, Status: api.RuntimeImageStatus{Generation: 2}}
 			blocked := restartBlockers([]corev1.Pod{pod}, image)
 			if len(blocked) != 1 || blocked[0].Reason != "RuntimeImageInstalling" ||
 				blocked[0].UID != pod.UID || blocked[0].Node != "cold-node" ||
@@ -79,7 +80,7 @@ func TestRestartBlockersIgnoreStaleFailureAfterRealExecution(t *testing.T) {
 			case "application-exit":
 				status.LastTerminationState.Terminated.Reason = "Error"
 			}
-			pod := corev1.Pod{Status: corev1.PodStatus{Phase: corev1.PodRunning,
+			pod := corev1.Pod{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{"runtime-image.brewlet.sh/app": "python-3.12"}}, Status: corev1.PodStatus{Phase: corev1.PodRunning,
 				ContainerStatuses: []corev1.ContainerStatus{status}}}
 			if blocked := restartBlockers([]corev1.Pod{pod}, &api.RuntimeImage{}); len(blocked) != 0 {
 				t.Fatalf("actual execution was deferred using stale runtime text: %+v", blocked)
@@ -98,7 +99,7 @@ func TestRestartOnDeletePausedPartitionedHaveBarrierWithoutSlot(t *testing.T) {
 			runtimeClass := "brewlet"
 			controller := true
 			metadata := metav1.ObjectMeta{Name: name, Namespace: "apps", UID: types.UID(mode), Generation: 1, Annotations: map[string]string{"brewlet.sh/restart-on-rotation": "true"}}
-			template := corev1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": name}, Annotations: map[string]string{api.RuntimeAnnotation: f.image.Name}}, Spec: corev1.PodSpec{RuntimeClassName: &runtimeClass, Containers: []corev1.Container{{Name: "app", Image: "registry.example.com/app@sha256:" + strings.Repeat("a", 64)}}}}
+			template := corev1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": name}, Annotations: map[string]string{"runtime-image.brewlet.sh/app": f.image.Name}}, Spec: corev1.PodSpec{RuntimeClassName: &runtimeClass, Containers: []corev1.Container{{Name: "app", Image: "registry.example.com/app@sha256:" + strings.Repeat("a", 64)}}}}
 			selector := &metav1.LabelSelector{MatchLabels: map[string]string{"app": name}}
 			var obj client.Object
 			kind := ""
@@ -150,7 +151,7 @@ func TestRestartOnDeletePausedPartitionedHaveBarrierWithoutSlot(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if fresh.template.Annotations[api.BarrierAnnotation] == "" {
+			if fresh.template.Annotations[runtimeworkload.RuntimeGenerationAnnotation(f.image.Name)] == "" {
 				t.Fatal("non-actionable controller did not receive barrier")
 			}
 			if strings.Contains(mode, "ondelete") && !fresh.onDelete || mode == "paused" && fresh.deferred == "" || mode == "partitioned" && fresh.deferred == "" {

@@ -2,8 +2,8 @@
 
 Brewlet approves runtime IDs cluster-wide (`RuntimeImage`) and places them per
 node pool (`NodeProfile`). By default, any namespace can run a Pod with
-`runtimeClassName: brewlet` and any approved, placed
-`brewlet.sh/runtime-image` ID. Some platforms must narrow that:
+`runtimeClassName: brewlet` and any approved, placed runtime ID selected by a
+container annotation. Some platforms must narrow that:
 
 - **Licensing:** only licensed teams may use `java-21-oracle`.
 - **Compliance:** regulated namespaces may use only hardened images.
@@ -24,13 +24,14 @@ and rotation-restart policy. The manifests below were verified on kind
 
 ## How the recipe works
 
-- One policy matches Pod `CREATE` requests where
-  `spec.runtimeClassName == "brewlet"`. Only `CREATE` is checked: the runtime
-  ID is resolved when the container is created, so later annotation edits do
-  not change the runtime.
-- The policy denies a Pod unless its `brewlet.sh/runtime-image` annotation is
-  a key in the allow-list ConfigMap of the binding that matched the namespace.
-  A missing annotation never matches.
+- One policy matches Pod `CREATE`/`UPDATE` requests and
+  `pods/ephemeralcontainers` updates where
+  `spec.runtimeClassName == "brewlet"`. It checks every runtime selection,
+  including a reservation for a future ephemeral container.
+- For each `runtime-image.brewlet.sh/<container-name>` annotation, the policy
+  requires its runtime ID to be a key in the allow-list ConfigMap of the
+  binding that matched the namespace. A Pod with no selected containers passes
+  this use restriction as ordinary OCI.
 - Allow-lists live in ConfigMaps in an admin-only namespace, not in labels or
   annotations that namespace owners can edit. Runtime IDs are valid ConfigMap
   keys, so each allowed ID is one key; the value is ignored.
@@ -84,25 +85,26 @@ spec:
     resourceRules:
       - apiGroups: [""]
         apiVersions: [v1]
-        operations: [CREATE]
-        resources: [pods]
+        operations: [CREATE, UPDATE]
+        resources: [pods, pods/ephemeralcontainers]
   matchConditions:
     - name: brewlet-runtime-class
       expression: >-
         has(object.spec.runtimeClassName) &&
         object.spec.runtimeClassName == 'brewlet'
   variables:
-    - name: id
+    - name: selectionsAllowed
       expression: >-
-        has(object.metadata.annotations) &&
-        'brewlet.sh/runtime-image' in object.metadata.annotations
-        ? object.metadata.annotations['brewlet.sh/runtime-image'] : ''
+        !has(object.metadata.annotations) ||
+        object.metadata.annotations.all(k,
+          !k.startsWith('runtime-image.brewlet.sh/') ||
+          (has(params.data) && object.metadata.annotations[k] in params.data))
   validations:
-    - expression: has(params.data) && variables.id in params.data
+    - expression: variables.selectionsAllowed
       reason: Forbidden
       messageExpression: >-
-        'RuntimeImageNotAllowedInNamespace: runtime image "' + variables.id +
-        '" is not permitted in namespace "' + request.namespace + '"'
+        'RuntimeImageNotAllowedInNamespace: one or more selected runtime IDs are not permitted in namespace "' +
+        request.namespace + '"'
 ```
 
 Bind it once per tier. Every tier value must also appear in the default
@@ -150,13 +152,13 @@ Assign a tier to a namespace:
 kubectl label namespace team-a brewlet.example.com/runtime-tier=licensed
 ```
 
-A disallowed Pod is denied with:
+A Pod with a disallowed selection is denied with:
 
 ```text
 pods "app-x7k2p" is forbidden: ValidatingAdmissionPolicy
 'brewlet-runtime-images-by-namespace' with binding
 'brewlet-runtime-images-default' denied request:
-RuntimeImageNotAllowedInNamespace: runtime image "java-21-oracle" is not
+RuntimeImageNotAllowedInNamespace: one or more selected runtime IDs are not
 permitted in namespace "team-b"
 ```
 
@@ -206,33 +208,24 @@ spec:
         has(object.spec.template.spec.runtimeClassName) &&
         object.spec.template.spec.runtimeClassName == 'brewlet'
   variables:
-    - name: id
+    - name: selectionsAllowed
       expression: >-
-        has(object.spec.template.metadata.annotations) &&
-        'brewlet.sh/runtime-image' in object.spec.template.metadata.annotations
-        ? object.spec.template.metadata.annotations['brewlet.sh/runtime-image'] : ''
-    - name: unchanged
-      expression: >-
-        request.operation == 'UPDATE' &&
-        has(oldObject.spec.template.spec.runtimeClassName) &&
-        oldObject.spec.template.spec.runtimeClassName == 'brewlet' &&
-        has(oldObject.spec.template.metadata.annotations) &&
-        'brewlet.sh/runtime-image' in oldObject.spec.template.metadata.annotations &&
-        oldObject.spec.template.metadata.annotations['brewlet.sh/runtime-image'] == variables.id
+        !has(object.spec.template.metadata.annotations) ||
+        object.spec.template.metadata.annotations.all(k,
+          !k.startsWith('runtime-image.brewlet.sh/') ||
+          (has(params.data) && object.spec.template.metadata.annotations[k] in params.data))
   validations:
-    - expression: >-
-        variables.unchanged || (has(params.data) && variables.id in params.data)
+    - expression: variables.selectionsAllowed
       reason: Forbidden
       messageExpression: >-
-        'RuntimeImageNotAllowedInNamespace: runtime image "' + variables.id +
-        '" is not permitted in namespace "' + request.namespace + '"'
+        'RuntimeImageNotAllowedInNamespace: one or more selected runtime IDs are not permitted in namespace "' +
+        request.namespace + '"'
 ```
 
-`kubectl apply` of a disallowed Deployment is then denied directly. Updates
-that keep the same runtime ID are not re-checked, so scaling and the operator's
-[rotation-restart](operations.md) barrier patch are never blocked by this
-policy. CronJobs are covered through the Jobs they create. The Pod policy
-remains the authoritative check.
+`kubectl apply` of a disallowed Deployment is then denied directly. Every
+template update rechecks all selected IDs; the operator's rotation barrier
+patch preserves those IDs and therefore remains allowed. CronJobs are covered
+through the Jobs they create. The Pod policy remains the authoritative check.
 
 ## Failure modes and ownership
 
@@ -265,7 +258,7 @@ reuse its audit and exception workflows:
 
 - **Gatekeeper:** write a `ConstraintTemplate` that reads
   `input.review.object.spec.runtimeClassName` and the
-  `brewlet.sh/runtime-image` annotation and compares the ID with an
+  `runtime-image.brewlet.sh/<container-name>` annotation and compares the ID with an
   `allowedRuntimeImages` parameter. Create one constraint per tier, scoped with
   `match.namespaceSelector` on the admin-controlled tier label, plus a default
   constraint using `NotIn`. Match `Pod` `CREATE` only, and use Gatekeeper's

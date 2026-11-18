@@ -21,7 +21,8 @@ It condenses the core workflows; use the recipes below for complete details.
   provisioner installs them.
 - **Workload** remains a native Kubernetes Deployment, StatefulSet, DaemonSet,
   or other supported resource. It selects `runtimeClassName: brewlet` and an
-  explicit runtime ID.
+  explicit runtime ID for each managed container through its Pod annotation;
+  containers without a selection use ordinary OCI behavior.
 
 ## Choose a workflow
 
@@ -235,7 +236,7 @@ spec:
       labels:
         app: api
       annotations:
-        brewlet.sh/runtime-image: python-3.13
+        runtime-image.brewlet.sh/api: python-3.13
     spec:
       runtimeClassName: brewlet
       nodeSelector:
@@ -379,8 +380,8 @@ workloads. Incomplete evidence returns a partial report and a nonzero exit.
 
 - Runtime IDs, platforms, launch metadata, and registry references are explicit;
   Brewlet does not infer them.
-- All application containers in one Brewlet Pod use the same runtime ID and
-  version-1 artifact contract.
+- Each selected container uses its own runtime ID and version-1 artifact
+  contract; unselected containers use ordinary OCI behavior.
 - `/app` is read-only and world-readable. Never put secrets there; use scoped
   Secret volumes and explicit writable mounts for data.
 - Rotating a runtime does not update dependency copies packaged under `/app`.

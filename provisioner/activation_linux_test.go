@@ -19,7 +19,7 @@ func TestConfigureContainerdVersions(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(string(desired), "io.containerd.brewlet.v2") || !strings.Contains(string(desired), "brewlet.sh/rotated-to-generation") {
+		if !strings.Contains(string(desired), "io.containerd.brewlet.v2") || !strings.Contains(string(desired), "runtime-generation.brewlet.sh/*") {
 			t.Fatal(string(desired))
 		}
 		if _, err := configuredRuntime(desired); err == nil {

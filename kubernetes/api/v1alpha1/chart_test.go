@@ -210,10 +210,20 @@ func TestChartRotationRestartAdmissionPolicyAndNamespacedRBAC(t *testing.T) {
 	all := docs(out)
 	policies := kinds(all, "ValidatingAdmissionPolicy")
 	bindings := kinds(all, "ValidatingAdmissionPolicyBinding")
-	if len(policies) != 1 || len(bindings) != 1 {
-		t.Fatalf("restart opt-in must ship exactly one policy and binding: %d/%d", len(policies), len(bindings))
+	if len(policies) != 2 || len(bindings) != 2 {
+		t.Fatalf("selection and restart policies must both be installed: %d/%d", len(policies), len(bindings))
 	}
-	spec := policies[0]["spec"].(map[string]any)
+	var restartPolicy map[string]any
+	for _, policy := range policies {
+		metadata := policy["metadata"].(map[string]any)
+		if metadata["name"] == "test-brewlet-rotation-restarts" {
+			restartPolicy = policy
+		}
+	}
+	if restartPolicy == nil {
+		t.Fatal("restart policy missing when rotation restarts are enabled")
+	}
+	spec := restartPolicy["spec"].(map[string]any)
 	if spec["failurePolicy"] != "Fail" {
 		t.Fatal("restart policy must fail closed")
 	}
@@ -226,6 +236,8 @@ func TestChartRotationRestartAdmissionPolicyAndNamespacedRBAC(t *testing.T) {
 		`request.operation == 'UPDATE'`,
 		`["kube-system","kube-public","kube-node-lease"]`,
 		`'brewlet.sh/restart-on-rotation' in variables.oldMeta`,
+		`'runtime-generation.brewlet.sh/'`,
+		`'runtime-image.brewlet.sh/'`,
 		`object.spec.template.spec == oldObject.spec.template.spec`,
 		`k == 'template'`,
 	} {
@@ -276,14 +288,15 @@ func TestChartRotationRestartAdmissionPolicyAndNamespacedRBAC(t *testing.T) {
 			t.Fatalf("restart allowlist accepted %s: %s", ns, out)
 		}
 	}
-	if out, err := command("--kube-version", "1.29.0"); err == nil || !bytes.Contains(out, []byte("requireAdmissionPolicy=false")) {
-		t.Fatalf("restarts enabled without ValidatingAdmissionPolicy support: %v: %s", err, out)
+	if out, err := command("--kube-version", "1.29.0"); err == nil || !bytes.Contains(out, []byte("kubeVersion")) {
+		t.Fatalf("chart accepted Kubernetes below 1.30: %v: %s", err, out)
 	}
-	unbounded, err := command("--kube-version", "1.29.0", "--set", "operator.rotationRestarts.requireAdmissionPolicy=false")
-	if err != nil || bytes.Contains(unbounded, []byte("ValidatingAdmissionPolicy")) || !bytes.Contains(unbounded, []byte("--rotation-restarts=true")) {
-		t.Fatalf("explicit policy waiver not honoured: %v", err)
-	}
-	if defaults, err := exec.Command("helm", "template", "test", "../../charts/brewlet", "--namespace", "brewlet-system").CombinedOutput(); err != nil || bytes.Contains(defaults, []byte("ValidatingAdmissionPolicy")) {
-		t.Fatalf("restart policy rendered without restart opt-in: %v", err)
+	if defaults, err := exec.Command("helm", "template", "test", "../../charts/brewlet", "--namespace", "brewlet-system").CombinedOutput(); err != nil {
+		t.Fatalf("default chart render: %v", err)
+	} else {
+		defaultPolicies := kinds(docs(defaults), "ValidatingAdmissionPolicy")
+		if len(defaultPolicies) != 1 || defaultPolicies[0]["metadata"].(map[string]any)["name"] != "test-brewlet-container-selection" {
+			t.Fatalf("selection policy must be independent of rotation opt-in: %+v", defaultPolicies)
+		}
 	}
 }

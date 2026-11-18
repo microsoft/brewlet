@@ -457,12 +457,18 @@ func (d *dashboardServer) snapshot(w http.ResponseWriter, r *http.Request) {
 		s.Errors["pods"] = err.Error()
 	} else {
 		for _, p := range pods.Items {
-			id := p.Annotations[api.RuntimeAnnotation]
-			if id == "" || p.Spec.RuntimeClassName == nil || *p.Spec.RuntimeClassName != "brewlet" {
+			ids, err := selectedRuntimeIDs(p.Annotations, p.Spec)
+			if err != nil {
+				s.Errors["pods"] = fmt.Sprintf("invalid runtime selections on Pod %s/%s: %v", p.Namespace, p.Name, err)
+				continue
+			}
+			if len(ids) == 0 || p.Spec.RuntimeClassName == nil || *p.Spec.RuntimeClassName != "brewlet" {
 				continue
 			}
 			related[p.UID] = true
-			s.Pods = append(s.Pods, dashboardPod{podRefs([]corev1.Pod{p})[0], id, p.UID})
+			for _, id := range ids {
+				s.Pods = append(s.Pods, dashboardPod{podRefs([]corev1.Pod{p})[0], id, p.UID})
+			}
 		}
 	}
 	var events corev1.EventList

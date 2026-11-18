@@ -247,7 +247,7 @@ spec:
   template:
     metadata:
       labels: {app: log4j-demo}
-      annotations: {brewlet.sh/runtime-image: java-21}
+      annotations: {runtime-image.brewlet.sh/app: java-21}
     spec:
       runtimeClassName: brewlet
       containers:

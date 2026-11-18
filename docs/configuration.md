@@ -8,7 +8,7 @@ not the resources Brewlet generates from it.
 | Helm values | Control-plane options and optional `NodeProfile`s. |
 | `RuntimeImage` | Approved runtime source, default user and compatibility metadata. |
 | `NodeProfile` | Node pools, runtime offerings, installation policy, mirrors and worker rollout. |
-| Pod or workload controller | Runtime ID, application image, resources and rollout policy. |
+| Pod or workload controller | Per-container runtime selections, application image, resources and rollout policy. |
 
 Manage these objects through Helm or GitOps. Do not edit the worker DaemonSets
 that the operator generates; the operator reconciles them.
@@ -36,7 +36,6 @@ release version.
 | `operator.rotationRestarts.workloadProgressDeadline` | `10m` | Workload restart progress deadline. |
 | `operator.rotationRestarts.namespaces` | `[]` | Optional restart namespace allowlist; when set, patch rights use a Role per namespace instead of the ClusterRole. Namespaces must exist and cannot be the release or a protected namespace. |
 | `operator.rotationRestarts.protectedNamespaces` | `[kube-system, kube-public, kube-node-lease]` | Namespaces the restart admission policy always refuses. |
-| `operator.rotationRestarts.requireAdmissionPolicy` | `true` | Fail installation with restarts enabled when `ValidatingAdmissionPolicy` v1 (Kubernetes 1.30+) is unavailable; `false` accepts RBAC as the only bound. |
 | `uninstall.timeoutSeconds` | `240` | Uninstall cleanup timeout, a whole number from 1 to 86400. |
 | `metrics.enabled` | `false` | Enable operator and node Prometheus endpoints. |
 | `metrics.nodePort` | `9090` | Node metrics listener/service port; this is not a NodePort service type. |
@@ -88,15 +87,17 @@ still required.
 
 ## Pod and controller settings
 
-Set `runtimeClassName: brewlet` and the Pod annotation
-`brewlet.sh/runtime-image: <id>`. All containers in the Pod use the same
-runtime ID. Brewlet does not add architecture constraints; set node affinity
-yourself (see [multi-architecture fleets](multi-arch.md)).
+Set `runtimeClassName: brewlet` and add a Pod annotation for each managed
+container, such as `runtime-image.brewlet.sh/app: python-3.13`. Unselected
+containers use ordinary OCI behavior. A Pod may select multiple runtimes, but a
+single eligible `NodeProfile` must offer the full set. Brewlet adds the runtime
+capability constraints while preserving your other scheduling requirements.
 
-Every container (application, init, sidecar and ephemeral) must use
-`securityContext.readOnlyRootFilesystem: true`. Admission sets it when it is
-omitted and rejects an explicit `false`. The shim also refuses a writable root
-filesystem if admission was bypassed.
+Selected containers (application, init, or ephemeral) must use
+`securityContext.readOnlyRootFilesystem: true`. Admission sets it when omitted
+and rejects an explicit `false`; the shim also refuses a writable root if
+admission was bypassed. Unselected OCI containers retain ordinary security
+defaults subject to cluster policy.
 
 Volume and device mounts outside `/app/` must be listed in the runtime's
 `RuntimeImage.spec.volumeMountPaths`. See
@@ -105,8 +106,12 @@ Volume and device mounts outside `/app/` must be listed in the runtime's
 To have the operator restart a workload after a runtime rotation, set
 `brewlet.sh/restart-on-rotation: "true"` on the workload controller's metadata
 (not on its Pod template) and enable `operator.rotationRestarts.enabled`.
-`brewlet.sh/rotated-to-generation` is a JSON minimum-generation barrier, not a
+`runtime-generation.brewlet.sh/<id>` is a JSON minimum-generation barrier, not a
 free-form version string. See [public workload annotations](reference.md#public-workload-annotations).
+
+The chart requires Kubernetes 1.30 or later. Its runtime-selection
+ValidatingAdmissionPolicy installs even when the mutating webhook and rotation
+restart feature are disabled.
 
 ### RuntimeClass overhead
 

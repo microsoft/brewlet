@@ -10,10 +10,6 @@ operator:
     namespaces: []
     # Never eligible for restarts, even when allowlisted.
     protectedNamespaces: [kube-system, kube-public, kube-node-lease]
-    # Restarts render a ValidatingAdmissionPolicy that confines the operator's
-    # workload patches to the restart barrier. Disabling this requirement on
-    # clusters without ValidatingAdmissionPolicy leaves RBAC as the only bound.
-    requireAdmissionPolicy: true
 runtimeClass:
   overhead:
     cpu: "50m"

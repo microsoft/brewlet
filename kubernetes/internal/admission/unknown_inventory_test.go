@@ -22,7 +22,7 @@ func TestUnknownOtherIDDoesNotInvalidateApprovedProfileOffer(t *testing.T) {
 		t.Fatal(err)
 	}
 	unknown := p.DeepCopy()
-	unknown.Annotations[api.RuntimeAnnotation] = "not-approved-yet"
+	unknown.Annotations["runtime-image.brewlet.sh/app"] = "not-approved-yet"
 	if _, err := m.Mutate(ctx, p); err != nil {
 		t.Fatal("unknown sibling ID denied a valid approved offer:", err)
 	}

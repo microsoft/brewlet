@@ -352,7 +352,7 @@ func TestDashboardRotationRejectsChangedEvidence(t *testing.T) {
 				}
 			case "impact":
 				rc := "brewlet"
-				p := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "new-pod", Namespace: "apps", Annotations: map[string]string{api.RuntimeAnnotation: im.Name}}, Spec: corev1.PodSpec{RuntimeClassName: &rc}}
+				p := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "new-pod", Namespace: "apps", Annotations: map[string]string{"runtime-image.brewlet.sh/app": im.Name}}, Spec: corev1.PodSpec{RuntimeClassName: &rc, Containers: []corev1.Container{{Name: "app"}}}}
 				if err := d.client.Create(context.Background(), p); err != nil {
 					t.Fatal(err)
 				}

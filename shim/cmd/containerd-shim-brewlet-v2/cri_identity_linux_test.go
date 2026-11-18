@@ -115,7 +115,7 @@ func TestResolveUsesProtectedRequestedTargetNotHintsOrConfigIdentity(t *testing.
 				t.Fatal(err)
 			}
 			defer client.Close()
-			annotations := map[string]string{"io.kubernetes.cri.image-name": stamped}
+			annotations := map[string]string{"io.kubernetes.cri.image-name": stamped, "io.kubernetes.cri.container-name": "app"}
 			if name == "conflicting hints" {
 				annotations["brewlet.sh/artifact-ref"] = "registry.example.test/foreign@" + hinted.Digest.String()
 				annotations["brewlet.sh/artifact-digest"] = hinted.Digest.String()
@@ -123,7 +123,7 @@ func TestResolveUsesProtectedRequestedTargetNotHintsOrConfigIdentity(t *testing.
 			}
 			service := &service{client: client}
 			if name == "runtime allowlist" {
-				annotations["brewlet.sh/runtime-image"] = "selected"
+				annotations["runtime-image.brewlet.sh/app"] = "selected"
 				spec := &runtimeSpec.Spec{Annotations: annotations, Process: &runtimeSpec.Process{
 					Args: []string{"tool"}, Cwd: "/app", NoNewPrivileges: true,
 					User: runtimeSpec.User{UID: 1000, GID: 1000},

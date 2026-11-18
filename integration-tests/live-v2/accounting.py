@@ -328,7 +328,7 @@ def manifest(h, name):
     result = {
         "apiVersion": "v1", "kind": "Pod",
         "metadata": {"name": name, "namespace": h.namespace, "labels": {OWNER: h.run_id},
-                     "annotations": {"brewlet.sh/runtime-image": "fixture-python"}},
+                     "annotations": {"runtime-image.brewlet.sh/app": "fixture-python"}},
         "spec": {
             "runtimeClassName": "brewlet", "nodeName": h.node,
             "restartPolicy": "Never", "terminationGracePeriodSeconds": 1,

@@ -233,7 +233,7 @@ spec:
     metadata:
       labels: {app: rust-demo}
       annotations:
-        brewlet.sh/runtime-image: native-static
+        runtime-image.brewlet.sh/app: native-static
     spec:
       runtimeClassName: brewlet
       nodeSelector: {kubernetes.io/arch: arm64}

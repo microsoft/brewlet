@@ -12,6 +12,7 @@ import (
 	"github.com/containerd/containerd/v2/pkg/namespaces"
 	"github.com/containerd/errdefs"
 	"github.com/microsoft/brewlet/pkg/node"
+	"github.com/microsoft/brewlet/pkg/workload"
 )
 
 func bindingFromAnnotations(lease node.Lease, annotations map[string]string, state string) (node.RuntimeBinding, error) {
@@ -19,7 +20,11 @@ func bindingFromAnnotations(lease node.Lease, annotations map[string]string, sta
 	if b.PodUID == "" || b.PodName == "" || b.PodNamespace == "" || b.ContainerName == "" {
 		return b, fmt.Errorf("protected CRI Pod/container identity unavailable")
 	}
-	if annotations["brewlet.sh/runtime-image"] != lease.Metadata.ID {
+	id, selected, err := workload.RuntimeIDForContainer(annotations, b.ContainerName)
+	if err != nil {
+		return b, err
+	}
+	if !selected || id != lease.Metadata.ID {
 		return b, fmt.Errorf("protected runtime selection and durable lease disagree")
 	}
 	return b, nil
@@ -65,6 +70,21 @@ func observeBindings(ctx context.Context, c *containerd.Client, store *node.Stor
 				return nil, fmt.Errorf("read binding spec %q/%q: %w", namespace, container.ID(), err)
 			}
 			if spec.Annotations["io.kubernetes.cri.container-type"] == "sandbox" {
+				continue
+			}
+			lease, hasLease := byID[namespace+"\x00"+container.ID()]
+			containerName := spec.Annotations["io.kubernetes.cri.container-name"]
+			if containerName == "" {
+				return nil, fmt.Errorf("protected CRI container identity unavailable")
+			}
+			_, selected, err := workload.RuntimeIDForContainer(spec.Annotations, containerName)
+			if err != nil {
+				return nil, fmt.Errorf("validate runtime selection %q/%q: %w", namespace, container.ID(), err)
+			}
+			if !selected {
+				if hasLease {
+					return nil, fmt.Errorf("ordinary OCI task %q/%q has an unexpected durable runtime binding", namespace, container.ID())
+				}
 				continue
 			}
 			key := namespace + "\x00" + container.ID()

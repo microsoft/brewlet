@@ -78,9 +78,12 @@ func configuredRuntime(original []byte) ([]byte, error) {
 		}
 	}
 	runtimes["brewlet"] = map[string]any{
-		"runtime_type":    "io.containerd.brewlet.v2",
-		"pod_annotations": []string{"brewlet.sh/runtime-image", "brewlet.sh/rotated-to-generation"},
-		"options":         options,
+		"runtime_type": "io.containerd.brewlet.v2",
+		"pod_annotations": []string{
+			"runtime-image.brewlet.sh/*",
+			"runtime-generation.brewlet.sh/*",
+		},
+		"options": options,
 	}
 	if useSplitImages {
 		mapAt(plugins, splitImagePlugin)["discard_unpacked_layers"] = false

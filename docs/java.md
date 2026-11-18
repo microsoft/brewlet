@@ -135,7 +135,7 @@ spec:
     metadata:
       labels: {app: java-demo}
       annotations:
-        brewlet.sh/runtime-image: java-21
+        runtime-image.brewlet.sh/app: java-21
     spec:
       runtimeClassName: brewlet
       nodeSelector: {kubernetes.io/arch: arm64}

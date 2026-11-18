@@ -84,7 +84,7 @@ Brewlet 1.0.0 expresses this flow in language-neutral terms:
             │                                     │
             ▼                                     ▼
  Provisioner installs read-only            Pod: runtimeClassName: brewlet
- runtime roots per ID + generation              annotation brewlet.sh/runtime-image: python-3.12
+ runtime roots per ID + generation              annotation runtime-image.brewlet.sh/app: python-3.12
             │                                     │
             └──────────────┐   ┌──────────────────┘
                            ▼   ▼
@@ -116,8 +116,9 @@ Brewlet 1.0.0 expresses this flow in language-neutral terms:
   layers, optional dependency layers, and a **launch configuration layer**.
 - Define an approved **runtime image inventory** whose entries are identified by
   a stable, human-meaningful **ID** and resolved to a digest only by the platform.
-- Require pods using `runtimeClassName: brewlet` to name exactly one runtime image
-  ID through an annotation, with **no digest** in the workload.
+- Let each explicitly selected container in a `runtimeClassName: brewlet` Pod
+  name an approved runtime image ID through Pod metadata, with **no digest** in
+  the workload, while leaving unselected containers as ordinary OCI workloads.
 - Keep Kubernetes-native semantics: `command`, `args`, `env`, `workingDir`,
   probes, volumes, and resources retain their normal override behavior.
   Intentional restrictions are runtime-owned `PATH`, non-root identities and
@@ -149,11 +150,10 @@ Brewlet 1.0.0 expresses this flow in language-neutral terms:
   existing image pipeline; Brewlet only approves, distributes, and composes them.
 - A generic workload CRD. Deployments, StatefulSets, and DaemonSets are the
   workload API.
-- Per-container runtime images. A pod uses exactly one runtime image (§8.1).
 - Running workloads as root (§8.4).
 - Inferring the runtime image from the artifact. Admission never reads the
-  registry and never fills in `brewlet.sh/runtime-image`; the workload manifest
-  always states it explicitly (§9).
+  registry and never fills in per-container runtime selections; the workload
+  manifest always states managed selections explicitly (§9).
 - Language detection in generic tooling. The CLI does not guess entrypoints,
   dependency layouts, or runtime IDs for any ecosystem.
 - Sandboxes other than runc. Stronger isolation remains deferred research
@@ -584,8 +584,8 @@ spec:
   has no leases and has aged past the grace period. This closes the 0.x roadmap
   item on reference-counted root collection for the general case.
 - Provisioning configures containerd's runtime-handler pod-annotation
-  allow-list to forward `brewlet.sh/runtime-image` and
-  `brewlet.sh/rotated-to-generation` into each application container's OCI
+  allow-list to forward `runtime-image.brewlet.sh/*` and
+  `runtime-generation.brewlet.sh/*` into each application container's OCI
   spec. Annotation propagation is not assumed from arbitrary pod metadata.
   Readiness validation checks this configuration; missing runtime selection
   fails closed, and an end-to-end barrier test covers initial and replacement
@@ -719,22 +719,22 @@ DaemonSets outside the release namespace, the policy denies everything except
 an `UPDATE` that:
 
 - targets an object whose stored version carries the workload opt-in
-  annotation, `runtimeClassName: brewlet`, and a `brewlet.sh/runtime-image`
-  template annotation;
+  annotation, `runtimeClassName: brewlet`, and at least one runtime selection
+  for a declared container;
 - is outside `operator.rotationRestarts.protectedNamespaces` (default
   `kube-system`, `kube-public`, `kube-node-lease`) and, when set, inside
   `operator.rotationRestarts.namespaces`;
-- sets `brewlet.sh/rotated-to-generation` and leaves every other pod template
+- advances at most one `runtime-generation.brewlet.sh/<runtime-id>` barrier for
+  a runtime selected by a declared container, leaving every other pod template
   annotation, the template labels and spec, the remaining workload spec, and
   the object's labels, annotations, owner references, and finalizers
   unchanged.
 
 The operator thus cannot use restart RBAC to change images, commands,
 replicas, or opt-in state, or to touch workloads that did not consent.
-Installation MUST fail on clusters without
-`admissionregistration.k8s.io/v1` (Kubernetes before 1.30) unless
-`operator.rotationRestarts.requireAdmissionPolicy=false` explicitly accepts
-RBAC as the only bound.
+The chart requires Kubernetes 1.30 or later, where
+`admissionregistration.k8s.io/v1` is available. The runtime-selection policy is
+installed independently of the mutating webhook and rotation-restart opt-in.
 
 `operator.rotationRestarts.namespaces` (default empty, meaning cluster-wide)
 optionally narrows the feature further. When set, the operator considers only
@@ -791,9 +791,10 @@ nodes and outstanding old-generation containers so partial completion is
 visible. Recovery is to restore the node and complete provisioning, or retire
 it through the existing fenced cleanup protocol, not bypass validation.
 
-**Selection.** The operator then considers each opted-in workload whose pod
-template carries `brewlet.sh/runtime-image: <id>`, and restarts it if at least
-one of its running pods is observed or presumed on an older generation. Lease
+**Selection.** The operator then considers each opted-in workload with a
+declared container selecting this RuntimeImage ID, and restarts the whole Pod
+template if at least one of its running pods is observed or presumed on an
+older generation of this ID. Lease
 evidence (§13, `status.taskObservations`) decides first:
 
 1. A running pod whose UID appears in any retained older-generation or
@@ -813,7 +814,7 @@ A workload whose controller reports availability is not complete while a
 retained observation still lists an older binding for one of its pods.
 
 **Mechanism.** The operator patches the pod template annotation
-`brewlet.sh/rotated-to-generation` with a JSON object
+`runtime-generation.brewlet.sh/<runtime-id>` with a JSON object
 `{"id":"java-21","inventoryUID":"<RuntimeImage UID>","generation":7}`.
 This is the same template-change mechanism as
 `kubectl rollout restart`: the workload's own controller performs the rollout
@@ -824,7 +825,7 @@ not patched again. Per-workload status is keyed by workload UID and target
 epoch/generation so controller restarts cannot repeat a completed patch.
 
 The annotation is also a **minimum-generation barrier**, propagated by CRI to
-the shim. Its ID MUST match the pod's runtime image ID, its inventory UID MUST
+the shim. Its ID MUST match the corresponding container's selected runtime ID, its inventory UID MUST
 match the currently authorized epoch, and its generation MUST be a positive
 integer. An epoch mismatch fails with `RuntimeImageEpochMismatch`, never a
 numerical comparison or silent barrier removal. For that ID and epoch,
@@ -885,14 +886,14 @@ completed runtime restart.
 **Out of scope.** Bare pods, Jobs, and CronJobs are not restarted (their next
 pod uses the current generation). Other workload controllers can watch the
 `RotationComplete` condition themselves. GitOps tools SHOULD ignore
-`brewlet.sh/rotated-to-generation` on pod templates to avoid reporting drift.
+`runtime-generation.brewlet.sh/<id>` on pod templates to avoid reporting drift.
 
 ## 8. Workload contract
 
-### 8.1 Pod selection
+### 8.1 Pod and container selection
 
-A pod opts in with `runtimeClassName: brewlet` and MUST carry exactly one
-runtime image ID:
+A Pod uses `runtimeClassName: brewlet`. Each managed container selects its
+runtime through a Pod annotation whose suffix is the exact container name:
 
 ```yaml
 apiVersion: apps/v1
@@ -902,69 +903,82 @@ spec:
   template:
     metadata:
       annotations:
-        brewlet.sh/runtime-image: java-21    # ID only — no tag, no digest
+        runtime-image.brewlet.sh/orders: java-21
+        runtime-image.brewlet.sh/telemetry: otel
     spec:
       runtimeClassName: brewlet
       containers:
         - name: orders
           image: registry.example.com/apps/orders@sha256:<64 hex>
           args: ["-Xmx768m", "-jar", "/app/orders.jar"]   # optional override of launch args
+        - name: telemetry
+          image: registry.example.com/apps/telemetry@sha256:<64 hex>
+        - name: collector
+          image: registry.example.com/otel-collector:latest
 ```
 
-- The annotation value MUST match the ID grammar; values containing `@`, `:`, or
-  `/` are rejected (`InvalidRuntimeImageID`). There is **no default**: a missing
-  annotation is denied by admission and failed by the shim
-  (`RuntimeImageRequired`).
-- The annotation is pod-wide. Every container of the pod that the shim executes
-  uses the same runtime image; there is no per-container form. A workload that
-  needs several languages in one sandbox uses a runtime image the platform team
-  composes for that purpose (for example, `java-21-python-3.12`), approved like
-  any other ID.
-- The application `image:` MUST be digest-pinned, exactly as in 0.x (SPEC §4.4); the
-  shim's CRI identity checks are unchanged.
-- All application, init, sidecar, and ephemeral containers MUST use 1.0.0
-  application artifacts and the pod-wide runtime image. Ordinary-image
-  pass-through is not supported. Only the CRI infrastructure sandbox takes the
-  standard runc path; it does not run application code.
+- The annotation key MUST contain a valid Kubernetes container name and its
+  value MUST match the RuntimeImage ID grammar. Empty, malformed, or invalid
+  selections fail closed; an absent selection means ordinary OCI execution.
+- Selection is scoped to one Pod. Two Pods may use the same container name with
+  different runtime IDs. Names MUST be unique among a Pod's regular, init, and
+  ephemeral containers.
+- A selected container's application `image:` MUST be digest-pinned, exactly
+  as in 0.x (SPEC §4.4); the shim's protected CRI identity checks are unchanged.
+- Only selected containers require Brewlet artifacts, inventory approval,
+  numeric identities, read-only roots, and Brewlet mount/process policy.
+  Unselected regular, init, sidecar, and ephemeral containers use ordinary OCI
+  behavior through the same shim, including image tags and normal image-config
+  defaults, subject to cluster policy.
+- Container selections, including an absent selection, become immutable when
+  the container is declared. A future managed ephemeral name may be reserved
+  first by adding its selection annotation, then added through
+  `pods/ephemeralcontainers`. A conventional debug container needs no
+  reservation and remains ordinary OCI.
+- A Pod with no currently selected containers is valid and still uses the
+  Brewlet RuntimeClass handler-ready scheduling constraint.
 
 ### 8.2 Sandbox assembly (shim `Create`)
 
-1. **Resolve the artifact** exactly as SPEC §6.4 does today (protected CRI metadata,
+1. **Classify the container** from the protected CRI container name and that
+   name's Pod selection annotation. An unselected container delegates unchanged
+   to runc; it does not resolve an artifact or runtime.
+2. **Resolve the artifact** for a selected container exactly as SPEC §6.4 does today (protected CRI metadata,
    content-store digest verification, strict platform match). Recognize a 1.0.0
    artifact by `brewlet.sh/artifact-version=1` and a final `brewlet.sh/layer=launch`
    layer; any other application container image fails with `UnsupportedArtifact`.
-2. **Load and validate** `launch.json` (§6.3) and the image-config mirror (§6.4).
-3. **Resolve the runtime image** from the pod annotation, carried into the OCI
-   runtime spec annotations by CRI. Fail with `RuntimeImageIncompatible` if
+3. **Load and validate** `launch.json` (§6.3) and the image-config mirror (§6.4).
+4. **Resolve the runtime image** by the protected container name from the Pod
+   annotations, carried into the OCI runtime spec by CRI. Fail with `RuntimeImageIncompatible` if
    `runtimeImages` excludes it. Check live node-local authorization,
    revocation, and inventory epoch (§7.1); a cached root without current
    authorization cannot be used. If the ID is `available` on this node,
    request installation and wait as described in §7.5 (`RuntimeImageInstalling`
    or `RuntimeImageInstallFailed` on timeout or failure). Fail with
    `RuntimeImageNotInstalled` if the node's profile does not offer the ID at all.
-   Enforce any `brewlet.sh/rotated-to-generation` minimum-generation barrier
+   Enforce any `runtime-generation.brewlet.sh/<runtime-id>` minimum-generation barrier
    (§7.6), then atomically resolve and take a lease on `current` so a concurrent
    rotation cannot substitute an older generation or reclaim the leased root.
-4. **Materialize and validate layers** from the content store using the 1.0.0
+5. **Materialize and validate layers** from the content store using the 1.0.0
    per-layer-digest cache contract below.
-5. **Assemble the rootfs** with an application-prefix boundary: launch-layer-excluded
+6. **Assemble the rootfs** with an application-prefix boundary: launch-layer-excluded
    application and dependency layers (top to bottom in reverse manifest order)
    over a private opaque `/app` boundary over the runtime root. The boundary
    MUST hide all inherited runtime `/app` content without modifying the approved
    root or shared payload cache. `upperdir`/`workdir` = per-container scratch. The CRI
-   container root MUST be read-only at execution. Admission defaults
-   `readOnlyRootFilesystem: true` and rejects explicit false for application,
-   init/sidecar and ephemeral containers. The shim independently rejects a
+   selected container root MUST be read-only at execution. Admission defaults
+   `readOnlyRootFilesystem: true` and rejects explicit false for selected
+   application, init/sidecar and ephemeral containers. The shim independently rejects a
    non-read-only OCI root with `ReadOnlyRootRequired`; missing admission cannot
    restore writable-root behavior. Packaged `/app` is explicitly mounted
    read-only as well. Writable application data uses explicit Kubernetes
    volumes, not writes to a private copy of runtime files. This deliberately
    replaces the earlier writable-root/CRI-flag-preservation contract.
-6. **Generate `config.json`** from the CRI-provided spec with the process fields
+7. **Generate `config.json`** from the CRI-provided spec with the process fields
    of §8.3 and the user of §8.4; resources, mounts, namespaces, and the CNI
    network namespace pass through unchanged. No language-specific arguments are
    injected.
-7. **Delegate to runc.** Signals, exit codes, and logs retain normal behavior.
+8. **Delegate to runc.** Signals, exit codes, and logs retain normal behavior.
    Exec, exec probes, and exec lifecycle hooks use the shim's `Exec` handling
    specified in §8.3, not unmodified CRI process environment.
 
@@ -1077,32 +1091,35 @@ processes; editing bundle `config.json` alone does not establish exec parity.
 
 ### 8.4 User identity
 
-Brewlet 1.0.0 workloads never run as root. The default identity is the approved
-numeric `RuntimeImage.spec.user`, independent of account names in the image.
+Brewlet-managed containers never run as root. The default identity for each
+selected container is its approved numeric `RuntimeImage.spec.user`,
+independent of account names in the image. Unselected OCI containers retain
+normal Kubernetes and image identity behavior, subject to cluster policy.
 
 - The application image config `User` is empty, so CRI derives the process user
-  from the pod `securityContext` alone.
-- Admission defaults each missing effective `runAsUser` and `runAsGroup`
-  independently to `RuntimeImage.spec.user`, respecting container-over-pod
+  from the pod `securityContext` alone for selected containers.
+- Admission defaults each selected container's missing effective `runAsUser`
+  and `runAsGroup` independently to that container's `RuntimeImage.spec.user`,
+  respecting container-over-pod
   precedence, and sets `runAsNonRoot: true`. A custom UID without a group
   therefore uses the approved non-zero GID, not CRI's implicit GID 0.
 - An explicit non-zero `runAsUser` is permitted (for example, platforms that
   assign UIDs per namespace). Files under `/app` are world-readable (§6.2), so any
   non-root UID can run the application.
-- Admission denies UID or primary GID 0, supplementary GID 0, and
+- For selected containers, admission denies UID or primary GID 0, supplementary GID 0, and
   `runAsNonRoot: false` with
   `RootNotSupported`.
-- Admission defaults `allowPrivilegeEscalation: false`, drops all Linux
+- For selected containers, admission defaults `allowPrivilegeEscalation: false`, drops all Linux
   capabilities, and rejects privileged containers, explicit privilege
   escalation, or added capabilities with `PrivilegeEscalationNotSupported`.
   The shim independently enforces `noNewPrivileges` and empty capability sets
   for initial and exec processes; ordinary runc privilege defaults are not
   sufficient to promise no root.
-- **The shim enforces the rule independently**: a process UID, primary GID,
+- **The shim enforces the rule independently for selected containers**: a process UID, primary GID,
   or supplementary GID of 0 in the CRI-provided spec fails `Create` or `Exec`
   with `RootNotSupported`. Because CRI yields
-  UID 0 when no user is set, a pod that bypassed fail-open admission fails closed
-  rather than running as root.
+  UID 0 when no user is set, a selected container that bypassed fail-open
+  admission fails closed rather than running as root.
 - When the pod does not set `HOME`, the shim sets it from the runtime image's
   `/etc/passwd` entry for the process UID, or `/tmp` when the UID has no entry.
   This synthesized fallback is a deliberate Brewlet behavior, also applied to
@@ -1115,11 +1132,11 @@ numeric `RuntimeImage.spec.user`, independent of account names in the image.
 
 For every `runtimeClassName: brewlet` pod on CREATE, `brewlet-admission`:
 
-- **Validates** `brewlet.sh/runtime-image` (presence, grammar) and that a
-  `RuntimeImage` with that ID exists and is approved; denial reasons
-  `RuntimeImageRequired`, `InvalidRuntimeImageID`, `UnknownRuntimeImage`.
-- **Steers** scheduling by ANDing a requirement on the capability label
-  `brewlet.sh/runtime.<id>` `In ["ready", "available"]` into **every** existing
+- **Validates** every selection annotation against a declared container and
+  requires each referenced `RuntimeImage` to exist and be approved. Missing
+  selections mean OCI; malformed selections fail closed.
+- **Steers** scheduling by ANDing a requirement on each selected runtime's
+  capability label `brewlet.sh/runtime.<id>` `In ["ready", "available"]` into **every** existing
   required `nodeAffinity` selector term, creating a term only when no required
   selector exists. It MUST NOT add a separate OR alternative that bypasses the
   author's constraints; an explicitly empty selector MUST remain unsatisfiable.
@@ -1127,10 +1144,12 @@ For every `runtimeClassName: brewlet` pod on CREATE, `brewlet-admission`:
   rules, and appends a preferred term (weight 100) on `In ["ready"]`, so pods land on nodes that
   already have the runtime installed whenever one fits and otherwise trigger an
   on-demand install (§7.5). Admission validates placement against active,
-  approved `NodeProfile` inventory, not only live Node labels. Eligible profiles
+  approved `NodeProfile` inventory, not only live Node labels. At least one
+  valid profile MUST offer every distinct selected ID; profiles that offer
+  only disjoint subsets do not jointly authorize a Pod. Eligible profiles
   are non-deleting, pass source/mirror policy, and have no pool ownership
   conflict. It denies with
-  `NoCompatibleRuntime` only when no valid profile offers the ID; an empty pool
+  `NoCompatibleRuntime` only when no valid profile offers the complete set; an empty pool
   yields an admitted Pending pod so its autoscaler can act. Autoscaler templates
   must publish the runtime selector and capability labels and follow the
   startup-taint/initialization contract in §9.2. Inventory approval does not
@@ -1139,10 +1158,11 @@ For every `runtimeClassName: brewlet` pod on CREATE, `brewlet-admission`:
   profile names and leaves scheduling to Kubernetes and the configured scaler.
   This inventory check is not a guarantee that capacity satisfies all pod
   affinity, architecture, taints, resource, or volume constraints.
-- **Defaults** the container user and denies root (§8.4), and **overwrites** the existing
-  `brewlet.sh/artifact-*` compatibility hints (SPEC §8.3, unchanged).
+- **Defaults** only selected containers and denies root for them (§8.4), and
+  **overwrites** `brewlet.sh/artifact-*` hints using a selected regular
+  container (SPEC §8.3).
 - **Does not** read the application artifact from the registry, and therefore
-  never defaults `brewlet.sh/runtime-image` from it. Artifact-side
+  never defaults per-container runtime selections from it. Artifact-side
   constraints (`runtimeImages`, layer rules, platforms) are enforced by
   the shim and by kubelet's pull, so fail-open admission never weakens them.
 
@@ -1260,7 +1280,7 @@ spec:
   template:
     metadata:
       annotations:
-        brewlet.sh/runtime-image: python-3.12
+        runtime-image.brewlet.sh/app: python-3.12
     spec:
       runtimeClassName: brewlet
       nodeSelector:
@@ -1285,7 +1305,7 @@ or reschedule the bound pod.
 `RuntimeClass/brewlet` retains one handler, one scheduling selector, and one
 overhead (SPEC §7). Its selector remains `brewlet.sh/runtime=ready`, with the
 generalized readiness and startup-fence semantics of §7.3 and §9.1–§9.2.
-Runtime image selection is per pod rather than per RuntimeClass
+Runtime image selection is per container rather than per RuntimeClass
 (see §15 for the rejected per-ID RuntimeClass alternative). `overhead.podFixed`
 covers only shim and staging overhead.
 
@@ -1394,7 +1414,7 @@ The Maven plugin is the one place where Java knowledge remains. It MAY:
 Its output is an ordinary 1.0.0 artifact that the shim treats exactly like one
 produced by the CLI. A developer can always replace the generated `launch.json`
 with a hand-written one. The plugin does not generate Kubernetes manifests and
-does not write `brewlet.sh/runtime-image`; choosing the runtime for a workload
+does not write per-container runtime-selection annotations; choosing runtimes for a workload
 remains an explicit decision in the reviewed manifest.
 
 ## 12. Security model
@@ -1469,7 +1489,7 @@ remains an explicit decision in the reviewed manifest.
   and `brewlet_runtime_image_install_duration_seconds{id}` for on-demand
   installs, and a container event `RuntimeImageInstalling` when `Create` waits
   for one.
-- New reason codes: `RuntimeImageRequired`, `InvalidRuntimeImageID`,
+- New reason codes: `InvalidRuntimeImageID`,
   `UnknownRuntimeImage`, `NoCompatibleRuntime`, `RuntimeImageNotInstalled`,
   `RuntimeImageInstalling`, `RuntimeImageInstallFailed`,
   `RuntimeImageIncompatible`, `UnsupportedArtifact`, `LaunchConfigMismatch`,
@@ -1503,7 +1523,7 @@ interceptor or provider validation, not just by setting labels in a fixture.
 | Rotation/revocation behind retained pinned labels | Report node-wide exclusions for all affected IDs; preserve running leases and reject unauthorized or below-barrier starts even for already-bound pods or fail-open admission. Revalidate all affected inventory before releasing the fence. |
 | Claim-release resource-version race or recreated Node | Re-read and revalidate Node UID, owner, and absence of runtime state before retrying a conditional release; never release a replacement/foreign claim. |
 | Rotation restart selection with lease evidence | Restart a pod named in a retained older-generation binding even if it started after completion; skip a pre-completion pod only when a fresh, complete, post-start observation of its node lists no older binding; otherwise fall back to the start-time rule. |
-| Operator restart writes under the chart admission policy | Allow only a `brewlet.sh/rotated-to-generation` change on opted-in Brewlet workloads; deny image, command, replica, label, opt-in, and other annotation changes, create/delete, non-opted-in workloads, protected namespaces, and namespaces outside a configured allowlist. Fail installation without policy support unless explicitly waived. |
+| Operator restart writes under the chart admission policy | Allow only one selected `runtime-generation.brewlet.sh/<id>` barrier change on opted-in Brewlet workloads; deny image, command, replica, label, opt-in, and other annotation changes, create/delete, non-opted-in workloads, protected namespaces, and namespaces outside a configured allowlist. |
 
 ### 13.2 Language-neutral workload acceptance
 
@@ -1570,7 +1590,7 @@ property.
 
 ### Digest in the pod annotation
 
-Allowing `brewlet.sh/runtime-image: python-3.12@sha256:…` would give
+Allowing `runtime-image.brewlet.sh/app: python-3.12@sha256:…` would give
 reproducibility at the cost of the central value of the design: runtime
 remediation without touching every workload. §7.4's dedicated IDs provide holds
 without scattering digests.

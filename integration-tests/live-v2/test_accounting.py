@@ -282,7 +282,7 @@ class AccountingTests(unittest.TestCase):
         spec = obj["spec"]
         self.assertEqual(spec["volumes"], [{"name": a.VOLUME, "emptyDir": {"sizeLimit": "96Mi"}}])
         self.assertFalse(spec["automountServiceAccountToken"])
-        self.assertEqual(obj["metadata"]["annotations"]["brewlet.sh/runtime-image"], "fixture-python")
+        self.assertEqual(obj["metadata"]["annotations"]["runtime-image.brewlet.sh/app"], "fixture-python")
         container = spec["containers"][0]
         self.assertEqual(container["volumeMounts"], [{"name": a.VOLUME, "mountPath": a.DATA}])
         self.assertTrue(container["securityContext"]["readOnlyRootFilesystem"])

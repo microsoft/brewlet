@@ -33,6 +33,7 @@ import (
 	"github.com/microsoft/brewlet/pkg/artifact"
 	"github.com/microsoft/brewlet/pkg/node"
 	brewletplatform "github.com/microsoft/brewlet/pkg/platform"
+	"github.com/microsoft/brewlet/pkg/workload"
 	digest "github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
@@ -47,9 +48,10 @@ const cacheRoot = "/var/lib/brewlet/layers"
 
 type service struct {
 	taskapi.TTRPCTaskService
-	client      *client.Client
-	loadInitial func(string) (node.InitialState, error)
-	publisher   shim.Publisher
+	client       *client.Client
+	loadInitial  func(string) (node.InitialState, error)
+	loadTaskSpec func(context.Context, string) (*specs.Spec, error)
+	publisher    shim.Publisher
 }
 
 func init() {
@@ -100,36 +102,60 @@ func (s *service) runtimeEvent(ctx context.Context, reason, id string, m node.Me
 func (s *service) Start(ctx context.Context, r *taskapi.StartRequest) (*taskapi.StartResponse, error) {
 	response, err := s.TTRPCTaskService.Start(ctx, r)
 	if err == nil && r.ExecID == "" {
-		load := s.loadInitial
-		if load == nil {
-			load = node.NewStore(inventoryRoot).LoadInitial
-		}
-		if state, loadErr := load(r.ID); loadErr == nil {
-			s.runtimeEvent(ctx, "RuntimeImageResolved", r.ID, state.Lease.Metadata)
-		} else {
-			infrastructure, kindErr := s.infrastructureTask(ctx, r.ID)
-			if kindErr != nil || !infrastructure {
-				log.Printf("runtime-image-event-failed: task=%s reason=RuntimeImageResolved: initial-state: %v; protected-kind: %v",
-					r.ID, loadErr, kindErr)
+		managed, _, selectionErr := s.managedSelection(ctx, r.ID)
+		if selectionErr != nil {
+			log.Printf("runtime-image-event-failed: task=%s reason=RuntimeImageResolved: protected-selection: %v", r.ID, selectionErr)
+		} else if managed {
+			load := s.loadInitial
+			if load == nil {
+				load = node.NewStore(inventoryRoot).LoadInitial
+			}
+			if state, loadErr := load(r.ID); loadErr == nil {
+				s.runtimeEvent(ctx, "RuntimeImageResolved", r.ID, state.Lease.Metadata)
+			} else {
+				log.Printf("runtime-image-event-failed: task=%s reason=RuntimeImageResolved: initial-state: %v", r.ID, loadErr)
 			}
 		}
 	}
 	return response, err
 }
 
-func (s *service) infrastructureTask(ctx context.Context, id string) (bool, error) {
+func (s *service) protectedTaskSpec(ctx context.Context, id string) (*specs.Spec, error) {
+	if s.loadTaskSpec != nil {
+		return s.loadTaskSpec(ctx, id)
+	}
 	if s.client == nil {
-		return false, fmt.Errorf("containerd metadata client unavailable")
+		return nil, fmt.Errorf("containerd metadata client unavailable")
 	}
 	container, err := s.client.LoadContainer(ctx, id)
 	if err != nil {
-		return false, err
+		return nil, err
 	}
 	spec, err := container.Spec(ctx)
 	if err != nil {
-		return false, err
+		return nil, err
 	}
-	return spec.Annotations["io.kubernetes.cri.container-type"] == "sandbox", nil
+	return spec, nil
+}
+
+func managedSelection(spec *specs.Spec) (bool, string, error) {
+	if spec.Annotations["io.kubernetes.cri.container-type"] == "sandbox" {
+		return false, "", nil
+	}
+	name := spec.Annotations["io.kubernetes.cri.container-name"]
+	if name == "" {
+		return false, "", fmt.Errorf("protected CRI container name unavailable")
+	}
+	id, selected, err := workload.RuntimeIDForContainer(spec.Annotations, name)
+	return selected, id, err
+}
+
+func (s *service) managedSelection(ctx context.Context, id string) (bool, string, error) {
+	spec, err := s.protectedTaskSpec(ctx, id)
+	if err != nil {
+		return false, "", err
+	}
+	return managedSelection(spec)
 }
 
 func normalizeOptions(r *taskapi.CreateTaskRequest) error {
@@ -185,6 +211,13 @@ func (s *service) Create(ctx context.Context, r *taskapi.CreateTaskRequest) (res
 	if spec.Annotations["io.kubernetes.cri.container-type"] == "sandbox" {
 		return s.TTRPCTaskService.Create(ctx, r)
 	}
+	managed, _, err := managedSelection(spec)
+	if err != nil {
+		return nil, err
+	}
+	if !managed {
+		return s.TTRPCTaskService.Create(ctx, r)
+	}
 	cacheGuard, err := node.AcquireCacheGuard(ctx, cacheRoot, false)
 	if err != nil {
 		return nil, err
@@ -221,6 +254,13 @@ func (s *service) Create(ctx context.Context, r *taskapi.CreateTaskRequest) (res
 	return s.TTRPCTaskService.Create(ctx, r)
 }
 func (s *service) Exec(ctx context.Context, r *taskapi.ExecProcessRequest) (*emptypb.Empty, error) {
+	managed, _, err := s.managedSelection(ctx, r.ID)
+	if err != nil {
+		return nil, err
+	}
+	if !managed {
+		return s.TTRPCTaskService.Exec(ctx, r)
+	}
 	load := s.loadInitial
 	if load == nil {
 		load = node.NewStore(inventoryRoot).LoadInitial
@@ -256,8 +296,12 @@ func (s *service) Exec(ctx context.Context, r *taskapi.ExecProcessRequest) (*emp
 }
 
 func (s *service) Delete(ctx context.Context, r *taskapi.DeleteRequest) (*taskapi.DeleteResponse, error) {
+	managed, _, classifyErr := s.managedSelection(ctx, r.ID)
+	if classifyErr != nil {
+		return nil, classifyErr
+	}
 	response, err := s.TTRPCTaskService.Delete(ctx, r)
-	if err != nil || r.ExecID != "" {
+	if err != nil || r.ExecID != "" || !managed {
 		return response, err
 	}
 	store := node.NewStore(inventoryRoot)
@@ -399,12 +443,16 @@ func (s *service) resolve(ctx context.Context, id string, annotations map[string
 }
 
 func (s *service) assemble(ctx context.Context, r *taskapi.CreateTaskRequest, spec *specs.Spec) error {
-	id := spec.Annotations["brewlet.sh/runtime-image"]
-	if id == "" {
-		return &node.Error{Reason: "RuntimeImageRequired", Detail: "missing propagated pod annotation"}
+	containerName := spec.Annotations["io.kubernetes.cri.container-name"]
+	if containerName == "" {
+		return fmt.Errorf("protected CRI container name unavailable")
 	}
-	if err := node.ValidateID(id); err != nil {
+	id, selected, err := workload.RuntimeIDForContainer(spec.Annotations, containerName)
+	if err != nil {
 		return err
+	}
+	if !selected {
+		return &node.Error{Reason: "RuntimeImageRequired", Detail: "managed container has no runtime selection"}
 	}
 	if err := node.CheckProcess(spec.Process); err != nil {
 		return err
@@ -424,7 +472,7 @@ func (s *service) assemble(ctx context.Context, r *taskapi.CreateTaskRequest, sp
 	if !resolved.Launch.Allows(id) {
 		return &node.Error{Reason: "RuntimeImageIncompatible", Detail: id}
 	}
-	barrier, err := node.ParseBarrier(spec.Annotations["brewlet.sh/rotated-to-generation"], id)
+	barrier, err := node.ParseBarrier(spec.Annotations[workload.RuntimeGenerationAnnotation(id)], id)
 	if err != nil {
 		return err
 	}

@@ -139,7 +139,7 @@ def pathless_and_shadowed_runtime(h):
     h.replace_inventory_spec(profile, spec)
     h.wait("pathless numeric runtime offered", lambda: h.advertised(rid, "available"))
     pod = h.delivery.native_pod(h.arch, "pathless-static")
-    pod["metadata"]["annotations"]["brewlet.sh/runtime-image"] = rid
+    pod["metadata"]["annotations"]["runtime-image.brewlet.sh/app"] = rid
     h.apply(pod)
     running = h.wait("absolute static process starts with no accounts or PATH", lambda: h.ready("pathless-static"))
     lease = h.lease(running)
@@ -158,7 +158,7 @@ def pathless_and_shadowed_runtime(h):
     require(failed.returncode != 0 and "RuntimePATHRequired" in failed.stderr + failed.stdout,
             "relative Exec adopted default/cwd search")
     bad = h.delivery.native_pod(h.arch, "pathless-relative")
-    bad["metadata"]["annotations"]["brewlet.sh/runtime-image"] = rid
+    bad["metadata"]["annotations"]["runtime-image.brewlet.sh/app"] = rid
     bad["spec"]["containers"][0].update(command=["native"], args=["--probe"])
     h.apply(bad)
     h.no_start("pathless-relative", "RuntimePATHRequired")

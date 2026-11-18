@@ -155,7 +155,7 @@ spec:
     metadata:
       labels: {app: php-demo}
       annotations:
-        brewlet.sh/runtime-image: php-8.4
+        runtime-image.brewlet.sh/app: php-8.4
     spec:
       runtimeClassName: brewlet
       nodeSelector: {kubernetes.io/arch: arm64}

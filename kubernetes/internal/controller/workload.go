@@ -8,6 +8,7 @@ import (
 	"time"
 
 	api "github.com/microsoft/brewlet/kubernetes/api/v1alpha1"
+	runtimeworkload "github.com/microsoft/brewlet/pkg/workload"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -25,6 +26,32 @@ type restartWorkload struct {
 	onDelete      bool
 	complete      bool
 	nativeFailure string
+}
+
+func templateUsesRuntime(template *corev1.PodTemplateSpec, id string) (bool, error) {
+	if template == nil {
+		return false, fmt.Errorf("workload Pod template unavailable")
+	}
+	names := make([]string, 0, len(template.Spec.Containers)+len(template.Spec.InitContainers)+len(template.Spec.EphemeralContainers))
+	for _, c := range template.Spec.Containers {
+		names = append(names, c.Name)
+	}
+	for _, c := range template.Spec.InitContainers {
+		names = append(names, c.Name)
+	}
+	for _, c := range template.Spec.EphemeralContainers {
+		names = append(names, c.Name)
+	}
+	selections, err := runtimeworkload.ActiveSelections(template.Annotations, names)
+	if err != nil {
+		return false, err
+	}
+	for _, selection := range selections {
+		if selection.RuntimeID == id {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func describeWorkload(obj client.Object) (restartWorkload, error) {
@@ -233,9 +260,14 @@ func leaseObservedCurrent(p corev1.Pod, im *api.RuntimeImage, now time.Time) boo
 		return false
 	}
 	started := p.Status.StartTime.Time
-	for _, s := range p.Status.ContainerStatuses {
-		if s.State.Running != nil && s.State.Running.StartedAt.After(started) {
-			started = s.State.Running.StartedAt.Time
+	statuses := []corev1.ContainerStatus{}
+	statuses = append(statuses, p.Status.ContainerStatuses...)
+	statuses = append(statuses, p.Status.InitContainerStatuses...)
+	statuses = append(statuses, p.Status.EphemeralContainerStatuses...)
+	for _, status := range statuses {
+		id, selected, err := runtimeworkload.RuntimeIDForContainer(p.Annotations, status.Name)
+		if err == nil && selected && id == im.Name && status.State.Running != nil && status.State.Running.StartedAt.After(started) {
+			started = status.State.Running.StartedAt.Time
 		}
 	}
 	for _, o := range im.Status.TaskObservations {
@@ -262,6 +294,10 @@ func restartBlockers(pods []corev1.Pod, im *api.RuntimeImage) []api.RestartBlock
 		reason := ""
 		statuses := append(append(append([]corev1.ContainerStatus{}, p.Status.ContainerStatuses...), p.Status.InitContainerStatuses...), p.Status.EphemeralContainerStatuses...)
 		for _, s := range statuses {
+			id, selected, selectionErr := runtimeworkload.RuntimeIDForContainer(p.Annotations, s.Name)
+			if selectionErr == nil && (!selected || id != im.Name) {
+				continue
+			}
 			if s.State.Running != nil {
 				continue
 			}

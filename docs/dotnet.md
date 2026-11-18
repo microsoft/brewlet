@@ -144,7 +144,7 @@ spec:
     metadata:
       labels: {app: dotnet-demo}
       annotations:
-        brewlet.sh/runtime-image: dotnet-10
+        runtime-image.brewlet.sh/app: dotnet-10
     spec:
       runtimeClassName: brewlet
       nodeSelector: {kubernetes.io/arch: arm64}

@@ -3,11 +3,13 @@ package main
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
 	api "github.com/microsoft/brewlet/kubernetes/api/v1alpha1"
 	"github.com/microsoft/brewlet/pkg/control"
+	runtimeworkload "github.com/microsoft/brewlet/pkg/workload"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -182,7 +184,25 @@ func runtimeNodeStates(ctx context.Context, c client.Client, profiles []api.Node
 	return out, nil
 }
 
-// runtimePods lists live pods selecting id through brewlet.sh/runtime-image (SPEC §8.1).
+func selectedRuntimeIDs(annotations map[string]string, spec corev1.PodSpec) ([]string, error) {
+	names := make([]string, 0, len(spec.Containers)+len(spec.InitContainers)+len(spec.EphemeralContainers))
+	for _, c := range spec.Containers {
+		names = append(names, c.Name)
+	}
+	for _, c := range spec.InitContainers {
+		names = append(names, c.Name)
+	}
+	for _, c := range spec.EphemeralContainers {
+		names = append(names, c.Name)
+	}
+	selections, err := runtimeworkload.ActiveSelections(annotations, names)
+	if err != nil {
+		return nil, err
+	}
+	return runtimeworkload.DistinctRuntimeIDs(selections), nil
+}
+
+// runtimePods lists live pods with at least one declared container selecting id.
 func runtimePods(ctx context.Context, c client.Client, id string) ([]corev1.Pod, error) {
 	var pods corev1.PodList
 	if err := c.List(ctx, &pods); err != nil {
@@ -190,7 +210,12 @@ func runtimePods(ctx context.Context, c client.Client, id string) ([]corev1.Pod,
 	}
 	var out []corev1.Pod
 	for _, p := range pods.Items {
-		if p.Annotations[api.RuntimeAnnotation] != id || p.Status.Phase == corev1.PodSucceeded || p.Status.Phase == corev1.PodFailed {
+		ids, err := selectedRuntimeIDs(p.Annotations, p.Spec)
+		if err != nil {
+			return nil, fmt.Errorf("invalid runtime selections on Pod %s/%s: %w", p.Namespace, p.Name, err)
+		}
+		if !slices.Contains(ids, id) || p.Spec.RuntimeClassName == nil || *p.Spec.RuntimeClassName != "brewlet" ||
+			p.Status.Phase == corev1.PodSucceeded || p.Status.Phase == corev1.PodFailed {
 			continue
 		}
 		out = append(out, p)
@@ -269,7 +294,11 @@ func runtimeWorkloads(ctx context.Context, c client.Client, id string) ([]k8sWor
 	filtered := out[:0]
 	for _, w := range out {
 		rc := w.template.Spec.RuntimeClassName
-		if w.template.Annotations[api.RuntimeAnnotation] == id && rc != nil && *rc == "brewlet" {
+		ids, err := selectedRuntimeIDs(w.template.Annotations, w.template.Spec)
+		if err != nil {
+			return nil, fmt.Errorf("invalid runtime selections on %s/%s: %w", w.obj.GetNamespace(), w.obj.GetName(), err)
+		}
+		if slices.Contains(ids, id) && rc != nil && *rc == "brewlet" {
 			filtered = append(filtered, w)
 		}
 	}
@@ -334,7 +363,7 @@ func workloadAction(w k8sWorkload, s restartSettings) (bool, string) {
 	case w.deferred != "":
 		return true, "RestartDeferred: " + w.deferred
 	}
-	return true, "rolling restart: operator patches brewlet.sh/rotated-to-generation; the controller rolls per its update strategy"
+	return true, "rolling restart: operator advances a runtime-generation.brewlet.sh/<id> barrier; the controller rolls per its update strategy"
 }
 
 func containsString(xs []string, x string) bool {

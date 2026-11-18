@@ -7,6 +7,8 @@ import (
 	"context"
 	"errors"
 	"log"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -39,6 +41,67 @@ func (r *execRecorder) Exec(_ context.Context, request *taskapi.ExecProcessReque
 	r.process = value.(*specs.Process)
 	return &emptypb.Empty{}, nil
 }
+
+type lifecycleRecorder struct {
+	taskapi.TTRPCTaskService
+	creates, execs, starts, deletes int
+}
+
+func (r *lifecycleRecorder) Create(context.Context, *taskapi.CreateTaskRequest) (*taskapi.CreateTaskResponse, error) {
+	r.creates++
+	return &taskapi.CreateTaskResponse{}, nil
+}
+
+func (r *lifecycleRecorder) Exec(context.Context, *taskapi.ExecProcessRequest) (*emptypb.Empty, error) {
+	r.execs++
+	return &emptypb.Empty{}, nil
+}
+
+func (r *lifecycleRecorder) Start(context.Context, *taskapi.StartRequest) (*taskapi.StartResponse, error) {
+	r.starts++
+	return &taskapi.StartResponse{Pid: 42}, nil
+}
+
+func (r *lifecycleRecorder) Delete(context.Context, *taskapi.DeleteRequest) (*taskapi.DeleteResponse, error) {
+	r.deletes++
+	return &taskapi.DeleteResponse{}, nil
+}
+
+func TestUnselectedOCIContainerDelegatesLifecycleWithoutBrewletState(t *testing.T) {
+	bundle := t.TempDir()
+	config := `{"annotations":{"io.kubernetes.cri.container-name":"collector"}}`
+	if err := os.WriteFile(filepath.Join(bundle, "config.json"), []byte(config), 0600); err != nil {
+		t.Fatal(err)
+	}
+	recorder := new(lifecycleRecorder)
+	publisher := new(eventRecorder)
+	spec := &specs.Spec{Annotations: map[string]string{
+		"io.kubernetes.cri.container-name": "collector",
+	}}
+	s := &service{
+		TTRPCTaskService: recorder,
+		publisher:        publisher,
+		loadTaskSpec: func(context.Context, string) (*specs.Spec, error) {
+			return spec, nil
+		},
+	}
+	if _, err := s.Create(context.Background(), &taskapi.CreateTaskRequest{ID: "oci", Bundle: bundle}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Exec(context.Background(), &taskapi.ExecProcessRequest{ID: "oci"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Start(context.Background(), &taskapi.StartRequest{ID: "oci"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Delete(context.Background(), &taskapi.DeleteRequest{ID: "oci"}); err != nil {
+		t.Fatal(err)
+	}
+	if recorder.creates != 1 || recorder.execs != 1 || recorder.starts != 1 || recorder.deletes != 1 ||
+		publisher.event != nil {
+		t.Fatalf("ordinary OCI lifecycle was not delegated unchanged: %+v, event=%v", recorder, publisher.event)
+	}
+}
 func processAny(t *testing.T, p *specs.Process) *anypb.Any {
 	t.Helper()
 	a, err := typeurl.MarshalAny(p)
@@ -51,7 +114,16 @@ func TestExecRPCActuallyRewritesBeforeRunc(t *testing.T) {
 	initial := specs.Process{Args: []string{"server"}, Cwd: "/app", Env: []string{"PATH=/runtime/bin", "HOME=/home/app", "BASE=yes"}, User: specs.User{UID: 1000, GID: 1000}, NoNewPrivileges: true}
 	state := node.InitialState{Lease: node.Lease{Namespace: "k8s.io"}, Process: initial}
 	recorder := new(execRecorder)
-	s := &service{TTRPCTaskService: recorder, loadInitial: func(string) (node.InitialState, error) { return state, nil }}
+	s := &service{
+		TTRPCTaskService: recorder,
+		loadInitial:      func(string) (node.InitialState, error) { return state, nil },
+		loadTaskSpec: func(context.Context, string) (*specs.Spec, error) {
+			return &specs.Spec{Annotations: map[string]string{
+				"io.kubernetes.cri.container-name": "app",
+				"runtime-image.brewlet.sh/app":     "python",
+			}}, nil
+		},
+	}
 	probe := specs.Process{Args: []string{"probe", "two words"}, Cwd: "/work", Terminal: true, Env: []string{"PATH=/wrong"}, User: initial.User}
 	ctx := namespaces.WithNamespace(context.Background(), "k8s.io")
 	if _, err := s.Exec(ctx, &taskapi.ExecProcessRequest{ID: "task", ExecID: "probe", Spec: processAny(t, &probe)}); err != nil {
@@ -64,9 +136,18 @@ func TestExecRPCActuallyRewritesBeforeRunc(t *testing.T) {
 }
 func TestExecRPCMissingStateNeverDelegates(t *testing.T) {
 	recorder := new(execRecorder)
-	s := &service{TTRPCTaskService: recorder, loadInitial: func(string) (node.InitialState, error) {
-		return node.InitialState{}, &node.Error{Reason: "ExecStateUnavailable"}
-	}}
+	s := &service{
+		TTRPCTaskService: recorder,
+		loadTaskSpec: func(context.Context, string) (*specs.Spec, error) {
+			return &specs.Spec{Annotations: map[string]string{
+				"io.kubernetes.cri.container-name": "app",
+				"runtime-image.brewlet.sh/app":     "python",
+			}}, nil
+		},
+		loadInitial: func(string) (node.InitialState, error) {
+			return node.InitialState{}, &node.Error{Reason: "ExecStateUnavailable"}
+		},
+	}
 	if _, err := s.Exec(context.Background(), &taskapi.ExecProcessRequest{ID: "missing"}); err == nil || recorder.called {
 		t.Fatal("missing state delegated to runc")
 	}
@@ -115,6 +196,12 @@ func TestStartPublishesExactRuntimeIdentityOnlyForSuccessfulInitialProcess(t *te
 			loads := 0
 			s := &service{
 				TTRPCTaskService: &startRecorder{err: tc.failure}, publisher: recorder,
+				loadTaskSpec: func(context.Context, string) (*specs.Spec, error) {
+					return &specs.Spec{Annotations: map[string]string{
+						"io.kubernetes.cri.container-name": "app",
+						"runtime-image.brewlet.sh/app":     "python",
+					}}, nil
+				},
 				loadInitial: func(id string) (node.InitialState, error) {
 					if id != "task" {
 						t.Fatalf("wrong state lookup: %s", id)
@@ -161,6 +248,16 @@ func TestInitialStateEventFailureIsReportedExceptForProtectedInfrastructure(t *t
 			}})
 			if err != nil {
 				t.Fatal(err)
+			}
+			if kind != "sandbox" {
+				spec, err = typeurl.MarshalAny(&specs.Spec{Annotations: map[string]string{
+					"io.kubernetes.cri.container-type": "container",
+					"io.kubernetes.cri.container-name": "app",
+					"runtime-image.brewlet.sh/app":     "python",
+				}})
+				if err != nil {
+					t.Fatal(err)
+				}
 			}
 			store := startMetadataStore{value: containers.Container{ID: "task", Spec: spec}}
 			if kind == "metadata-unavailable" {

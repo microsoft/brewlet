@@ -20,7 +20,7 @@ export const APP_REPOSITORY = "example.invalid/brewlet-demo/showmyjvm";
 export const APP_REF = `${APP_REPOSITORY}:demo`;
 export const PROFILE = "brewlet-demo";
 export const RUNTIME_USER = 65532;
-export const RUNTIME_ANNOTATION = "brewlet.sh/runtime-image";
+export const RUNTIME_ANNOTATION = "runtime-image.brewlet.sh/app";
 export const BASE_RUNTIME = "temurin-25";
 export const UPDATED_BUILD = "temurin-25-updated";
 export const UPDATED_RUNTIME_REPOSITORY = "example.invalid/brewlet-demo/temurin-25-updated";
@@ -281,7 +281,7 @@ export function commandPreviews(state, runtimes = {}) {
     const rotationPreview = (from, to) => ({
         commands: [k("patch", "runtimeimage", BASE_RUNTIME, "--type=json", "-p", rotationPatch(from, to)),
             k("get", "runtimeimage", BASE_RUNTIME, "-o", "json"),
-            k("-n", n.namespace, "get", "deployment", APP, "-o", "jsonpath={.spec.template.metadata.annotations.brewlet\\.sh/rotated-to-generation}"),
+            k("-n", n.namespace, "get", "deployment", APP, "-o", "jsonpath={.spec.template.metadata.annotations.runtime-generation\\.brewlet\\.sh\\/temurin-25}"),
             k("-n", n.namespace, "rollout", "status", `deployment/${APP}`, "--timeout=5m")],
         input: { runtimeImage: BASE_RUNTIME, from: source(from), to: source(to), unchangedImage: image,
             verification: `/jvm/inspect.json reports Temurin ${runtimes[to]?.version ?? ""}; node brewlet.sh/runtime-bindings shows ${BASE_RUNTIME} on the new digest and generation` },
@@ -1225,7 +1225,7 @@ export class DemoManager extends EventEmitter {
         const rotated = await this.until(async () => {
             const deployment = await this.deployment();
             try {
-                const barrier = JSON.parse(deployment.spec.template.metadata.annotations?.["brewlet.sh/rotated-to-generation"] ?? "null");
+                const barrier = JSON.parse(deployment.spec.template.metadata.annotations?.["runtime-generation.brewlet.sh/" + BASE_RUNTIME] ?? "null");
                 return barrier?.id === BASE_RUNTIME && barrier.inventoryUID === current.metadata.uid &&
                     barrier.generation === approved.status.generation ? barrier : false;
             } catch {

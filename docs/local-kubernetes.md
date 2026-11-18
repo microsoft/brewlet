@@ -181,7 +181,7 @@ spec:
   template:
     metadata:
       labels: {app: hello}
-      annotations: {brewlet.sh/runtime-image: python}
+      annotations: {runtime-image.brewlet.sh/app: python}
     spec:
       runtimeClassName: brewlet
       containers:

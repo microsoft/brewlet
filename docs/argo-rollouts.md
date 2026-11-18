@@ -51,7 +51,7 @@ spec:
     metadata:
       labels: {app: api}
       annotations:
-        brewlet.sh/runtime-image: python-stable
+        runtime-image.brewlet.sh/api: python-stable
     spec:
       runtimeClassName: brewlet
       containers:
@@ -93,13 +93,14 @@ kubectl apply -f api-rollout.yaml
 kubectl argo rollouts get rollout api -n apps --watch
 ```
 
-Change the template's runtime ID to start the canary. The command also removes
-any previous minimum-generation barrier: a barrier for the old ID must not be
-carried over to a different ID.
+Change the `api` container's runtime selection in the template to start the
+canary. Minimum-generation barriers are keyed by runtime ID, so a
+`runtime-generation.brewlet.sh/python-stable` barrier does not apply to the
+candidate; Brewlet ignores it while no container selects `python-stable`.
 
 ```sh
 kubectl -n apps patch rollouts.argoproj.io api --type=merge \
-  -p '{"spec":{"template":{"metadata":{"annotations":{"brewlet.sh/runtime-image":"python-candidate","brewlet.sh/rotated-to-generation":null}}}}}'
+  -p '{"spec":{"template":{"metadata":{"annotations":{"runtime-image.brewlet.sh/api":"python-candidate"}}}}}'
 kubectl argo rollouts get rollout api -n apps --watch
 ```
 
@@ -110,13 +111,13 @@ reach the candidate; connection reuse and uneven load matter. For precise
 traffic weights, configure an [Argo traffic provider](https://argo-rollouts.readthedocs.io/en/stable/features/traffic-management/).
 
 Check readiness, application error rates and latency, and the actual runtime
-bindings before promoting. These commands show the requested IDs and the
-node-reported bindings, respectively:
+bindings before promoting. These commands show the requested ID for the `api`
+container and the node-reported bindings, respectively:
 
 ```sh
 kubectl -n apps get pods -l app=api -o json | jq -r '
   .items[] | [.metadata.name, .metadata.uid,
-              .metadata.annotations["brewlet.sh/runtime-image"]] | @tsv'
+              .metadata.annotations["runtime-image.brewlet.sh/api"]] | @tsv'
 
 kubectl get nodes -o json | jq -r '
   .items[] | .metadata.name as $node |
@@ -124,7 +125,8 @@ kubectl get nodes -o json | jq -r '
   . as $observation |
   .bindings[]? | select(.podNamespace == "apps" and (.podName | startswith("api-"))) |
   [$node, $observation.observedAt, ($observation.complete | tostring),
-   .podName, .podUID, .id, .inventoryUID, (.generation | tostring), .digest] | @tsv'
+   .podName, .podUID, .containerName, .id, .inventoryUID,
+   (.generation | tostring), .digest] | @tsv'
 ```
 
 The second command requires permission to read Nodes. Compare Pod UIDs with
@@ -149,7 +151,7 @@ abort and restore that template:
 ```sh
 kubectl argo rollouts abort api -n apps
 kubectl -n apps patch rollouts.argoproj.io api --type=merge \
-  -p '{"spec":{"template":{"metadata":{"annotations":{"brewlet.sh/runtime-image":"python-stable","brewlet.sh/rotated-to-generation":null}}}}}'
+  -p '{"spec":{"template":{"metadata":{"annotations":{"runtime-image.brewlet.sh/api":"python-stable"}}}}}'
 ```
 
 An abort alone leaves the desired template pointing at the candidate. Keep
@@ -186,12 +188,15 @@ leased generation, while replacement containers use the node's current
 generation. Rotation does not itself change an Argo Rollout.
 
 The workload owner can run the following one-shot script, or arrange for their
-own automation to run it after the RuntimeImage changes. Set `runtime_id` to
-the ID currently selected by the Rollout (`python-candidate` if you promoted
-the preceding canary). It waits for neither approval nor convergence: a
-failed check exits, so automation must retry after the current target is
-approved and `RotationComplete=True`. It deliberately refuses excluded nodes,
-a Rollout that is not healthy, and an incompatible or newer existing barrier.
+own automation to run it after the RuntimeImage changes. Set `container` to the
+container whose runtime rotated and `runtime_id` to the ID it currently selects
+(`python-candidate` if you promoted the preceding canary). The script patches
+the `runtime-generation.brewlet.sh/<runtime_id>` barrier, which applies to every
+container in the template that selects that ID. It waits for neither approval
+nor convergence: a failed check exits, so automation must retry after the
+current target is approved and `RotationComplete=True`. It deliberately refuses
+excluded nodes, a Rollout that is not healthy, and an incompatible or newer
+existing barrier.
 
 ```sh
 #!/bin/sh
@@ -199,7 +204,10 @@ set -eu
 
 namespace=apps
 rollout=api
+container=api
 runtime_id=python-stable
+selection_key="runtime-image.brewlet.sh/$container"
+barrier_key="runtime-generation.brewlet.sh/$runtime_id"
 
 runtime=$(kubectl get runtimeimage "$runtime_id" -o json)
 if ! barrier=$(printf '%s\n' "$runtime" | jq -ce --arg id "$runtime_id" '
@@ -226,15 +234,16 @@ if ! barrier=$(printf '%s\n' "$runtime" | jq -ce --arg id "$runtime_id" '
 fi
 
 workload=$(kubectl -n "$namespace" get rollouts.argoproj.io "$rollout" -o json)
-if ! resource_version=$(printf '%s\n' "$workload" | jq -er --argjson target "$barrier" '
+if ! resource_version=$(printf '%s\n' "$workload" | jq -er --argjson target "$barrier" \
+  --arg selection "$selection_key" --arg key "$barrier_key" '
   . as $rollout |
   ($rollout.spec.template.metadata.annotations // {}) as $annotations |
   select($rollout.status.phase == "Healthy"
-    and $annotations["brewlet.sh/runtime-image"] == $target.id) |
+    and $annotations[$selection] == $target.id) |
   select(
-    ($annotations | has("brewlet.sh/rotated-to-generation") | not)
+    ($annotations | has($key) | not)
     or (try (
-      ($annotations["brewlet.sh/rotated-to-generation"] | fromjson) as $old |
+      ($annotations[$key] | fromjson) as $old |
       ($old.id == $target.id and $old.inventoryUID == $target.inventoryUID
        and ($old.generation | type) == "number" and $old.generation > 0
        and ($old.generation | floor) == $old.generation
@@ -243,13 +252,13 @@ if ! resource_version=$(printf '%s\n' "$workload" | jq -er --argjson target "$ba
   ) |
   $rollout.metadata.resourceVersion
 '); then
-  echo "Rollout is not healthy, selects another runtime, or has a conflicting barrier" >&2
+  echo "Rollout is not healthy, the container selects another runtime, or the barrier conflicts" >&2
   exit 1
 fi
 
-patch=$(jq -nc --arg rv "$resource_version" --arg barrier "$barrier" '
+patch=$(jq -nc --arg rv "$resource_version" --arg key "$barrier_key" --arg barrier "$barrier" '
   {metadata: {resourceVersion: $rv},
-   spec: {template: {metadata: {annotations: {"brewlet.sh/rotated-to-generation": $barrier}}}}}')
+   spec: {template: {metadata: {annotations: {($key): $barrier}}}}}')
 kubectl -n "$namespace" patch rollouts.argoproj.io "$rollout" --type=merge -p "$patch"
 ```
 

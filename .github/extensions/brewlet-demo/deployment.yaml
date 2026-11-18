@@ -20,7 +20,7 @@ spec:
       labels:
         app: showmyjvm
       annotations:
-        brewlet.sh/runtime-image: __RUNTIME__
+        runtime-image.brewlet.sh/app: __RUNTIME__
     spec:
       runtimeClassName: brewlet
       nodeSelector:

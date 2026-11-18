@@ -195,7 +195,7 @@ class WasmHarness(Harness):
                 {"exec": {"command": self.probe()}, "periodSeconds": 10, "timeoutSeconds": 10})
         return {"apiVersion": "v1", "kind": "Pod",
                 "metadata": {"name": name, "namespace": self.namespace,
-                             "annotations": {"brewlet.sh/runtime-image": selected or IDS[engine]}},
+                             "annotations": {"runtime-image.brewlet.sh/app": selected or IDS[engine]}},
                 "spec": {"runtimeClassName": "brewlet", "restartPolicy": "Never",
                          "nodeSelector": {"kubernetes.io/arch": self.arch, "brewlet.test/pool": self.run_id},
                          "containers": [container], "volumes": [

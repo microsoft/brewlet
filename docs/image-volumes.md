@@ -25,6 +25,7 @@ governance and lifecycle enforcement, not making separate delivery possible.
   - OnDemand pulls
   - leaving running Pods untouched during rotation and revocation
   - running Python, Java and Node on one shared base image
+  - running containers with different runtimes in one Pod
 - **Approximated with extra parts and caveats:**
   - **Approved catalog:** a ConfigMap read by a MutatingAdmissionPolicy and a
     ValidatingAdmissionPolicy.
@@ -39,8 +40,6 @@ governance and lifecycle enforcement, not making separate delivery possible.
   - a startup fence tied to provisioning
   - node-local authorization that survives a registry outage
   - node cleanup with evidence
-- **Native advantage:** one Pod can mix runtimes. All application containers in
-  a Brewlet Pod must use the same runtime ID.
 
 ABI coupling is a **layout choice**, not an image-volume limitation. Brewlet
 and Layout 1 use the complete runtime image as the container root. Layout 2
@@ -304,7 +303,6 @@ Legend:
 - **Partial:** a native construction approximates it with the stated caveats.
 - **Not reproduced:** the tested designs do not supply the control; this is
   not a claim that native platform engineering cannot provide it.
-- **Native advantage:** native Kubernetes allows something Brewlet does not.
 
 | Brewlet use case | Native mechanism | Result | Evidence (check name) |
 | --- | --- | --- | --- |
@@ -329,7 +327,7 @@ Legend:
 | Explicit launch, no image entrypoint | Pod `command`, `env`, `workingDir` | **Reproduced** | Asserted in every Layout 1 phase, for example `separate application and dependency image volumes` |
 | Node cleanup of retired runtimes | Kubelet image garbage collection under disk pressure | **Not reproduced**: no evidence or finalizers | `replaced runtime stays cached on the node after its last Pod exits` |
 | Multiple language runtimes | Per-language mount layout on a shared glibc base | **Reproduced** for Python, Java and Node | `Python, Java and Node apps run on one distroless/cc base with runtime volumes` |
-| One runtime ID per Pod (Brewlet constraint) | Each container mounts its own runtime volume | **Native advantage** | `one Pod runs Python and Node containers from different runtime volumes` |
+| Different runtime IDs per container in one Pod | Each container mounts its own runtime volume | **Reproduced** | `one Pod runs Python and Node containers from different runtime volumes` |
 | Dependency remediation separate from application | Dependency as its own image volume (Layout 1) | **Reproduced** for one pure-Python module | `dependency-only remediation without rebuilding application` |
 
 ## Findings
@@ -480,12 +478,12 @@ With that combination, the runtime image's `ENV` would apply to the process.
 Pull-policy restart behavior (finding 9) would move to the container's
 `imagePullPolicy`.
 
-### 6. Mixed runtimes in one Pod are a native advantage
+### 6. Mixed runtimes in one Pod work natively
 
 Pod `mixed` runs a Python container on port 8080 and a Node container on port
 8081. Each container mounts its own runtime volume and application volume. The
-containers report Python 3.13.10 and Node 22.17.0. Brewlet requires every
-application container in a Pod to use one runtime ID. See
+containers report Python 3.13.10 and Node 22.17.0. Brewlet supports the same
+layout with one runtime selection per container. See
 [coexistence](choosing-brewlet.md#coexistence).
 
 ### 7. Mounts are read-only, the root is not

@@ -44,14 +44,11 @@ retains its own process and resources; shared files do not imply shared heaps.
 
 ## Native Kubernetes, deliberately
 
-Opt in using `runtimeClassName: brewlet` and the explicit
-`brewlet.sh/runtime-image` Pod annotation. Use ordinary Deployments, StatefulSets,
-DaemonSets, Services and HPAs. Brewlet has no language-specific or replacement
-workload CRD.
-
-All application containers in a Brewlet Pod use the same runtime ID and version-1
-artifact contract. Only the Pod's infrastructure (pause) container runs
-through the standard runc path.
+Opt in using `runtimeClassName: brewlet` and select each managed container with
+`runtime-image.brewlet.sh/<container-name>: <id>` in Pod annotations. Unselected
+containers, including sidecars and debug containers, keep ordinary OCI
+behavior. Use ordinary Deployments, StatefulSets, DaemonSets, Services and
+HPAs. Brewlet has no language-specific or replacement workload CRD.
 Existing non-Brewlet workloads continue to use their ordinary runtime.
 
 ## Know what is verified
