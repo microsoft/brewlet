@@ -42,7 +42,7 @@ func TestEffectiveBaselineDeniesMissingOrUnsafePackedLayerRetention(t *testing.T
 }
 
 func TestLiveCRIRetentionCheckedOnlyWhenExposed(t *testing.T) {
-	base := `{"config":{"containerd":{"runtimes":{"brewlet":{"runtimeType":"io.containerd.brewlet.v2","PodAnnotations":["brewlet.sh/*"]}}%s}%s}}`
+	base := `{"config":{"containerd":{"runtimes":{"brewlet":{"runtimeType":"io.containerd.brewlet.v2","PodAnnotations":["runtime-image.brewlet.sh/*","runtime-generation.brewlet.sh/*"]}}%s}%s}}`
 	for _, section := range []string{"containerd", "images"} {
 		for _, value := range []string{"false", "true", "null", `"false"`} {
 			field := `,"discardUnpackedLayers":` + value

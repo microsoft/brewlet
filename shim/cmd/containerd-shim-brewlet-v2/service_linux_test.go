@@ -81,10 +81,17 @@ func TestUnselectedOCIContainerDelegatesLifecycleWithoutBrewletState(t *testing.
 	s := &service{
 		TTRPCTaskService: recorder,
 		publisher:        publisher,
+		loadInitial: func(string) (node.InitialState, error) {
+			return node.InitialState{}, &node.Error{Reason: "ExecStateUnavailable", Detail: "initial state missing"}
+		},
 		loadTaskSpec: func(context.Context, string) (*specs.Spec, error) {
 			return spec, nil
 		},
 	}
+	var output bytes.Buffer
+	previous := log.Writer()
+	log.SetOutput(&output)
+	t.Cleanup(func() { log.SetOutput(previous) })
 	if _, err := s.Create(context.Background(), &taskapi.CreateTaskRequest{ID: "oci", Bundle: bundle}); err != nil {
 		t.Fatal(err)
 	}
@@ -98,8 +105,8 @@ func TestUnselectedOCIContainerDelegatesLifecycleWithoutBrewletState(t *testing.
 		t.Fatal(err)
 	}
 	if recorder.creates != 1 || recorder.execs != 1 || recorder.starts != 1 || recorder.deletes != 1 ||
-		publisher.event != nil {
-		t.Fatalf("ordinary OCI lifecycle was not delegated unchanged: %+v, event=%v", recorder, publisher.event)
+		publisher.event != nil || output.Len() != 0 {
+		t.Fatalf("ordinary OCI lifecycle was not delegated unchanged: %+v, event=%v, log=%q", recorder, publisher.event, output.String())
 	}
 }
 func processAny(t *testing.T, p *specs.Process) *anypb.Any {

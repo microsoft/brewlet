@@ -102,19 +102,16 @@ func (s *service) runtimeEvent(ctx context.Context, reason, id string, m node.Me
 func (s *service) Start(ctx context.Context, r *taskapi.StartRequest) (*taskapi.StartResponse, error) {
 	response, err := s.TTRPCTaskService.Start(ctx, r)
 	if err == nil && r.ExecID == "" {
-		managed, _, selectionErr := s.managedSelection(ctx, r.ID)
-		if selectionErr != nil {
-			log.Printf("runtime-image-event-failed: task=%s reason=RuntimeImageResolved: protected-selection: %v", r.ID, selectionErr)
-		} else if managed {
-			load := s.loadInitial
-			if load == nil {
-				load = node.NewStore(inventoryRoot).LoadInitial
-			}
-			if state, loadErr := load(r.ID); loadErr == nil {
-				s.runtimeEvent(ctx, "RuntimeImageResolved", r.ID, state.Lease.Metadata)
-			} else {
-				log.Printf("runtime-image-event-failed: task=%s reason=RuntimeImageResolved: initial-state: %v", r.ID, loadErr)
-			}
+		load := s.loadInitial
+		if load == nil {
+			load = node.NewStore(inventoryRoot).LoadInitial
+		}
+		if state, loadErr := load(r.ID); loadErr == nil {
+			s.runtimeEvent(ctx, "RuntimeImageResolved", r.ID, state.Lease.Metadata)
+		} else if managed, _, selectionErr := s.managedSelection(ctx, r.ID); selectionErr != nil || managed {
+			// Sandboxes and unselected OCI containers never have Brewlet state.
+			log.Printf("runtime-image-event-failed: task=%s reason=RuntimeImageResolved: initial-state: %v; protected-selection: %v",
+				r.ID, loadErr, selectionErr)
 		}
 	}
 	return response, err
