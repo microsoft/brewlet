@@ -70,7 +70,7 @@ jobs:
         with:
           python-version: "3.12"
       - if: matrix.language == 'java'
-        uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78
+        uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880
         with:
           distribution: temurin
           java-version: "21"
@@ -97,7 +97,7 @@ jobs:
           toolchain="$(sed -n 's/^channel = "\(.*\)"$/\1/p' examples/wasm/spin-component/rust-toolchain.toml)"
           test -n "$toolchain"
           rustup toolchain install "$toolchain" --profile minimal --target wasm32-wasip2
-      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310
+      - uses: azure/setup-helm@2f5e7bc67f1f9972ab16657bb795f36d8f04de0e
         with:
           version: v3.19.0
       - uses: Azure/setup-kubectl@bda439f5f36b99b262ebdcd3613869bddb064c8e
