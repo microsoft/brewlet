@@ -46,6 +46,10 @@ once, with a ten-minute progress deadline per workload. Workloads using
 Pods on nodes still installing or excluded from rotation, can stay deferred.
 A patched template does not mean the restart succeeded; check the rollout.
 
+For Argo Rollouts, which Brewlet does not restart automatically, use the
+[progressive delivery recipe](argo-rollouts.md) to coordinate runtime changes
+without coupling the Brewlet operator to Argo.
+
 A workload is restarted when one of its running Pods uses an older generation,
 or started before the rotation completed and its node has not reported a
 fresh, complete view. If a node's report is missing or stale, Brewlet restarts
