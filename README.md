@@ -4,8 +4,8 @@
 [![Go version](https://img.shields.io/github/go-mod/go-version/microsoft/brewlet)](go.mod)
 [![License](https://img.shields.io/github/license/microsoft/brewlet)](LICENSE.txt)
 
-**Run applications from OCI artifacts using runtimes managed once on each
-Kubernetes node.**
+**Run applications from OCI artifacts using runtimes managed once on a
+Kubernetes node pool.**
 
 Brewlet moves language runtimes into infrastructure, alongside the operating
 system and Kubernetes. Developers publish application code, dependencies and
