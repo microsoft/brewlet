@@ -72,6 +72,7 @@ nav:
   - Operate:
       - Runtime dashboard: dashboard.md
       - Rotation and cleanup: operations.md
+      - Argo Rollouts recipe: argo-rollouts.md
       - Dependency remediation runbook: dependency-remediation.md
       - Security and hardening: security.md
       - Registry and certificate trust: registry-trust.md
