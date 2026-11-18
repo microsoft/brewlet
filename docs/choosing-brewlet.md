@@ -1,10 +1,12 @@
 # When to use Brewlet
 
-Choose Brewlet when separating application delivery from centrally governed
-runtime infrastructure is useful enough to justify operating a privileged
-node runtime integration.
+Image volumes already separate runtime and application delivery. Brewlet adds
+an integrated system for treating runtimes as infrastructure: approval, node
+provisioning, generation tracking, controlled rotation, start authorization
+and retirement. Choose it when those guarantees justify operating a privileged
+node runtime integration, not merely to publish application and runtime
+bytes separately.
 
-Independent application/runtime ownership does not by itself require Brewlet.
 Compare it with the strongest native alternative: a complete approved runtime
 as the container image, with the application mounted read-only at `/app` from
 an image volume. The inverse, mounting an arbitrary runtime under `/runtime`,
@@ -15,7 +17,7 @@ can break its expected loader, library and filesystem paths.
 | Publish application and runtime separately | Final application image includes the selected runtime/base graph. | Separate runtime and application image digests. | Separate application artifact and approved RuntimeImage inventory. |
 | Update runtime without rebuilding application bytes | Usually publish a new application image graph with the updated base. | Change the runtime image; retain the application-volume digest. | Approve a runtime generation; retain the application artifact digest. |
 | Centrally approve runtime selection | Requires platform policy and delivery tooling. | Requires platform policy and delivery tooling for both image references. | Integrated runtime inventory, approval, pool provisioning and startup checks. |
-| Recheck runtime authorization on every container Create | Pod admission alone does not recheck an existing Pod's container restart. | Same limitation of Pod admission alone. | Node-local authorization must remain valid even when the root is cached. |
+| Recheck runtime authorization on every container Create | Pod admission does not rerun on restart; registry checks can gate starts with an availability cost. | Same tradeoff; see restart policies below. | Renewable node-local authorization must remain valid even when the root is cached. |
 | Apply application launch metadata | Container image config and Pod settings. | Render explicit command, arguments, environment and working directory; a volume's image config is not executed. | Validated explicit launch descriptor with runtime-owned PATH and protected Exec state. |
 | Use native Kubernetes controllers | Supported. | Supported. | Supported; no replacement workload CRD. |
 | Mix heterogeneous sidecars in one Pod | Supported, subject to cluster policy. | Supported, subject to cluster policy. | All application containers require the same runtime ID and v1 artifact contract. |
@@ -36,6 +38,26 @@ describes read-only mounts, credentials and pull behavior. The earlier blanket
 do not assume executable files or native libraries are categorically unusable.
 ABI, mount layout and security-policy compatibility still need qualification.
 
+The [native image-volume experiment](image-volumes.md) runs without
+installing Brewlet:
+
+- **Reproduced:** runtime rotation, dependency replacement and rollback with
+  an unchanged application image.
+- **Approximated:** an ID-based runtime catalog with built-in admission
+  policies, using Python, Java and Node on one shared base. Mounting runtimes
+  into a shared base couples their ABI to it.
+- **Observed lifecycle gaps:** admission-time catalog changes did not trigger
+  rollouts, scale-up mixed runtime versions within one ReplicaSet, and
+  `rollout undo` did not restore the previous runtime.
+- **Observed restart tradeoff:** cached runtimes restarted after revocation;
+  `Always` blocked restarts after registry deletion and during registry outages.
+
+The shared-base ABI coupling is not inherent to image volumes. Admission
+could instead inject a complete runtime as the container image, preserving
+its filesystem and libraries while selecting it from a platform-owned catalog.
+The experiment verified those building blocks separately, but did not test
+that combination end to end.
+
 Separate image fields are not separate team authorization. Kubernetes RBAC
 does not ordinarily authorize individual Deployment fields, and server-side
 apply field ownership is not an access-control boundary. A native platform
@@ -50,6 +72,28 @@ start authorization. Its [composition tooling](managed-composition.md)
 resolving dependencies on the node.
 Choose that integration when its guarantees justify the operational cost.
 
+## Rotation and rollback
+
+The catalog findings apply to **digest injection at Pod admission**, not to
+all image-volume deployments. In that design, the Deployment template records
+a runtime ID but not its resolved digest. Changing the catalog creates no new
+ReplicaSet; scaling can introduce a newer runtime under the same template
+hash. Undoing a Deployment revision still resolves the current catalog entry.
+
+Recording runtime digests in workload templates preserves native rollout
+history, as the experiment's explicit-reference layout demonstrates. A native
+platform can use delivery automation or a controller to propagate catalog
+changes into those templates and retain rollback targets.
+
+Brewlet integrates generation tracking, node-observed bindings and opt-in
+rotation restarts. With rotation restarts enabled, its operator sets a
+minimum-generation barrier in opted-in workload templates and uses each
+workload's rollout strategy. This provides visibility and controlled
+convergence, not an atomic switch or a guarantee that every replica always
+runs the same generation. The barrier is not an exact-version pin, and
+`rollout undo` is not a Brewlet runtime rollback mechanism. See
+[rotation and cleanup](operations.md#rotate-without-rebuilding-application-bytes).
+
 ## Authorization, restarts and recovery
 
 Brewlet rechecks runtime authorization when creating a container task, including
@@ -57,15 +101,43 @@ a restart within an existing Pod. An installed root with expired or revoked
 authorization cannot start a new task. Pod admission alone is not rerun on
 that restart in a conventional or image-volume deployment.
 
-That protection has an availability cost: prolonged loss of authorization
-renewal can block recovery starts even with cached bytes. A native deployment
-may continue restarting a cached, digest-pinned runtime unless another control
-prevents it. Existing Brewlet tasks retain their leased root; revocation is not
+The mechanisms have different failure modes:
+
+| Mechanism | Revocation and restart behavior | Availability dependency |
+| --- | --- | --- |
+| Native cached runtime (`IfNotPresent`) | Removing a catalog entry does not stop an existing Pod restarting its pinned runtime from cache. | Cached bytes can permit restarts during a registry outage. |
+| Native runtime with `Always` | Registry deletion blocked restarts in the experiment; removing only a catalog entry does not revoke the existing Pod's reference. | Registry outages also blocked restarts, despite cached layers. |
+| Brewlet installed runtime | Every container create checks node-local approval and ownership authorization. | No registry round trip is needed for an installed runtime, but authorization expires after five minutes without renewal. |
+
+For a runtime mounted as an image volume, the native setting is
+`volumes[].image.pullPolicy`; for a runtime used as the container image, it is
+`containers[].imagePullPolicy`. The experiment exercised the registry outage
+and deletion cases on runtime volumes. Registry deletion is a coarse control:
+it affects every consumer of that repository's manifest, not copies published
+elsewhere.
+
+Brewlet separates start authorization from registry availability for installed
+runtimes; it does not eliminate availability dependencies. Prolonged loss of
+authorization renewal blocks recovery starts even with cached bytes. See the
+[experiment's restart findings](image-volumes.md#9-restart-authorization-revocation-versus-availability).
+Existing Brewlet tasks retain their leased root; revocation is not
 automatic termination of running processes. See [operations](operations.md).
 
 Neither design hot-patches running processes. Runtime changes reach existing
 workloads through new task instances or controller-driven replacement, with
 the chosen rollout strategy controlling disruption.
+
+## Choosing between them
+
+- **Choose native image volumes** when independent delivery, explicit-digest
+  rollouts and existing platform policies meet the requirements. They also
+  allow heterogeneous sidecars without Brewlet's same-runtime-ID constraint
+  and avoid installing a custom privileged node runtime integration.
+- **Choose Brewlet** when integrated approval, pool provisioning, generation
+  visibility, opt-in rotation, restart authorization and retirement evidence
+  are worth that integration's operating cost. Its value is supplying and
+  enforcing the runtime lifecycle, rather than requiring the platform team
+  to assemble and maintain the equivalent controls.
 
 ## Good evaluation candidates
 
@@ -91,8 +163,16 @@ guarantees. See [verification boundaries](verification.md).
 Native image volumes and ordinary images also benefit from content-addressed
 caching and snapshotter reuse. No equal-condition benchmark establishes a
 Brewlet memory, startup, network or density advantage over that alternative.
-The five workload guides qualify the Brewlet path, not a native image-volume
-backend or arbitrary runtime/application combinations.
+The five workload guides qualify the Brewlet path. The native image-volume
+experiment qualifies only its minimal Python, Java and Node fixtures and pinned
+inputs, not arbitrary runtime/application combinations.
+
+The experiment ran native Kubernetes only. Its observations are measured
+native results; the Brewlet column describes documented behavior, not a
+head-to-head validation in the same run. Controls not implemented in the
+experiment are not proven impossible with native platform engineering.
+Neither performance nor production-reliability superiority follows from these
+results.
 
 ## Coexistence
 
