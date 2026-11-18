@@ -42,6 +42,7 @@ nav:
       - Overview: index.md
       - Concepts and architecture: concepts.md
       - When to use Brewlet: choosing-brewlet.md
+      - Native image-volume experiment: image-volumes.md
       - Compatibility policy: compatibility-policy.md
   - Try:
       - First local deployment: local-kubernetes.md

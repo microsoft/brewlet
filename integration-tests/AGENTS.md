@@ -15,6 +15,11 @@ obligations and evidence rules live in [`acceptance/`](../acceptance/README.md).
 - `fixtures/` — the Python qualification fixture, Java/Node.js/.NET/PHP example
   fixtures (weekly matrix `language-e2e.yml` workflow, which also runs `wasm.py`), pinned runtime inputs and
   `fixtures/check.py`, the producer/consumer conformance check.
+- `live-v2/image_volumes.py` — isolated native Kubernetes alternative, without
+  Brewlet components. Covers delivery, rotation and rollback; an admission-policy
+  runtime catalog with Python, Java and Node; Eager/OnDemand placement; ABI
+  mismatches; and restart authorization. See
+  [report and reproduction](../docs/image-volumes.md).
 - `registry.py` — real registry delivery checks.
 - `admission.py` — real API-server admission checks; not node execution.
 - `linux-cli.sh` — sandboxed Linux CLI wrapper used by the fixture and registry
