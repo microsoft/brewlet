@@ -16,7 +16,7 @@ links, permissions and whiteouts) independently in Java. It does not need the
 `brewlet` executable:
 
 ```sh
-mvn sh.brewlet:brewlet-maven-plugin:0.10.0:conformance \
+mvn sh.brewlet:brewlet-maven-plugin:0.11.0:conformance \
   -Dbrewlet.fixtures=/path/to/conformance/artifact-v1.json \
   -Dbrewlet.conformanceResult=/path/to/results.json
 ```
@@ -29,7 +29,7 @@ launch, runtime-ID and platform cases through the actual CLI `push` goal.
 Package and publish in the same Maven invocation:
 
 ```sh
-mvn package sh.brewlet:brewlet-maven-plugin:0.10.0:push \
+mvn package sh.brewlet:brewlet-maven-plugin:0.11.0:push \
   -Dbrewlet.image=registry.example.com/apps/example:v2 \
   -Dbrewlet.platforms=linux/amd64,linux/arm64 \
   -Dbrewlet.mainClass=example.Main
