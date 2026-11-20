@@ -27,14 +27,8 @@ integration tests, website, and user-facing documentation.
 ## Project status
 
 > [!IMPORTANT]
-> **Brewlet 0.8.0 is a pivot.** Brewlet is now a language-agnostic runtime
-> governance solution. It still does most of what the Java-specific 0.7.x line
-> did, now tracked in the
-> [`brewlet-0.x-java`](https://github.com/microsoft/brewlet/tree/brewlet-0.x-java)
-> branch, but it is no longer specific to Java.
->
-> **All 0.x releases are betas and are not stable.** They can break, change
-> incompatibly or pivot again between versions. General availability (GA)
+> **All 0.x releases are betas and are not stable.** They can break or change
+> incompatibly between versions. General availability (GA)
 > will be 1.0.0.
 
 Brewlet is a clean-slate, pre-GA implementation under active development.
