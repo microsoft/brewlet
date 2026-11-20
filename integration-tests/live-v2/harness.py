@@ -238,8 +238,8 @@ def artifact_target(layout):
         current_roles = [layer.get("annotations", {}).get("brewlet.sh/layer")
                          for layer in manifest["layers"]]
         require(current_roles[-1] == "launch" and current_roles.count("launch") == 1
-                and "app" in current_roles and "dependency" in current_roles,
-                "separate dependency/app/final-launch layers required")
+                and current_roles.count("app") >= 2,
+                "application payload/final-launch layers required")
         checked_blob(layout, manifest["config"])
         roles.append(current_roles)
     return descriptor["digest"], roles
@@ -716,8 +716,8 @@ class Harness:
             command = [*self.cli_command, "build", tag, "--store", layout,
                        "--platform", "linux/amd64", "--platform", "linux/arm64",
                        "--launch", self.launch_file(language)]
-            for role, source, target in inputs:
-                command += ["--layer", f"{role}={source}:{target}"]
+            for _, source, target in inputs:
+                command += ["--layer", f"{source}:{target}"]
             self.run(command, timeout=180)
             digest, roles = artifact_target(layout)
             self.import_layout(layout)
@@ -727,7 +727,7 @@ class Harness:
             self.ctr("images", "tag", "--force", tag, canonical)
             require(self.image_digest(canonical) == digest, "canonical application import mismatch")
             self.app_images[language] = canonical
-            self.record(language + " explicit application/dependency artifact imported",
+            self.record(language + " explicit application artifact with libraries imported",
                         {"image": canonical, "roles": roles}, ["ART-01", "LANG-01"])
         self.prepare_components()
         self.runtime_vendor_inputs = rotation_inputs(json.loads(
@@ -1737,7 +1737,7 @@ class Harness:
                 "non-gating weekly language-e2e.yml workflow, not in qualification")
         if self.scenario == "pr":
             self.result["gaps"].append(
-                "PR E2E omits the long quarantine, accounting, managed composition, "
+                "PR E2E omits the long quarantine, accounting, "
                 "Maven/container-role/lifecycle/controller fault callbacks and companion suites; "
                 "full promotion qualification is separate")
         elif self.scenario == "control":

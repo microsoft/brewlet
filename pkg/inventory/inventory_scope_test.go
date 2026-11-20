@@ -50,14 +50,11 @@ func TestScopedAffectedControlStagingAndUnknownApplicationsRemainDistinct(t *tes
 	})
 	original := f.options.ReadImage
 	f.options.Namespaces = []string{"prod", "staging"}
-	f.options.ReadImage = func(ctx context.Context, identity node.ApplicationIdentity) (artifact.DependencyReport, error) {
+	f.options.ReadImage = func(ctx context.Context, identity node.ApplicationIdentity) (artifact.ApplicationReport, error) {
 		if strings.Contains(identity.Reference, "/unknown@") {
-			return artifact.DependencyReport{}, fmt.Errorf("composition evidence missing")
+			return artifact.ApplicationReport{}, fmt.Errorf("application graph unavailable")
 		}
 		facts, err := original(ctx, identity)
-		if strings.Contains(identity.Reference, "/control@") {
-			facts.Packages[0].Version, facts.Packages[0].PURL = "2", "pkg:generic/shared@2"
-		}
 		return facts, err
 	}
 	report, err := Capture(context.Background(), f.reader, f.options)
@@ -75,15 +72,12 @@ func TestScopedAffectedControlStagingAndUnknownApplicationsRemainDistinct(t *tes
 			}
 			continue
 		}
-		// An exact fixture advisory join, not a CVE database or version comparator.
-		for _, pkg := range report.Artifacts[row.EvidenceKey].Packages {
-			if pkg.PURL == "pkg:generic/shared@1" {
-				affected[row.Pod.Namespace+"/"+row.Workload.Name] = true
-			}
+		if report.Artifacts[row.EvidenceKey].Root.Digest == digest.FromString("root") {
+			affected[row.Pod.Namespace+"/"+row.Workload.Name] = true
 		}
 	}
 	if len(affected) != 2 || !affected["prod/orders"] || !affected["staging/staging"] || affected["prod/control"] {
-		t.Fatalf("external package-to-application join lost scope/version: %v", affected)
+		t.Fatalf("application identity join lost scope: %v", affected)
 	}
 }
 

@@ -46,7 +46,9 @@ func TestVerifyGraphDoesNotApplyBrewletPolicy(t *testing.T) {
 
 func TestVerifyGraphIncludesReferrers(t *testing.T) {
 	store := Store{Dir: filepath.Join(testDir(t), "store")}
-	target, _ := fixtureLayerSet(t, store, true, true)
+	target := fixtureApplication(t, store)
+	_, e := publishReferrer(store, target, MediaTypeCycloneDX, MediaTypeCycloneDX, []byte(`{"bomFormat":"CycloneDX"}`))
+	must(t, e)
 	must(t, VerifyGraph(context.Background(), store, target))
 	refs, e := store.Referrers(target)
 	must(t, e)

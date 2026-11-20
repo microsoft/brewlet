@@ -23,7 +23,7 @@ REAL_NODE_REQUIRED = {
 REQUIRED_IDS = {
     f"{prefix}-{number:02}"
     for prefix, count in {
-        "ARCH": 2, "ART": 10, "DEP": 3, "INV": 6, "ROOT": 5, "PROF": 5,
+        "ARCH": 2, "ART": 10, "INV": 6, "ROOT": 5, "PROF": 5,
         "LEASE": 3, "OD": 6, "ROT": 10, "RUN": 10, "PROC": 3, "SEC": 4,
         "ADM": 4, "LABEL": 2, "FENCE": 4, "SCHED": 1, "RC": 1, "CLI": 2,
         "MAV": 1, "OWN": 4, "OBS": 4, "E2E": 9, "LANG": 2, "FS": 4,
@@ -154,7 +154,7 @@ def main():
         for error in errors:
             print(error)
         if not errors:
-            print("115 baseline obligations verified from actual indexed receipts")
+            print(f"{len(REQUIRED_IDS)} baseline obligations verified from actual indexed receipts")
         return int(bool(errors))
     load_matrix()
     document = json.loads(Path(__file__).with_name("requirements.json").read_text())

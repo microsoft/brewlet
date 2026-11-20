@@ -1,7 +1,7 @@
 <!-- Copyright (c) Microsoft Corporation. Licensed under the MIT License. -->
 <svg xmlns="http://www.w3.org/2000/svg" width="600" height="570" viewBox="0 0 600 570" role="img" aria-labelledby="title description">
-  <title id="title">Three application delivery paths</title>
-  <desc id="description">For local testing, build an application artifact and run it with an explicitly chosen runtime. For direct Kubernetes delivery, build the app with its dependencies, push it, and deploy a workload. For governed composition, publish an app-only artifact and a dependency layer set, bundle their pinned digests, verify and test the resulting digest, and deploy it.</desc>
+  <title id="title">Application build and delivery paths</title>
+  <desc id="description">For local testing, build an application artifact and run it with an explicitly chosen runtime. For direct Kubernetes delivery, build the application and its dependencies together, push it, and deploy a workload. Libraries and other dependencies are ordinary application files.</desc>
   <style>
     text { font-family: "Segoe UI", Aptos, Calibri, sans-serif; fill: #2a1f18; }
     .heading { font-size: 25px; font-weight: 700; }
@@ -39,22 +39,12 @@
   <text class="label" x="460" y="275" text-anchor="middle">Deploy</text>
 
   <rect x="24" y="324" width="552" height="222" rx="12" fill="#fff" stroke="#e7dcc9" stroke-width="2"/>
-  <text class="eyebrow" x="42" y="349">GOVERNED COMPOSITION</text>
+  <text class="eyebrow" x="42" y="349">APPLICATION CONTENT</text>
   <rect x="42" y="365" width="230" height="60" rx="8" fill="#eaf1ff"/>
-  <text class="command" x="157" y="389" text-anchor="middle">build + push</text>
-  <text class="note" x="157" y="413" text-anchor="middle">app-only digest</text>
+  <text class="label" x="157" y="390" text-anchor="middle">App layers</text>
+  <text class="note" x="157" y="414" text-anchor="middle">code, libraries, assets</text>
   <rect x="328" y="365" width="230" height="60" rx="8" fill="#eaf1ff"/>
-  <text class="command" x="443" y="389" text-anchor="middle">layer-set</text>
-  <text class="note" x="443" y="413" text-anchor="middle">dependency set digest</text>
-  <path d="M443 425V440H157" fill="none" stroke="#6f4e37" stroke-width="2"/>
-  <path class="arrow" d="M157 425V440H108V451"/>
-  <rect x="42" y="455" width="132" height="42" rx="8" fill="#eaf1ff"/>
-  <text class="command" x="108" y="482" text-anchor="middle">bundle</text>
-  <path class="arrow" d="M178 476H210"/>
-  <rect x="214" y="455" width="172" height="42" rx="8" fill="#eaf1ff"/>
-  <text class="label" x="300" y="482" text-anchor="middle">Verify + test</text>
-  <path class="arrow" d="M390 476H422"/>
-  <rect x="426" y="455" width="132" height="42" rx="8" fill="#f3e7d8"/>
-  <text class="label" x="492" y="482" text-anchor="middle">Deploy</text>
-  <text class="note" x="42" y="527">Test and deploy the exact candidate digest.</text>
+  <text class="label" x="443" y="390" text-anchor="middle">Launch contract</text>
+  <text class="note" x="443" y="414" text-anchor="middle">explicit launch.json</text>
+  <text class="note" x="42" y="476">All application files ship together in the OCI artifact.</text>
 </svg>

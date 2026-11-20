@@ -92,8 +92,8 @@ Project SPDX documents describe the exact CLI payloads, Maven runtime closure,
 chart, image platform filesystems and image-index children. The primary subject
 has the payload digest and explicit package relationships. The index SBOM is a
 manifest-set inventory; it is not a scan of an arbitrary default platform.
-These are **Brewlet distribution SBOMs**, separate from the product's application
-composition and dependency-layer SBOM/signature features.
+These are **Brewlet distribution SBOMs**; they do not describe arbitrary
+application payloads.
 
 GitHub OIDC provenance signs the payload/inventory/SBOM bytes and native outcome
 records. Publication attests exact registry index and chart digests; index

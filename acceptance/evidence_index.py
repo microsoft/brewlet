@@ -60,8 +60,7 @@ def artifact_files(name, source):
                              ("kernel", ("native-contracts", "go-vet"))):
             if name == f"checks-{group}-{arch}-{source}":
                 return ".github/workflows/release-gate-tests.yml", {f"{check}-{arch}.json" for check in checks}
-        for scenario, suites in (("complete", COMPLETE), ("managed", ("managed",)),
-                                 ("managed-wasm", ("managed-wasm",))):
+        for scenario, suites in (("complete", COMPLETE),):
             if name == f"e2e-{arch}-{scenario}-{source}":
                 return ".github/workflows/e2e.yml", {f"candidate-{arch}-{suite}.json" for suite in suites}
     raise ValueError("artifact is not a required qualification scope for this source")

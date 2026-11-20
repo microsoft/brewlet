@@ -360,7 +360,7 @@ export function commandPreviews(state, runtimes = {}) {
                 `java -Djarmode=tools -jar ${quote(jar)} extract --destination ${quote(path.join(dir, "layers"))}`,
                 ...(checkout ? [] : [`curl -fsSLO https://github.com/${BREWLET_REPOSITORY}/releases/download/v${version}/brewlet_${version}_linux_${arch}.tar.gz  # SHA-256 checked against checksums.txt`]),
                 `docker build --platform linux/${arch} -f ${quote(fileURLToPath(new URL("producer.Dockerfile", import.meta.url)))} --build-arg BREWLET_CLI=${checkout ? "source" : "release"} --target artifact --output type=local,dest=${quote(path.join(dir, "application"))} ${quote(path.join(dir, "producer"))}`,
-                `brewlet build ${APP_REF} --platform linux/${arch} --launch launch.json --layer dependency=lib:/app/lib --layer app=app:/app --store oci --result push.json`,
+                `brewlet build ${APP_REF} --platform linux/${arch} --launch launch.json --layer lib:/app/lib --layer app:/app --store oci --result push.json`,
             ],
             input: { brewlet: checkout ? "built from this checkout's HEAD" : `release ${version} (linux/${arch})`, launch: launchDescriptor() },
             note: checkout

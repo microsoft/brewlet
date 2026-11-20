@@ -9,7 +9,6 @@ node/runtime acceptance.
 """
 
 import argparse
-from datetime import datetime, timedelta, timezone
 import hashlib
 import importlib.util
 import json
@@ -20,7 +19,6 @@ import selectors
 import subprocess
 import tempfile
 import urllib.request
-import xml.etree.ElementTree as ET
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -59,7 +57,7 @@ def image_target(layout):
         assert manifest["annotations"]["brewlet.sh/artifact-version"] == "1"
         roles = [layer["annotations"]["brewlet.sh/layer"] for layer in manifest["layers"]]
         assert roles[-1] == "launch" and roles.count("launch") == 1
-        assert "app" in roles and "dependency" in roles
+        assert roles.count("app") >= 2
         config = blob(layout, manifest["config"])
         assert config["config"].get("User", "") == ""
         assert config["config"]["WorkingDir"] == "/app"
@@ -109,14 +107,14 @@ def build_and_probe(work, languages=FIXTURE_LANGUAGES):
         commands["java"] = ["java", "--class-path",
                             str(java_app / "app.jar") + os.pathsep + str(java_dependencies / "*"),
                             "sh.brewlet.fixture.Main", "--probe", "two words"]
-        layers["java"] = [("dependency", java_dependencies, "/app/lib"), ("app", java_app, "/app")]
+        layers["java"] = [("app", java_dependencies, "/app/lib"), ("app", java_app, "/app")]
     if "python" in languages:
         commands["python"] = ["python3", FIXTURES / "python/src/main.py", "--probe", "two words"]
-        layers["python"] = [("dependency", FIXTURES / "python/dependencies", "/app/dependencies"),
+        layers["python"] = [("app", FIXTURES / "python/dependencies", "/app/dependencies"),
                             ("app", FIXTURES / "python/src", "/app/src")]
     if "node" in languages:
         commands["node"] = ["node", FIXTURES / "node/src/main.mjs", "--probe", "two words"]
-        layers["node"] = [("dependency", FIXTURES / "node/dependencies", "/app/dependencies"),
+        layers["node"] = [("app", FIXTURES / "node/dependencies", "/app/dependencies"),
                           ("app", FIXTURES / "node/src", "/app/src")]
     if "dotnet" in languages:
         dotnet = work / "dotnet"
@@ -133,11 +131,11 @@ def build_and_probe(work, languages=FIXTURE_LANGUAGES):
             shutil.copy2(published / name, dotnet_app / name)
         shutil.copy2(published / "Greeting.dll", dotnet_dependencies / "Greeting.dll")
         commands["dotnet"] = ["dotnet", published / "App.dll", "--probe", "two words"]
-        layers["dotnet"] = [("dependency", dotnet_dependencies, "/app"), ("app", dotnet_app, "/app")]
+        layers["dotnet"] = [("app", dotnet_dependencies, "/app"), ("app", dotnet_app, "/app")]
     if "php" in languages:
         commands["php"] = ["php", "-d", "include_path=" + str(FIXTURES / "php/dependencies"),
                            FIXTURES / "php/src/main.php", "--probe", "two words"]
-        layers["php"] = [("dependency", FIXTURES / "php/dependencies", "/app/dependencies"),
+        layers["php"] = [("app", FIXTURES / "php/dependencies", "/app/dependencies"),
                          ("app", FIXTURES / "php/src", "/app/src")]
 
     environment = dict(os.environ, BREWLET_TEST_VALUE="explicit-contract-value")
@@ -209,8 +207,8 @@ def main():
                 command = [brewlet, "build", f"fixtures/{language}:v2", "--store", layout,
                            "--platform", "linux/amd64", "--platform", "linux/arm64",
                            "--launch", FIXTURES / language / "launch.json"]
-                for role, source, target in layer_inputs:
-                    command += ["--layer", f"{role}={source}:{target}"]
+                for _, source, target in layer_inputs:
+                    command += ["--layer", f"{source}:{target}"]
                 run(command)
                 digests.append(image_target(layout))
                 run([brewlet, "inspect", f"fixtures/{language}:v2", "--store", layout])
@@ -228,90 +226,6 @@ def main():
              "-Dbrewlet.image=fixtures/java-maven:v2",
              "-Dbrewlet.platforms=linux/amd64,linux/arm64"])
         evidence["images"]["java-maven"] = image_target(work / "oci-java-maven")
-        managed_set = work / "oci-java-layer-set"
-        source_bom = "sh.brewlet.fixture:fixture-bom:2.0.0"
-        run(["mvn", "-B", "-q", "-f", java / "app/pom.xml",
-             PLUGIN + "layer-set",
-             f"-Dbrewlet.executable={brewlet}", f"-Dbrewlet.store={managed_set}",
-             "-Dbrewlet.layerSet=fixtures/java-dependencies:v2",
-             f"-Dbrewlet.sourceBom={source_bom}"])
-        managed_output = work / "oci-java-managed"
-        managed_arguments = [
-            "package", PLUGIN + "push",
-            f"-Dbrewlet.executable={brewlet}", f"-Dbrewlet.store={managed_output}",
-            "-Dbrewlet.image=fixtures/java-managed:v2",
-            "-Dbrewlet.platforms=linux/amd64,linux/arm64",
-            f"-Dbrewlet.layerSetInput={managed_set}", f"-Dbrewlet.sourceBom={source_bom}",
-        ]
-        run(["mvn", "-B", "-q", "-f", java / "app/pom.xml", *managed_arguments])
-        evidence["images"]["java-managed"] = image_target(managed_output)
-        dependency_manifest = blob(managed_set, json.loads(
-            (managed_set / "index.json").read_text())["manifests"][0])
-        application_index = blob(managed_output, json.loads(
-            (managed_output / "index.json").read_text())["manifests"][0])
-        application_manifest = blob(managed_output, application_index["manifests"][0])
-        expected_layers = [layer["digest"] for layer in dependency_manifest["layers"]
-                           if layer.get("annotations", {}).get("brewlet.sh/layer") == "dependency"]
-        actual_layers = [layer["digest"] for layer in application_manifest["layers"]
-                         if layer["annotations"]["brewlet.sh/layer"] == "dependency"]
-        assert actual_layers == expected_layers and len(actual_layers) == 1, (
-            "Java managed dependencies must be reused byte-for-byte, without a duplicate bundled layer")
-        app_only_digests = []
-        for attempt in range(2):
-            app_only = work / f"oci-java-application-only-{attempt}"
-            run(["mvn", "-B", "-q", "-f", java / "app/pom.xml",
-                 "package", PLUGIN + "push",
-                 f"-Dbrewlet.executable={brewlet}", f"-Dbrewlet.store={app_only}",
-                 "-Dbrewlet.image=fixtures/java-application-only:v2",
-                 "-Dbrewlet.platforms=linux/amd64,linux/arm64",
-                 "-Dbrewlet.applicationOnly=true", f"-Dbrewlet.sourceBom={source_bom}"])
-            target = json.loads((app_only / "index.json").read_text())["manifests"][0]
-            app_only_digests.append(target["digest"])
-            index = blob(app_only, target)
-            for descriptor in index["manifests"]:
-                manifest = blob(app_only, descriptor)
-                assert [layer["annotations"]["brewlet.sh/layer"] for layer in manifest["layers"]] == [
-                    "app", "launch"], "app-only Maven mode bundled dependencies"
-        assert app_only_digests[0] == app_only_digests[1], "app-only build graph staging is nondeterministic"
-        release_policy = work / "development-release-policy.json"
-        release_policy.write_text(json.dumps({"schemaVersion": 1, "mode": "development",
-            "notAfter": (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(),
-            "publisher": {"identity": "", "keys": []},
-            "composer": {"identity": "", "keys": []}}))
-        composed = work / "oci-java-release-composed"
-        run([brewlet, "bundle", "fixtures/java-release:v2", "--store", composed,
-             "--application", str(app_only) + "@" + target["digest"],
-             "--layer-set", str(managed_set) + "@" + json.loads(
-                 (managed_set / "index.json").read_text())["manifests"][0]["digest"],
-             "--platform", "linux/arm64", "--policy", release_policy])
-        composed_target = json.loads((composed / "index.json").read_text())["manifests"][0]
-        composed_manifest = blob(composed, composed_target)
-        original = blob(app_only, next(member for member in index["manifests"]
-                                      if member["platform"]["architecture"] == "arm64"))
-        assert composed_manifest["layers"][-2:] == original["layers"], (
-            "release composition changed app-only Maven build metadata or launch")
-        evidence["mavenApplicationOnly"] = {"digest": target["digest"], "deterministic": True,
-            "composedDigest": composed_target["digest"], "scope": "producer-integration-development-policy"}
-        scope_drift = work / "java-scope-drift"
-        shutil.copytree(java / "app", scope_drift, ignore=shutil.ignore_patterns("target"))
-        tree = ET.parse(scope_drift / "pom.xml")
-        namespace = "{http://maven.apache.org/POM/4.0.0}"
-        dependency = tree.getroot().find(f"{namespace}dependencies/{namespace}dependency")
-        assert dependency.find(f"{namespace}artifactId").text == "greeting"
-        ET.SubElement(dependency, namespace + "scope").text = "runtime"
-        ET.register_namespace("", "http://maven.apache.org/POM/4.0.0")
-        ET.register_namespace("xsi", "http://www.w3.org/2001/XMLSchema-instance")
-        tree.write(scope_drift / "pom.xml", encoding="utf-8", xml_declaration=True)
-        invalid_arguments = [
-            argument if not argument.startswith("-Dbrewlet.store=")
-            else f"-Dbrewlet.store={work / 'oci-java-scope-drift'}"
-            for argument in managed_arguments]
-        rejected = subprocess.run(["mvn", "-B", "-q", "-f", str(scope_drift / "pom.xml"),
-                                   *map(str, invalid_arguments)],
-                                  text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-        assert rejected.returncode != 0 and "graph" in rejected.stdout.lower(), (
-            "Maven must reject changed dependency scope even when JAR bytes match: " + rejected.stdout)
-        evidence["mavenManagedScopeDrift"] = "rejected"
         spec = importlib.util.spec_from_file_location("maven_conformance", ROOT / "integration-tests/maven_conformance.py")
         conformance = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(conformance)

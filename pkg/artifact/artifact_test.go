@@ -417,40 +417,61 @@ func TestBuildDeterministicAndResolve(t *testing.T) {
 		t.Fatalf("bad mirror accepted: %v", e)
 	}
 }
-func TestLayerSetByteReuseAndLock(t *testing.T) {
+func TestApplicationLibrariesArePayload(t *testing.T) {
 	dir := testDir(t)
-	deps := filepath.Join(dir, "deps")
-	app := filepath.Join(dir, "app")
-	must(t, os.Mkdir(deps, 0755))
-	must(t, os.Mkdir(app, 0755))
-	must(t, os.WriteFile(filepath.Join(deps, "library"), []byte("lib"), 0644))
-	must(t, os.WriteFile(filepath.Join(app, "main"), []byte("app"), 0644))
-	cleanSource(t, deps)
+	store := Store{Dir: filepath.Join(dir, "store")}
+	app, libs := filepath.Join(dir, "app"), filepath.Join(dir, "libs=debug build")
+	for _, path := range []string{app, libs} {
+		must(t, os.Mkdir(path, 0755))
+	}
+	must(t, os.WriteFile(filepath.Join(app, "main.py"), []byte("import greeting\n"), 0644))
+	must(t, os.WriteFile(filepath.Join(libs, "greeting.py"), []byte("message = 'hello'\n"), 0644))
 	cleanSource(t, app)
-	s := Store{Dir: filepath.Join(dir, "store")}
-	lock := &LayerSetLock{Entries: []LockEntry{{Ecosystem: "generic", Name: "library", Version: "1", Path: "/app/lib/library", SHA256: digest.FromString("lib").Encoded()}}}
-	set, e := BuildLayerSet(context.Background(), s, LayerSetConfig{Name: "approved", Version: "1", Ecosystem: "generic"}, []LayerSpec{{Role: "dependency", Source: deps, Destination: "app/lib"}}, lock)
-	must(t, e)
-	layers, ev, e := ConsumeLayerSet(context.Background(), s, set)
-	must(t, e)
-	p, _ := ParsePlatform("linux/amd64")
-	target, e := Build(context.Background(), s, BuildOptions{Launch: []byte(`{"schemaVersion":1,"process":{"entrypoint":["runner"]}}`), Platforms: []v1.Platform{p}, Layers: []LayerSpec{{Role: "app", Source: app, Destination: "app"}}, LayerSets: []v1.Descriptor{set}})
-	must(t, e)
-	resolved, e := Resolve(context.Background(), s.Open, target, p)
-	must(t, e)
-	if resolved.Manifest.Layers[0].Digest != layers[0].Descriptor.Digest || resolved.Image.RootFS.DiffIDs[0] != layers[0].DiffID {
-		t.Fatal("layer set bytes/diff IDs rewritten")
+	cleanSource(t, libs)
+	platform := v1.Platform{OS: "linux", Architecture: "amd64"}
+	launch := []byte(`{"schemaVersion":1,"process":{"entrypoint":["python3","/app/main.py"],"env":[{"name":"PYTHONPATH","value":"/app/lib"}]}}`)
+	var layers []LayerSpec
+	for _, input := range []string{libs + ":/app/lib", app + ":/app"} {
+		layer, err := ParseLayerSpec(input)
+		must(t, err)
+		layers = append(layers, layer)
 	}
-	var evidence []LayerSetEvidence
-	must(t, json.Unmarshal([]byte(resolved.Manifest.Annotations["brewlet.sh/layerset-evidence"]), &evidence))
-	if len(evidence) != 1 || evidence[0].ManifestDigest != ev.ManifestDigest {
-		t.Fatal("missing binding evidence")
+	root, err := Build(context.Background(), store, BuildOptions{Launch: launch, Platforms: []v1.Platform{platform},
+		Layers: layers})
+	must(t, err)
+	report, err := InspectApplication(context.Background(), store, root, platform)
+	must(t, err)
+	if !report.Structural || len(report.Layers) != 3 || !bytes.Equal(report.Launch, launch) {
+		t.Fatal("application or explicit launch contract changed")
 	}
-	must(t, ValidateEvidence(resolved.Manifest))
-	lock.Entries[0].SHA256 = strings.Repeat("0", 64)
-	_, e = BuildLayerSet(context.Background(), s, LayerSetConfig{Name: "bad", Version: "1", Ecosystem: "generic"}, []LayerSpec{{Role: "dependency", Source: deps, Destination: "app/lib"}}, lock)
-	if e == nil {
-		t.Fatal("invalid lock accepted")
+	for i, role := range []string{"app", "app", "launch"} {
+		if report.Layers[i].Annotations["brewlet.sh/layer"] != role {
+			t.Fatalf("layer %d lost its internal role", i)
+		}
+	}
+	resolved, err := Resolve(context.Background(), store.Open, root, platform)
+	must(t, err)
+	output := filepath.Join(dir, "materialized")
+	must(t, MaterializeLayers(context.Background(), resolved.Layers, output))
+	library, err := os.ReadFile(filepath.Join(output, "app/lib/greeting.py"))
+	must(t, err)
+	if string(library) != "message = 'hello'\n" {
+		t.Fatal("application library payload changed")
+	}
+	main, err := os.ReadFile(filepath.Join(output, "app/main.py"))
+	must(t, err)
+	if string(main) != "import greeting\n" {
+		t.Fatal("application payload changed")
+	}
+}
+
+func TestParseLayerSpecInvalidInputs(t *testing.T) {
+	for _, input := range []string{"src", ":/app", "linux/arm64::/app", "linux//arm64:src:/app", "src:/app/../etc"} {
+		t.Run(input, func(t *testing.T) {
+			if _, err := ParseLayerSpec(input); err == nil {
+				t.Fatal("invalid source, platform or destination accepted")
+			}
+		})
 	}
 }
 
@@ -469,10 +490,10 @@ func TestBuildPlatformScopedLayers(t *testing.T) {
 		must(t, e)
 		return s
 	}
-	if s := spec("linux/arm64/v8:dependency=" + arm + ":/app/deps"); s.Platform == nil || s.Platform.Variant != "v8" || s.Role != "dependency" || s.Source != arm {
+	if s := spec("linux/arm64/v8:" + arm + ":/app/deps"); s.Platform == nil || s.Platform.Variant != "v8" || s.Role != "app" || s.Source != arm {
 		t.Fatalf("platform prefix not parsed: %+v", s)
 	}
-	if s := spec("app=" + app + ":/app"); s.Platform != nil {
+	if s := spec(app + ":/app"); s.Platform != nil {
 		t.Fatal("unprefixed layer became platform-scoped")
 	}
 	s := Store{Dir: filepath.Join(dir, "store")}
@@ -480,9 +501,9 @@ func TestBuildPlatformScopedLayers(t *testing.T) {
 	p2, _ := ParsePlatform("linux/arm64")
 	launch := []byte(`{"schemaVersion":1,"process":{"entrypoint":["/app/file"]}}`)
 	o := BuildOptions{Launch: launch, Platforms: []v1.Platform{p1, p2}, Layers: []LayerSpec{
-		spec("linux/amd64:dependency=" + amd + ":/app/deps"),
-		spec("linux/arm64:dependency=" + arm + ":/app/deps"),
-		spec("app=" + app + ":/app/src"),
+		spec("linux/amd64:" + amd + ":/app/deps"),
+		spec("linux/arm64:" + arm + ":/app/deps"),
+		spec(app + ":/app/src"),
 	}}
 	root, e := Build(context.Background(), s, o)
 	must(t, e)
@@ -494,18 +515,18 @@ func TestBuildPlatformScopedLayers(t *testing.T) {
 		t.Fatalf("unexpected layer counts: %d, %d", len(a.Manifest.Layers), len(b.Manifest.Layers))
 	}
 	if a.Manifest.Layers[0].Digest == b.Manifest.Layers[0].Digest {
-		t.Fatal("platform-scoped dependency layers were shared")
+		t.Fatal("platform-scoped payload layers were shared")
 	}
 	if a.Manifest.Layers[1].Digest != b.Manifest.Layers[1].Digest {
 		t.Fatal("shared app layer not reused byte for byte")
 	}
 	undeclared := o
-	undeclared.Layers = append([]LayerSpec{spec("linux/s390x:dependency=" + amd + ":/app/deps")}, o.Layers...)
+	undeclared.Layers = append([]LayerSpec{spec("linux/s390x:" + amd + ":/app/deps")}, o.Layers...)
 	if _, e = Build(context.Background(), s, undeclared); Reason(e) != "InvalidPlatform" {
 		t.Fatalf("layer for undeclared platform accepted: %v", e)
 	}
 	appless := o
-	appless.Layers = []LayerSpec{spec("linux/amd64:app=" + app + ":/app/src"), spec("linux/arm64:dependency=" + arm + ":/app/deps")}
+	appless.Layers = []LayerSpec{spec("linux/amd64:" + app + ":/app/src")}
 	if _, e = Build(context.Background(), s, appless); e == nil || !strings.Contains(e.Error(), "app layer") {
 		t.Fatalf("platform without app layer accepted: %v", e)
 	}

@@ -24,7 +24,7 @@ Add the agent to the launch descriptor yourself. For example, a hand-written
 `launch.json` can set `process.entrypoint` to
 `["/usr/bin/java", "-javaagent:/app/agents/otel.jar", "-jar"]` and
 `process.args` to `["/app/app.jar"]`. Package a reviewed agent separately under
-`/app` (for example as its own `--layer app=./agents:/app/agents`), or
+`/app` (for example as its own `--layer ./agents:/app/agents`), or
 deliberately use a compatible platform runtime with its own documented agent
 path. Verify compatibility and overhead.
 

@@ -90,17 +90,17 @@
   };
   document.querySelectorAll("code[data-lang]").forEach(highlight);
   const examples = {
-    python: {entrypoint: ["python3"], args: ["/app/src/main.py"], layer: "app=./src:/app/src",
-      note: "This example has no third-party dependencies. Add explicit dependency layers and lookup paths when your application needs them."},
-    java: {entrypoint: ["java"], args: ["-jar", "/app/app.jar"], layer: "app=./target/app:/app",
+    python: {entrypoint: ["python3"], args: ["/app/src/main.py"], layer: "./src:/app/src",
+      note: "This example has no third-party dependencies. Package any libraries your application needs as ordinary files under /app."},
+    java: {entrypoint: ["java"], args: ["-jar", "/app/app.jar"], layer: "./target/app:/app",
       note: "Place your executable JAR at target/app/app.jar first. The optional Maven producer can prepare classpath or module layers for you."},
-    node: {entrypoint: ["node"], args: ["/app/src/server.js"], layer: "app=./src:/app/src",
+    node: {entrypoint: ["node"], args: ["/app/src/server.js"], layer: "./src:/app/src",
       note: "This example uses Node's built-in modules. Package node_modules explicitly when your application needs external dependencies."},
-    dotnet: {entrypoint: ["dotnet"], args: ["/app/App.dll"], layer: "app=./publish:/app",
+    dotnet: {entrypoint: ["dotnet"], args: ["/app/App.dll"], layer: "./publish:/app",
       note: "Publish your framework-dependent application into ./publish first. Its target framework and native dependencies must match the approved runtime."},
-    php: {entrypoint: ["php"], args: ["-S", "0.0.0.0:8000", "/app/index.php"], layer: "app=./src:/app",
+    php: {entrypoint: ["php"], args: ["-S", "0.0.0.0:8000", "/app/index.php"], layer: "./src:/app",
       note: "This example uses PHP's built-in web server. Run composer install in your pipeline and package vendor/ explicitly; extensions come from the approved runtime."},
-    wasm: {entrypoint: ["/usr/local/bin/wasmtime"], args: ["run", "/app/guest.wasm"], layer: "app=./wasm:/app",
+    wasm: {entrypoint: ["/usr/local/bin/wasmtime"], args: ["run", "/app/guest.wasm"], layer: "./wasm:/app",
       note: "This example runs a WASIp1 module on an approved Wasmtime host runtime. Grant guest access explicitly, for example with --dir, and build for the Linux platforms your hosts support."}
   };
   const tabs = [...document.querySelectorAll("[data-language]")];

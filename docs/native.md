@@ -181,7 +181,7 @@ including the macOS guidance.
 brewlet build registry.example.com/apps/rust-demo:v1 \
   --platform linux/arm64 \
   --launch "$WORK/launch.json" \
-  --layer "app=$WORK/rust-app:/app"
+  --layer "$WORK/rust-app:/app"
 brewlet push registry.example.com/apps/rust-demo:v1 \
   --push-result "$WORK/rust-push.json"
 ```
@@ -189,7 +189,7 @@ brewlet push registry.example.com/apps/rust-demo:v1 \
 Package any application-owned configuration, content or separately loaded
 dependencies alongside your executable. The example binary has no separate
 dependency directory. Libraries compiled into an executable cannot be replaced
-with a [dependency layer set](dependency-layer-sets.md); external data files or
+with application files in `/app`; external data files or
 separately loaded dependencies can use that mechanism when appropriate.
 
 ## Approve the golden image

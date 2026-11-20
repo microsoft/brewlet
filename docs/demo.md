@@ -150,9 +150,9 @@ Run **2. Package app-only OCI image** (`package`). The extension extracts the
 Spring Boot application and dependency JARs, then uses a Linux producer to run
 `brewlet build`.
 
-The resulting OCI artifact has a dependency layer, an application layer and a
-`launch.json` layer. **It contains no JDK.** The producer's build environment
-does not become part of the application artifact.
+The resulting OCI artifact contains application files, including its library
+JARs, in app layers and a `launch.json` layer. **It contains no JDK.** The
+producer's build environment does not become part of the application artifact.
 
 [![The local build and app-only packaging stages have passed; the cards show Maven and java commands followed by brewlet build with dependency, app and launch inputs.](assets/demo/app-packaging.png){ width=995 height=501 loading=lazy }](assets/demo/app-packaging.png)
 
@@ -165,11 +165,11 @@ Run **3. Inspect the OCI artifact** (`artifact`). This read-only step verifies
 manifest, config and layer hashes, indexes archive entries, and fails if a
 layer contains `bin/java` or `libjvm.so`.
 
-In the **OCI / Artifact Explorer**, select the dependency, application and
-launch layer cards. The right-hand pane shows the actual paths in the selected
-layer; its filter searches those paths.
+In the **OCI / Artifact Explorer**, select the application and launch layer
+cards. The right-hand pane shows the actual paths in the selected layer; its
+filter searches those paths.
 
-[![The artifact explorer shows dependency, application and launch layers alongside the dependency JAR entries read from the selected archive.](assets/demo/artifact-layers.png){ width=952 height=662 loading=lazy }](assets/demo/artifact-layers.png)
+[![The artifact explorer shows application and launch layers alongside the library JAR entries read from the selected archive.](assets/demo/artifact-layers.png){ width=952 height=662 loading=lazy }](assets/demo/artifact-layers.png)
 
 *Layer cards describe the application's actual payload, not the producer image
 used to build it.*

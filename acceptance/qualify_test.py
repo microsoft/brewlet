@@ -33,21 +33,20 @@ class SuiteTests(unittest.TestCase):
     def test_every_expected_suite_and_both_architectures_can_qualify(self):
         self.assertEqual([], qualify.validate_suites(self.directory, self.root))
         self.assertEqual(9, len(qualify.COMPLETE))
-        self.assertEqual({"managed", "managed-wasm"}, set(qualify.SUITES) - set(qualify.COMPLETE))
 
     def test_status_inventory_distinguishes_missing_failed_and_qualified_receipts(self):
         (self.directory / "candidate-amd64-cold.json").unlink()
-        failed = self.directory / "candidate-arm64-managed.json"
+        failed = self.directory / "candidate-arm64-wasm.json"
         result = json.loads(failed.read_text())
         result["outcome"] = "failed"
         failed.write_text(json.dumps(result))
         self.fixture.commit()
         statuses = qualify.suite_statuses(self.directory, self.root)
-        self.assertEqual(22, len(statuses))
-        self.assertEqual(22, len({row["file"] for row in statuses}))
+        self.assertEqual(18, len(statuses))
+        self.assertEqual(18, len({row["file"] for row in statuses}))
         self.assertEqual(1, sum(row["status"] == "missing" for row in statuses))
         self.assertEqual(1, sum(row["status"] == "failed" for row in statuses))
-        self.assertEqual(20, sum(row["status"] == "qualified" for row in statuses))
+        self.assertEqual(16, sum(row["status"] == "qualified" for row in statuses))
         for row in statuses:
             if row["status"] != "missing":
                 self.assertEqual(self.identity, row["identity"])

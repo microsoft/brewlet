@@ -32,7 +32,7 @@ utility is invoked by the provisioner.
 
 Runtime `/app` contents are hidden, not merged with application layers or
 removed from the approved image. A private opaque boundary in the container's
-overlay keeps packaged application/dependency bytes isolated and read-only;
+overlay keeps packaged application files isolated and read-only;
 explicit Kubernetes volumes still follow that boundary. Runtime and payload
 caches remain unchanged.
 

@@ -11,11 +11,9 @@ it by runtime ID. Brewlet runs that host through the normal containerd/runc
 path, with application files mounted read-only under `/app`. It does not
 install runwasi or infer the guest's interface contract.
 
-Files that the guest loads at run time can ship with the guest or be published
-separately as a [dependency layer set](dependency-layer-sets.md) or
-[governed bundle](managed-composition.md). Libraries compiled into the guest
-are part of `guest.wasm` and need a guest rebuild. Host-engine fixes belong in
-the runtime image.
+Files that the guest loads at run time are packaged as ordinary application
+files under `/app`. Libraries compiled into the guest are part of `guest.wasm`
+and need a guest rebuild. Host-engine fixes belong in the runtime image.
 
 An update starts new Pods; it never patches a running guest. See
 [concepts](concepts.md) and the
@@ -140,22 +138,17 @@ or fetched from a registry at startup. Its allowlist is `spin-http-sdk7`.
 ## Build and push
 
 Run on Linux or macOS with [registry access](registry-trust.md) configured.
-This publishes the dependency file once as a local layer set and composes it
-into both application images:
+Each artifact includes its needed application files:
 
 ```sh
-brewlet layer-set example.invalid/wasm-dependencies:v1 \
-  --store "$WORK/dependency-set" --config examples/wasm/layerset.json \
-  --layer "dependency=$WORK/dependencies:/app/dependencies"
-
 brewlet build registry.example.com/apps/wasmtime-demo:v1 \
   --platform linux/arm64 --launch examples/wasm/wasmtime-launch.json \
-  --layer-set "$WORK/dependency-set" --layer "app=$WORK/wasmtime-app:/app"
+  --layer "$WORK/wasmtime-app:/app"
 brewlet push registry.example.com/apps/wasmtime-demo:v1 --push-result "$WORK/wasmtime-push.json"
 
 brewlet build registry.example.com/apps/spin-demo:v1 \
   --platform linux/arm64 --launch examples/wasm/spin-launch.json \
-  --layer-set "$WORK/dependency-set" --layer "app=$WORK/spin-app:/app"
+  --layer "$WORK/spin-app:/app"
 brewlet push registry.example.com/apps/spin-demo:v1 --push-result "$WORK/spin-push.json"
 ```
 
@@ -280,29 +273,9 @@ The guest receives `/work` only where needed and never the engine's `/cache`.
 Do not put an engine's compiled-code cache inside a guest-writable directory.
 Brewlet provides no shared JIT cache or precompiled/AOT artifact workflow.
 
-## Governed external dependency replacement
-
-Wasm workloads use the same [governed composition](managed-composition.md)
-flow as other languages: `brewlet layer-set` publishes a signed, locked
-dependency bundle, `brewlet bundle` combines it with an app-only image,
-`brewlet verify` checks the result and `brewlet inventory` traces running
-workloads back to it. There is no Wasm-specific composer.
-
-In the examples, the external dependency is `message.txt`. To update it:
-
-1. The platform publishes the changed `message.txt` as a new signed layer set.
-2. `brewlet bundle` replaces only the dependency layers. The guest bytes,
-   application layers, launch descriptor and selected runtime stay the same.
-3. Test the new candidate image, then roll it out. Existing Pods keep the old
-   dependency until they are replaced.
-4. Use `brewlet inventory` to confirm which dependency set the running Pods
-   use.
-
-This updates an external data file only. A Rust or Go library compiled into
-`guest.wasm` cannot be fixed by swapping a layer set; rebuild the guest and
-publish a new application image. Update the RuntimeImage for engine or OS
-fixes. Layer-set SBOMs do not cover code compiled into the guest or the
-runtime image.
+To update an external data file or library, rebuild and republish the
+application artifact. A Rust or Go library compiled into `guest.wasm` also
+requires rebuilding the guest. Update the RuntimeImage for engine or OS fixes.
 
 See [Wasmtime CLI options](https://docs.wasmtime.dev/cli-options.html),
 [Spin HTTP trigger](https://spinframework.dev/v4/http-trigger) and

@@ -32,8 +32,8 @@ RUN --mount=type=tmpfs,target=/package \
     install -m 0644 /input/launch.json /package/launch.json && \
     brewlet build example.invalid/brewlet-demo/showmyjvm:demo --platform "${TARGETOS}/${TARGETARCH}" \
       --launch /package/launch.json \
-      --layer dependency=/package/lib:/app/lib \
-      --layer app=/package/app:/app \
+      --layer /package/lib:/app/lib \
+      --layer /package/app:/app \
       --store /out/oci --result /out/push.json && \
     brewlet inspect example.invalid/brewlet-demo/showmyjvm:demo --store /out/oci > /out/inspect.txt 2>&1
 

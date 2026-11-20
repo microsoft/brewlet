@@ -141,7 +141,7 @@ cat > "$WORK/launch.json" <<'EOF'
 EOF
 
 brewlet build example.invalid/brewlet/hello:v1 --platform "linux/$ARCH" \
-  --launch "$WORK/launch.json" --layer "app=$WORK/app:/app" --store "$WORK/image"
+  --launch "$WORK/launch.json" --layer "$WORK/app:/app" --store "$WORK/image"
 APP="example.invalid/brewlet/hello@$(grep -o 'sha256:[0-9a-f]*' "$WORK/image/index.json")"
 echo "$APP"
 ```
@@ -238,9 +238,6 @@ The replacement Pod answers with Python 3.13.5. No Pod uses generation 1
 anymore, and the application image digest is the same one you built in step 6.
 
 ## 9. Clean up
-
-To continue with [update a managed dependency](update-managed-dependency.md),
-skip this step and keep the cluster running.
 
 Delete the application, then let Brewlet remove the runtime and restore the
 node's configuration before deleting the cluster:

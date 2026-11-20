@@ -29,32 +29,31 @@ type LayerSpec struct {
 	Platform                  *v1.Platform
 }
 
-// ParseLayerSpec parses [OS/ARCH[/VARIANT]:]ROLE=SOURCE:/app/PATH.
+// ParseLayerSpec parses [OS/ARCH[/VARIANT]:]SOURCE:/app/PATH as app payload.
 func ParseLayerSpec(s string) (LayerSpec, error) {
-	role, rest, ok := strings.Cut(s, "=")
+	i := strings.LastIndex(s, ":")
+	if i < 1 {
+		return LayerSpec{}, fmt.Errorf("layer must be [OS/ARCH[/VARIANT]:]SOURCE:/app/PATH")
+	}
+	source, dest := s[:i], s[i+1:]
 	var platform *v1.Platform
-	if i := strings.LastIndex(role, ":"); ok && i >= 0 {
-		p, e := ParsePlatform(role[:i])
+	if prefix, rest, ok := strings.Cut(source, ":"); ok {
+		p, e := ParsePlatform(prefix)
 		if e != nil {
 			return LayerSpec{}, e
 		}
-		platform, role = &p, role[i+1:]
+		platform, source = &p, rest
 	}
-	if !ok || (role != "app" && role != "dependency") {
-		return LayerSpec{}, fmt.Errorf("layer must be [OS/ARCH[/VARIANT]:]app=SOURCE:/app/PATH or [OS/ARCH[/VARIANT]:]dependency=SOURCE:/app/PATH")
+	if source == "" {
+		return LayerSpec{}, fmt.Errorf("missing layer source")
 	}
-	i := strings.LastIndex(rest, ":")
-	if i < 1 {
-		return LayerSpec{}, fmt.Errorf("missing layer destination")
-	}
-	dest := rest[i+1:]
 	if !strings.HasPrefix(dest, "/app") {
 		return LayerSpec{}, fail("LayerPathViolation", "destination outside /app")
 	}
 	if _, e := archivePath(strings.TrimPrefix(dest, "/")); e != nil {
 		return LayerSpec{}, e
 	}
-	return LayerSpec{Role: role, Source: rest[:i], Destination: strings.TrimPrefix(dest, "/"), Platform: platform}, nil
+	return LayerSpec{Role: "app", Source: source, Destination: strings.TrimPrefix(dest, "/"), Platform: platform}, nil
 }
 
 type BuiltLayer struct {
@@ -98,7 +97,7 @@ func writeLayer(store Store, role string, write func(*tar.Writer) error) (BuiltL
 	return BuiltLayer{r.d, ud.Digest()}, nil
 }
 func BuildLayer(ctx context.Context, store Store, spec LayerSpec) (BuiltLayer, error) {
-	if spec.Role != "app" && spec.Role != "dependency" {
+	if spec.Role != "app" {
 		return BuiltLayer{}, fail("UnsupportedArtifact", "invalid layer role")
 	}
 	if _, e := archivePath(spec.Destination); e != nil {
@@ -242,11 +241,9 @@ func canonicalOutput(p string) (string, error) {
 }
 
 type BuildOptions struct {
-	Launch        []byte
-	Platforms     []v1.Platform
-	Layers        []LayerSpec
-	LayerSets     []v1.Descriptor
-	LayerSetTrust LayerSetTrust
+	Launch    []byte
+	Platforms []v1.Platform
+	Layers    []LayerSpec
 }
 
 func Build(ctx context.Context, store Store, o BuildOptions) (v1.Descriptor, error) {
@@ -256,16 +253,6 @@ func Build(ctx context.Context, store Store, o BuildOptions) (v1.Descriptor, err
 	}
 	if len(o.Platforms) == 0 {
 		return v1.Descriptor{}, fail("InvalidPlatform", "explicit platforms required")
-	}
-	var layers []BuiltLayer
-	var evidence []LayerSetEvidence
-	for _, set := range o.LayerSets {
-		ls, ev, e := ConsumeLayerSet(ctx, store, set, o.LayerSetTrust)
-		if e != nil {
-			return v1.Descriptor{}, e
-		}
-		layers = append(layers, ls...)
-		evidence = append(evidence, ev)
 	}
 	seenPlatforms := map[string]bool{}
 	for _, p := range o.Platforms {
@@ -280,7 +267,7 @@ func Build(ctx context.Context, store Store, o BuildOptions) (v1.Descriptor, err
 	}
 	built := make([]BuiltLayer, len(o.Layers))
 	for i, s := range o.Layers {
-		if s.Role != "app" && s.Role != "dependency" {
+		if s.Role != "app" {
 			return v1.Descriptor{}, fail("UnsupportedArtifact", "invalid source role")
 		}
 		if s.Platform != nil {
@@ -324,7 +311,7 @@ func Build(ctx context.Context, store Store, o BuildOptions) (v1.Descriptor, err
 	}
 	idx := v1.Index{Versioned: specs.Versioned{SchemaVersion: 2}, MediaType: v1.MediaTypeImageIndex}
 	for _, p := range o.Platforms {
-		platformLayers := append([]BuiltLayer(nil), layers...)
+		var platformLayers []BuiltLayer
 		apps := 0
 		for i, s := range o.Layers {
 			if s.Platform != nil && !sameDeclaredPlatform(*s.Platform, p) {
@@ -360,10 +347,6 @@ func Build(ctx context.Context, store Store, o BuildOptions) (v1.Descriptor, err
 			return v1.Descriptor{}, e
 		}
 		m := v1.Manifest{Versioned: specs.Versioned{SchemaVersion: 2}, MediaType: v1.MediaTypeImageManifest, Config: config, Layers: descs, Annotations: map[string]string{"brewlet.sh/artifact-version": "1"}}
-		if len(evidence) > 0 {
-			b, _ := jsonBytes(evidence)
-			m.Annotations["brewlet.sh/layerset-evidence"] = string(b)
-		}
 		d, e := store.PutJSON(v1.MediaTypeImageManifest, m)
 		if e != nil {
 			return v1.Descriptor{}, e

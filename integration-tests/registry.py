@@ -28,21 +28,6 @@ def fetch(url, media_type=None):
         return response.read()
 
 
-def dependency_reuse(manifest, config, source):
-    dependencies = [(index, layer) for index, layer in enumerate(manifest["layers"])
-                    if layer.get("annotations", {}).get("brewlet.sh/layer") == "dependency"]
-    assert len(dependencies) == len(source["layers"]) and dependencies, "dependency count changed"
-    for (index, layer), original in zip(dependencies, source["layers"]):
-        assert all(layer[key] == original["descriptor"][key] for key in ("digest", "size", "mediaType")), (
-            "compressed dependency descriptor changed")
-        assert config["rootfs"]["diff_ids"][index] == original["diffId"], "dependency diff ID changed"
-    evidence = json.loads(manifest["annotations"]["brewlet.sh/layerset-evidence"])
-    assert len(evidence) == 1
-    for key in ("manifestDigest", "configDigest", "lockDigest", "sbomDigest", "attestationDigest", "layers"):
-        assert key in source["evidence"] and evidence[0].get(key) == source["evidence"][key], (
-            "layer-set provenance binding changed")
-
-
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--brewlet", required=True, type=Path)
@@ -89,8 +74,8 @@ def main():
         command([executable, "build", reference, "--store", layout,
                  "--platform", "linux/amd64", "--platform", "linux/arm64",
                  "--launch", fixture / "launch.json",
-                 "--layer", f"dependency={fixture / 'dependencies'}:/app/dependencies",
-                 "--layer", f"app={fixture / 'src'}:/app/src"], env=environment)
+                 "--layer", f"{fixture / 'dependencies'}:/app/dependencies",
+                 "--layer", f"{fixture / 'src'}:/app/src"], env=environment)
         push = [executable, "push", reference, "--store", layout, "--insecure"]
         first = command(push, env=environment)
         second = command(push, env=environment)
@@ -113,90 +98,12 @@ def main():
         output = command([executable, "inspect", reference, "--insecure", "--platform", "linux/amd64", "-o", "json"],
                          env=environment)
         assert "python3" in output and "launch" in output
-        private_key = work / "test-signing-key.pem"
-        public_key = work / "test-signing-public.pem"
-        command(["openssl", "genpkey", "-algorithm", "EC", "-pkeyopt",
-                 "ec_paramgen_curve:P-256", "-pkeyopt", "ec_param_enc:named_curve", "-out", private_key])
-        command(["openssl", "pkey", "-in", private_key, "-pubout", "-out", public_key])
-        config_file = work / "layer-set-config.json"
-        lock_file = work / "layer-set-lock.json"
-        config_file.write_text(json.dumps({
-            "schemaVersion": 1, "name": "fixture-dependencies", "version": "2.0.0",
-            "ecosystem": "python", "layers": [],
-        }))
-        lock_file.write_text(json.dumps({
-            "schemaVersion": 1,
-            "entries": [{
-                "ecosystem": "python", "name": "greeting", "version": "1",
-                "path": "/app/dependencies/greeting.py",
-                "sha256": hashlib.sha256((fixture / "dependencies/greeting.py").read_bytes()).hexdigest(),
-                "purl": "pkg:pypi/greeting@1",
-            }],
-        }))
-        layer_set_reference = f"{args.producer_registry_host}:{port}/fixtures/dependencies:v2"
-        identity = "https://brewlet.test/fixture-builder"
-        published = json.loads(command([
-            executable, "layer-set", layer_set_reference, "--insecure",
-            "--config", config_file, "--lock", lock_file,
-            "--layer", f"dependency={fixture / 'dependencies'}:/app/dependencies",
-            "--signing-key", private_key, "--builder-identity", identity, "-o", "json",
-        ], env=environment))
-        pinned_set = layer_set_reference.rsplit(":", 1)[0] + "@" + published["digest"]
-        trust = ["--trust-key", public_key, "--signer-identity", identity, "--require-provenance"]
-        inspected = json.loads(command([
-            executable, "inspect", pinned_set, "--insecure", *trust, "-o", "json",
-        ], env=environment))
-        assert inspected["evidence"]["attestationDigest"]
-        assert inspected["evidence"]["sbomDigest"]
-        wrong_key = work / "untrusted-private.pem"
-        wrong_public = work / "untrusted-public.pem"
-        command(["openssl", "genpkey", "-algorithm", "EC", "-pkeyopt",
-                 "ec_paramgen_curve:P-256", "-pkeyopt", "ec_param_enc:named_curve", "-out", wrong_key])
-        command(["openssl", "pkey", "-in", wrong_key, "-pubout", "-out", wrong_public])
-        untrusted = subprocess.run([
-            str(executable), "inspect", pinned_set, "--insecure", "--trust-key", str(wrong_public),
-            "--signer-identity", identity, "--require-provenance",
-        ], env=environment, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        assert untrusted.returncode != 0
-        assert any(word in untrusted.stderr.lower() for word in ("provenance", "signature", "trusted"))
-        managed_reference = f"{args.producer_registry_host}:{port}/fixtures/managed-python:v2"
-        managed_layout = work / "managed-python-layout"
-        command([
-            executable, "build", managed_reference, "--insecure", "--store", managed_layout,
-            "--platform", "linux/amd64", "--platform", "linux/arm64",
-            "--launch", fixture / "launch.json",
-            "--layer-set", pinned_set, *trust,
-            "--layer", f"app={fixture / 'src'}:/app/src",
-        ], env=environment)
-        command([executable, "push", managed_reference, "--store", managed_layout, "--insecure"],
-                env=environment)
-        managed_index = json.loads(fetch(base + "/fixtures/managed-python/manifests/v2",
-                                         "application/vnd.oci.image.index.v1+json"))
-        assert len(managed_index["manifests"]) == 2
-        assert {member["platform"]["architecture"] for member in managed_index["manifests"]} == {"amd64", "arm64"}
-        for managed_descriptor in managed_index["manifests"]:
-            content = fetch(base + "/fixtures/managed-python/manifests/" + managed_descriptor["digest"],
-                            managed_descriptor["mediaType"])
-            assert len(content) == managed_descriptor["size"]
-            assert "sha256:" + hashlib.sha256(content).hexdigest() == managed_descriptor["digest"]
-            managed_manifest = json.loads(content)
-            config_descriptor = managed_manifest["config"]
-            content = fetch(base + "/fixtures/managed-python/blobs/" + config_descriptor["digest"])
-            assert len(content) == config_descriptor["size"]
-            assert "sha256:" + hashlib.sha256(content).hexdigest() == config_descriptor["digest"]
-            config = json.loads(content)
-            assert config["os"] == "linux" and config["architecture"] == managed_descriptor["platform"]["architecture"]
-            dependency_reuse(managed_manifest, config, inspected)
         result = {
             "scope": "registry-producer-integration",
             "registryImage": REGISTRY,
             "imageDigest": "sha256:" + hashlib.sha256(index_bytes).hexdigest(),
             "outcome": "passed",
             "realNode": False,
-            "layerSetDigest": published["digest"],
-            "trustedProvenanceVerified": True,
-            "untrustedProvenanceRejected": True,
-            "dependencyLayersReusedByteForByte": True,
         }
         (work / "result.json").write_text(json.dumps(result, indent=2) + "\n")
         print(json.dumps(result))

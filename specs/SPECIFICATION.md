@@ -3,21 +3,19 @@
 - **Status:** authoritative contract for the **breaking** Brewlet 1.0.0 implementation,
   not an additive mode of Brewlet 0.x. Implementation and qualification are
   distinct: see the [baseline ledger](../acceptance/requirements.json) (Part I),
-  the [composition ledger](../acceptance/composition-requirements.json)
-  (Part II) and the [scoped qualification records](../acceptance/RESULTS.md).
+  and the [scoped qualification records](../acceptance/RESULTS.md).
 - **Release identity:** [`release.json`](../release.json).
-- **Origin:** consolidates the approved Proposal 0009 (Part I, §1–§15) and
-  Proposal 0010 (Part II, §16); section numbers are unchanged from 0009 and
-  0010 §N maps to §16.N.
+- **Origin:** consolidates approved Proposal 0009 (Part I, §1–§15); section
+  numbers are unchanged from that proposal.
 - **Reference main:** `fa7085335b220e29df6affbece4558c5f1259ecb`.
 - **0.x contracts retained and generalized:** runnable-image delivery
-  (SPEC §4.4), managed dependency bundles (SPEC §4.5), copy-from-image node roots (SPEC §5.3),
+  (SPEC §4.4), copy-from-image node roots (SPEC §5.3),
   `NodeProfile` pool selection and rollout (SPEC §5.6), the runc-backed shim (SPEC §6),
   `RuntimeClass/brewlet` (SPEC §7), and the admission webhook (SPEC §8.3)
 
 Brewlet 1.0.0 defines a language-agnostic core contract. Developers publish
-**application artifacts** (code, plus dependencies either as layers or as
-independently published layer sets) to an OCI registry. Platform teams approve
+**application artifacts** (code and any libraries or other dependencies as
+ordinary application files) to an OCI registry. Platform teams approve
 **runtime images** — digest-pinned "golden" base images such as a JRE, a Python
 interpreter, a Node.js runtime, a .NET runtime, a native WebAssembly host such as
 Wasmtime or Spin, or a distroless base for static binaries — in the
@@ -32,9 +30,8 @@ which this document replaces.
 
 Brewlet 1.0.0 is a rewrite inspired by Brewlet 0.x on `main`.
 `SPEC §N` references provide design context only;
-this document defines the implemented 1.0.0 contract. Part I covers runtime images
-and workload execution; Part II (§16) covers governed release composition. This
-is not a claim of a stable production release.
+this document defines the implemented 1.0.0 contract for runtime images and
+workload execution. This is not a claim of a stable production release.
 
 Release numbering is independent of artifact schema versions, Kubernetes API
 versions and containerd shim interface versions.
@@ -54,7 +51,6 @@ amendment does not verify these changed requirements.
 ## Contents
 
 - [Part I — Language-agnostic runtime images](#part-i--language-agnostic-runtime-images) (§1–§15)
-- [Part II — Governed dependency composition and remediation](#part-ii--governed-dependency-composition-and-remediation) (§16)
 
 # Part I — Language-agnostic runtime images
 
@@ -78,7 +74,6 @@ Brewlet 1.0.0 expresses this flow in language-neutral terms:
  RuntimeImage "python-3.12"  │ approved     dep layers   (/app/...)  ← as layers, or
  RuntimeImage "static"       │ inventory    launch layer (launch.json)  reused from an
    each pinned to a digest  ─┘                                         independent
-            │                                     │                    layer set
             ▼                                     ▼
  NodeProfile: which IDs on which pools     OCI registry (digest-addressed)
             │                                     │
@@ -113,7 +108,7 @@ Brewlet 1.0.0 expresses this flow in language-neutral terms:
 ## 3. Goals
 
 - Define a language-agnostic **application artifact** consisting of application
-  layers, optional dependency layers, and a **launch configuration layer**.
+  application layers, and a **launch configuration layer**.
 - Define an approved **runtime image inventory** whose entries are identified by
   a stable, human-meaningful **ID** and resolved to a digest only by the platform.
 - Let each explicitly selected container in a `runtimeClassName: brewlet` Pod
@@ -126,8 +121,8 @@ Brewlet 1.0.0 expresses this flow in language-neutral terms:
   content (§8.2–§8.4).
 - Guarantee that application layers cannot replace platform-owned runtime
   file paths; this does not patch application-bundled copies of libraries.
-- Allow dependencies to be published and governed **independently** from
-  applications while still being delivered as ordinary image layers.
+- Package application dependencies as ordinary application files; Brewlet does
+  not resolve packages or publish dependency artifacts separately.
 - Let platform teams approve large runtime inventories without installing every
   runtime on every node, by installing selected runtimes on first use.
 - Keep the `brewlet` CLI language-agnostic: it packages and validates
@@ -168,9 +163,8 @@ Brewlet 1.0.0 expresses this flow in language-neutral terms:
 | **Generation** | One digest bound to an ID within a `RuntimeImage` resource UID (the inventory epoch). Rotating the digest creates a new generation within that epoch. |
 | **On-demand install** | Installing a runtime image ID on a node only when a container on that node first needs it (§7.5). |
 | **Runtime root** | A runtime image generation unpacked read-only on a node by the provisioner. |
-| **Application artifact** | The developer's OCI image: application layers, optional dependency layers, and one launch layer. |
+| **Application artifact** | The developer's OCI image: application layers and one launch layer. |
 | **Launch layer** | The layer carrying `launch.json`, the authoritative launch configuration (§6.3). |
-| **Layer set** | An independently published OCI artifact of dependency layers that application artifacts reuse byte-for-byte (§6.5). |
 
 ## 6. Application artifact
 
@@ -187,9 +181,7 @@ Each platform manifest MUST contain:
 2. one or more **application layers**, media type
    `application/vnd.oci.image.layer.v1.tar+gzip` (or `+zstd`), descriptor
    annotation `brewlet.sh/layer=app`;
-3. zero or more **dependency layers**, same media types, descriptor annotation
-   `brewlet.sh/layer=dependency`; and
-4. exactly one **launch layer**, same media types, descriptor annotation
+3. exactly one **launch layer**, same media types, descriptor annotation
    `brewlet.sh/layer=launch`, which MUST be the **last** layer.
 
 The manifest MUST carry `artifactType`-independent identification through the
@@ -208,11 +200,11 @@ defines which of them are qualification fixtures):
 
 | Workload | Application contribution | Approved Linux runtime infrastructure |
 | --- | --- | --- |
-| Java | JARs and explicitly laid-out dependency files | A compatible JRE/JDK |
-| Python | Source/bytecode and explicitly packaged dependencies | A compatible Python interpreter/userland |
-| Node.js | JavaScript and explicitly packaged dependencies | A compatible Node.js runtime/userland |
-| .NET | Assemblies, runtime configuration and explicitly packaged dependencies | A compatible CLR/userland, or an explicitly chosen root for self-contained output |
-| WebAssembly | A core module or component, host configuration and declared external dependency files/components | A compatible native host such as Wasmtime or Spin and its complete userland |
+| Java | JARs and explicitly laid-out library files | A compatible JRE/JDK |
+| Python | Source/bytecode and packaged dependency files | A compatible Python interpreter/userland |
+| Node.js | JavaScript and packaged dependency files | A compatible Node.js runtime/userland |
+| .NET | Assemblies, runtime configuration and packaged dependency files | A compatible CLR/userland, or an explicitly chosen root for self-contained output |
+| WebAssembly | A core module or component, host configuration and other application files | A compatible native host such as Wasmtime or Spin and its complete userland |
 
 For WebAssembly, the OCI platform still identifies the **Linux host
 architecture**, not `wasi/wasm32`. Guest portability does not authorize inferred
@@ -224,8 +216,8 @@ remain outside Brewlet core.
 
 ### 6.2 Layer content rules
 
-Application and dependency layers are ordinary rootfs-relative tars, but every
-entry MUST lie under `app/` (that is, `/app` in the sandbox). The shim MUST
+Application layers are ordinary rootfs-relative tars, but every entry MUST lie
+under `app/` (that is, `/app` in the sandbox). The shim MUST
 reject, before any mount, a layer containing:
 
 - any path outside `app/`, or any path that is absolute, contains `..`, or
@@ -244,8 +236,8 @@ from regular-file readability rules. Device entries in input tars remain
 forbidden; privileged overlay whiteout representations may only be produced
 internally by the validated materializer.
 
-These rules protect **runtime-owned file paths**: no application or dependency
-layer can replace `/usr`, `/etc`, or `/lib`. Applications can still bundle their
+These rules protect **runtime-owned file paths**: no application layer can
+replace `/usr`, `/etc`, or `/lib`. Applications can still bundle their
 own libraries under `/app` or change language/library lookup through environment
 variables. Runtime rotation does not remediate those copies; the application
 team must rebuild them. This is file-path confinement, not a guarantee about
@@ -253,8 +245,8 @@ every library a process loads.
 Violations fail the container with reason `LayerPathViolation`.
 
 Layers stack in manifest order, so later application layers may overwrite
-earlier dependency files under `/app`. Producers SHOULD order layers from least to
-most frequently changed (dependency layers first) to maximize reuse.
+earlier files under `/app`. Producers SHOULD order layers from least to most
+frequently changed to maximize reuse.
 Safe relative symlinks are allowed; absolute symlinks, including a virtualenv
 link to `/usr/bin/python`, are not. Python producers can package site-packages
 and use the golden image's interpreter instead of shipping such a virtualenv.
@@ -298,7 +290,7 @@ Field contract (unknown fields MUST be rejected at publish and launch time):
 The allow-list is deliberately strict and name-based, not a language capability
 matcher. Composed, hold, and variant IDs must be explicitly listed even if they
 provide the same language version. Adding such an ID requires republishing the
-launch layer/config, not rebuilding unchanged application/dependency layers.
+launch layer/config, not rebuilding unchanged application layers.
 Authors wanting inventory-independent artifacts omit the optional allow-list
 and accept responsibility for testing their explicitly selected workload ID.
 The approved schema flattening removes `requires` entirely. The old wrapper,
@@ -357,36 +349,6 @@ reason codes; separate language implementations do not justify contract drift.
 the optional top-level `runtimeImages` allowlist and is what tooling inspects.
 A future baked exporter would need to honor the same launch contract; no such
 delivery mode is implemented by this specification.
-
-### 6.5 Dependencies: as layers or independently
-
-Dependencies reach the node only as **layers of the application artifact** — the
-kubelet pulls exactly one image per container, and the shim never pulls on its
-own. They may be governed in two ways:
-
-1. **Bundled layers.** The producer builds dependency layers alongside the
-   application (for example, `/app/lib/*.jar`, `/app/site-packages`,
-   `/app/node_modules`).
-2. **Independent layer sets.** A platform or library team publishes a layer set
-   artifact, generalizing SPEC §4.5 managed dependency bundles:
-
-   | Component | Media type |
-   |---|---|
-   | Artifact type | `application/vnd.brewlet.layerset.v1+json` |
-   | Config | `application/vnd.brewlet.layerset.config.v1+json` (name, version, ecosystem, layer digests and diff IDs, optional `compatibleRuntimeImages`) |
-   | Layers | `application/vnd.oci.image.layer.v1.tar+gzip`, `brewlet.sh/layer=dependency` |
-   | Lock (optional) | `application/vnd.brewlet.layerset.lock.v1+json` — ecosystem-neutral inventory of `{ecosystem, name, version, path, sha256}` entries |
-
-   A producer that consumes a layer set MUST copy (or cross-repository mount) its
-   layers **byte-for-byte**, preserving digest and diff ID, and MUST record the
-   binding in the manifest annotation `brewlet.sh/layerset-evidence` (the
-   generalization of `brewlet.sh/managed-dependency-evidence`). Identical digests
-   let registries and nodes store each layer set once, regardless of how many
-   applications consume it, and let admission policy (for example the existing
-   Ratify/Gatekeeper example) require approved layer sets by digest.
-
-The Maven plugin packages BOM and GAV-lock contents into a `java`-ecosystem
-layer set.
 
 ## 7. Runtime image inventory
 
@@ -962,7 +924,7 @@ spec:
 5. **Materialize and validate layers** from the content store using the 1.0.0
    per-layer-digest cache contract below.
 6. **Assemble the rootfs** with an application-prefix boundary: launch-layer-excluded
-   application and dependency layers (top to bottom in reverse manifest order)
+   application layers (top to bottom in reverse manifest order)
    over a private opaque `/app` boundary over the runtime root. The boundary
    MUST hide all inherited runtime `/app` content without modifying the approved
    root or shared payload cache. `upperdir`/`workdir` = per-container scratch. The CRI
@@ -1317,8 +1279,7 @@ Re-expressed generically:
 |---|---|
 | JDK `temurin-21` in `NodeProfile.jdks` | `RuntimeImage java-21` built from the same digest-pinned JDK image |
 | `jvm.config` | `launch.json` argv generated by the Maven plugin |
-| Classpath / module-path layers | Dependency layers under `/app/lib` or `/app/mods`, referenced from argv |
-| Managed dependency bundle | `java`-ecosystem layer set (§6.5) |
+| Classpath / module-path layers | Ordinary application files under `/app/lib` or `/app/mods`, referenced from argv |
 | Shipped AppCDS archive | An ordinary file in an application layer plus `-XX:SharedArchiveFile=… -Xshare:auto` in argv. Because rotations change the exact JDK build, the archive is best-effort by design. |
 
 ### 11.1 The `brewlet` CLI: language-agnostic packaging
@@ -1331,8 +1292,8 @@ layers; the CLI validates and packages them:
 brewlet build registry.example.com/apps/api \
   --platform linux/amd64 \
   --launch ./launch.json \
-  --layer dependency=./venv/lib/python3.12/site-packages:/app/site-packages \
-  --layer app=./src:/app/src
+  --layer ./venv/lib/python3.12/site-packages:/app/site-packages \
+  --layer ./src:/app/src
 brewlet push registry.example.com/apps/api
 ```
 
@@ -1343,11 +1304,12 @@ The CLI MUST:
   host-platform or language-based inference. Repeating this flag produces an
   image index with one manifest per platform. An unprefixed `--layer` asserts
   that its bytes work unchanged on every listed platform; a layer written
-  `--layer <os/arch[/variant]>:<role>=<src>:<dest>` belongs only to that
+  `--layer <os/arch[/variant]>:<src>:<dest>` belongs only to that
   declared platform, and naming an undeclared platform fails with
-  `InvalidPlatform`. Each platform receives its layer-set layers, then the
-  applicable `--layer`s in command-line order, and MUST end up with an `app`
-  layer. Layer sets are platform-neutral. Manifests produced elsewhere MAY be
+  `InvalidPlatform`. Each platform receives its applicable `--layer`s in
+  command-line order and MUST end up with an `app` layer. The CLI MUST assign
+  the `app` role to every supplied payload layer automatically; the author
+  supplies only its source, destination, and optional platform. Manifests produced elsewhere MAY be
   combined through an explicitly supplied index descriptor (`brewlet index`);
   no automatic native-file discovery or grouping occurs;
 - enforce the layer content rules of §6.2 at build time (paths under `/app`,
@@ -1355,12 +1317,10 @@ The CLI MUST:
   reason codes the shim would;
 - build deterministic layers in the given order, append the launch layer last,
   and mirror `launch.json` into the image config (§6.4);
-- consume layer sets (§6.5) named with `--layer-set <ref>` by reusing their
-  layers byte-for-byte.
 
 `brewlet build` writes the result to a local OCI layout (by default
-`.brewlet/images/<sanitized-ref>`, or `--store`); it never contacts a registry
-except to read `--layer-set` inputs. `brewlet push <ref>` publishes that layout,
+`.brewlet/images/<sanitized-ref>`, or `--store`); it never contacts a registry.
+`brewlet push <ref>` publishes that layout,
 or any other local OCI layout given with `--store`, after verifying every blob
 digest, and MUST NOT rewrite manifest, config or layer bytes. Build options are
 rejected by `push`, so publication can never silently rebuild.
@@ -1401,8 +1361,8 @@ The Maven plugin is the one place where Java knowledge remains. It MAY:
 - generate `launch.json` argv from the project: main class or JPMS module,
   classpath or module path, `--enable-preview`, `--add-opens`, and system
   properties;
-- split dependencies into layers (for example `/app/lib` and `/app/mods`) or
-  consume a published `java` layer set;
+- package dependencies as ordinary application files (for example under
+  `/app/lib` and `/app/mods`);
 - attach a prebuilt AppCDS archive as an ordinary application file and add the matching
   flags to argv;
 - propose `runtimeImages` from `maven.compiler.release` and a configured
@@ -1424,8 +1384,8 @@ remains an explicit decision in the reviewed manifest.
   apart from explicitly mounted Kubernetes volumes. The application image is
   verified by digest exactly as in 0.x; ordinary-image sidecars cannot bypass
   this contract.
-- **Runtime file-path confinement.** §6.2 confines application and dependency
-  layers to `/app`, and §7.2 isolates and hides the runtime's `/app`. This
+- **Runtime file-path confinement.** §6.2 confines application layers to
+  `/app`, and §7.2 isolates and hides the runtime's `/app`. This
   prevents layer replacement of runtime paths, not loading application-bundled
   libraries through `LD_*`, language lookup variables, or explicit volume
   mounts. Those dependencies remain application-owned remediation.
@@ -1546,11 +1506,8 @@ engine binaries are not unchanged upstream engine OCI images. No native
 runwasi backend, language detector or Wasm workload CRD is introduced.
 
 Runtime/engine updates retain the same runtime inventory, generation, lease,
-revocation and cleanup rules as the other workloads. Updating a separately
-composed external payload cannot patch dependencies compiled into a `.wasm`
-file; that requires a guest rebuild. Governed bundle composition, replacement
-and observed dependency attribution are additionally qualified under
-[§16.11.1](#16111-webassembly-composition-companion).
+revocation and cleanup rules as the other workloads. Updating application
+dependencies requires rebuilding and republishing the application artifact.
 
 ## 14. Open questions
 
@@ -1565,8 +1522,8 @@ implementation work:
   conventional image combining an approved runtime with application layers.
   This needs explicit signing, launch/confinement and runtime-CVE rebuild/
   redeployment rules. It loses late-bound runtime selection and is distinct
-  from §16, which composes application/dependency layers while leaving
-  the runtime node-provided.
+  which would produce a conventional image containing the runtime and
+  application files, rather than leaving the runtime node-provided.
 
 ## 15. Alternatives considered
 
@@ -1601,434 +1558,3 @@ Treating application layers like any image layer would support more existing
 images, but would let an application shadow runtime files and silently defeat a
 rotation. Confinement to `/app` is the property that makes digest-free runtime
 references trustworthy.
-
-### Shim-pulled dependency artifacts
-
-Letting `launch.json` reference independently published dependency artifacts that
-the shim pulls at `Create` would avoid copying layers into each application
-image. It was rejected because the shim would need registry credentials outside
-kubelet's image-pull path, cold starts would gain a second pull, and digest
-reuse of layer sets (§6.5) already delivers the storage and governance benefits.
-
-# Part II — Governed dependency composition and remediation
-
-## 16. Managed dependency composition
-
-- **Scope:** Brewlet 1.0.0 producer, release and policy workflows.
-- **Extends:** [§6.5](#65-dependencies-as-layers-or-independently).
-- **Does not change:** runtime-image selection, node provisioning, runc execution,
-  startup fencing, leases or host cleanup.
-- **Reference implementation:** `7077c1d3b7c2019ad10b8d3160f60a15dac9c930`.
-
-The requirements below are the approved implementation contract. Qualification
-must be recorded separately; code presence is not acceptance evidence.
-This approval does not authorize a built-in vulnerability scanner, a runtime
-dependency resolver or a new workload CRD.
-
-### 16.1 Recommendation
-
-Complete the platform-managed dependency experience around the existing generic
-layer-set model:
-
-1. The platform publishes an immutable dependency payload with a complete lock,
-   SBOM and verifiable publisher provenance.
-2. Application producers retain normal development workflows and publish
-   explicit application artifacts.
-3. Release tooling composes pinned application and dependency artifacts into
-   one final application image, preserving application-layer bytes.
-4. A separate release-builder identity attests the exact final composition.
-5. Fleet inventory traces actual running image digests to dependency evidence.
-6. Remediation replaces the dependency input, tests the new composition, and
-   rolls native workloads to a new application digest.
-
-The developer-facing delivery configuration can therefore name the application
-and approved dependency set. The rendered Kubernetes workload still names
-only the final application image and its explicit approved runtime ID.
-
-An SBOM is an inventory, not executable content. The published dependency
-artifact MUST contain the actual files; no package-manager resolution from
-SBOM entries occurs in the shim, operator or generic composer.
-
-### 16.2 Existing foundations and actual gaps
-
-This table records the pinned historical rewrite baseline above. Implemented release
-interfaces and their qualified scopes are documented in the
-[composition guide](../docs/managed-composition.md) and the separate ledger.
-
-| Concern | Already in 1.0.0 | Proposed work |
-| --- | --- | --- |
-| Dependency publication | Generic OCI layer sets, complete lock validation when a lock is supplied, mandatory SBOM, optional signed provenance. | A clear managed-publication workflow and release policy. |
-| Java project intelligence | Optional Maven producer checks the explicit source BOM and resolved scoped graph, rejects nested JARs and generates argv. | Improve platform/application examples; retain these checks outside core. |
-| Consumption | `push --layer-set` consumes verified dependency layers with exact digest/diff-ID reuse. | Consume an already-published application artifact without needing its original directories. |
-| Composition evidence | `brewlet.sh/layerset-evidence`. | Final-image-bound, signed composition evidence and verification. |
-| Operations | Native Kubernetes workloads and scoped execution evidence. | Running-fleet inventory, dependency remediation and end-to-end qualification. |
-
-Main's managed bundle implementation is the behavioral reference, not a
-scaffold to copy wholesale. In particular, main also composes before deployment;
-its tier-19 update scenario starts from retained thin JARs, not a general
-two-published-artifact composition command.
-
-### 16.3 Goals and non-goals
-
-#### Goals
-
-- Make approved dependency consumption practical for platform and application
-  teams without turning generic core into a language toolchain.
-- Preserve compressed application and dependency layer descriptors and diff IDs
-  across composition and dependency-only updates.
-- Make the selected dependencies, producer identities and actual deployed
-  image traceable and independently verifiable.
-- Separate content integrity, publisher authorization, composition and
-  application compatibility; none implies the others.
-- Qualify the Python fixture with real independently published sets and a
-  compatible unchanged upstream runtime image; other native languages are
-  examples, not qualification scopes (§13.2).
-- Qualify WebAssembly through both Wasmtime and Spin, preserving explicit guest
-  capabilities and actual platform-built host provenance in a separate companion
-  scope (§16.11.1); do not treat native-language receipts as implicit Wasm proof.
-
-#### Non-goals
-
-- A dependency reference that causes a node/shim to fetch another OCI artifact.
-- A dependency inventory CRD, workload CRD, admission-time image rewrite or
-  dependency restart controller inside the Brewlet operator.
-- Maven/npm/pip/NuGet resolution or version-range interpretation in generic core.
-- Hot replacement of libraries in running processes.
-- Claiming binary/API compatibility from an SBOM, a version number or a signature.
-- A new generic producer plugin framework.
-
-### 16.4 Roles and trust
-
-| Role | Responsibility |
-| --- | --- |
-| Platform dependency publisher | Select and test the dependency closure, publish payload/lock/SBOM, sign its provenance. |
-| Application producer | Build application bytes and explicit launch metadata; preserve producer-specific build evidence. |
-| Release composer | Authorize pinned inputs, compose the output, sign what was actually selected. |
-| Application deployment workflow | Approve/test the candidate and update its ordinary workload manifest. |
-| Cluster policy | Verify required final-image evidence and identities before permitting deployment. |
-
-These are artifact/publication roles, not two owners of the application
-workload. Runtime infrastructure approval remains a separate platform concern.
-
-Bundle-publisher keys and release-builder keys MUST represent distinct trust
-decisions. A bundle signature does not authorize every application using it;
-a composition signature does not prove that the application passed its tests.
-Private keys stay in CI secret delivery, never in descriptors or app layers.
-
-Managed composition MUST require an explicit trust policy. The production
-policy requires trusted dependency publisher provenance and a signed output.
-An explicitly selected development policy MAY permit unsigned inputs/outputs,
-but MUST NOT label them production-verified.
-Present invalid/untrusted provenance MUST NOT be treated as unsigned.
-Key rotation MAY accept multiple keys under explicit identity/subject rules.
-
-### 16.5 Initial bounded contract
-
-Version 1 supports **one complete managed dependency set and one explicit
-Linux platform per composition**. This matches the current Maven managed
-workflow and keeps replacement unambiguous.
-
-This restriction applies to the new composition operation, not to existing
-generic `push` capabilities. Merging partial dependency catalogs, resolving
-overlaps between independently governed sets and multi-platform composition
-are not silently inferred. They require a subsequent explicit contract.
-
-#### 16.5.1 Inputs
-
-All remote inputs MUST be canonical digest-pinned references. Mutable tags
-must be resolved and approved by the delivery workflow before invocation.
-
-- An application input is a valid version-1 application OCI graph with
-  explicit app layers, launch metadata and platform/config consistency.
-- Initial composition accepts application inputs with no dependency-role
-  layers. Structural validity does not mean that this payload image is a
-  ready-to-run workload before dependency composition.
-- Replacement from a previously composed image requires supported, verified
-  composition evidence identifying its application and dependency descriptors.
-  An unsigned annotation or a layer-role label alone is insufficient to decide
-  which layers may be removed.
-- Arbitrary previously bundled dependencies MUST be rejected rather than
-  guessed, stripped or silently carried forward.
-- Managed layer sets MUST provide a complete verified lock, exactly one valid
-  SBOM and the provenance required by the selected policy. This is stricter
-  than treating every otherwise-valid unlocked generic layer set as managed.
-- Input platform selection MUST be explicit and unambiguous. Selecting a
-  member of an index MUST verify its descriptor and relationship to that index.
-
-An application payload can be built against dependency set A and later
-delivered with set B. Original build provenance MUST continue to say A;
-the composer MUST NOT rewrite it to claim the application was built or tested
-against B.
-
-#### 16.5.2 Layout and launch
-
-The composer MUST:
-
-- validate all input descriptors, sizes, hashes, diff IDs and current artifact
-  constraints before producing a deployable output;
-- use explicit layer roles and validated composition evidence, not filename,
-  extension or language detection;
-- preserve app-layer compressed bytes, order and diff IDs;
-- reuse the selected dependency payload layers byte-for-byte;
-- preserve launch-layer bytes by default and regenerate the OCI config's
-  rootfs diff-ID list/config mirror for the actual output graph;
-- keep optional top-level `runtimeImages` semantics unchanged;
-- require an explicit `--launch` input for any requested launch replacement,
-  validating and recording that replacement rather than inferring argv.
-
-The composer MUST NOT move files to make a dependency layout fit a launch
-descriptor automatically. For example, `/app/lib` is a producer contract, not
-a Java-specific extraction rule in the composer.
-
-Managed dependency paths MUST NOT be shadowed, removed by whiteouts or
-redirected through symlinks by an application layer. The same existing safe
-composition/path-resolution mechanisms SHOULD be reused to compare the
-effective managed file inventory and hashes with the selected set.
-Ambiguous collisions fail closed.
-
-This is filesystem-level protection, not a language semantic guarantee.
-It cannot prove that a JAR contains no shaded duplicate classes, that an
-application's loader uses only approved files, or that a dynamic package is
-API-compatible. Relevant producer validation and testing remain necessary.
-
-#### 16.5.3 Output and publication
-
-The output is an ordinary version-1 application OCI image: dependency payload,
-preserved app payload and exactly one launch layer. Kubelet still pulls one
-application image per container.
-
-Equivalent pinned inputs and explicit options SHOULD produce the same output
-manifest/config digests. Timestamps and signatures belong in referrers rather
-than forcing otherwise-identical application layers to change.
-
-No output tag, accepted manifest or successful release handoff may be published
-after a validation or required-signing failure. Registry uploads of immutable
-blobs may precede a failed operation; such unreferenced blobs are not a
-successfully published release.
-Credentials MUST remain origin-scoped during cross-registry copies/mounts.
-
-### 16.6 Producer interface
-
-The release interface is:
-
-```sh
-brewlet bundle registry.example.com/apps/orders:candidate \
-  --application registry.example.com/builds/orders@sha256:<application-digest> \
-  --layer-set registry.example.com/platform/java-web@sha256:<set-digest> \
-  --platform linux/arm64 \
-  --policy release-policy.yaml \
-  --signing-key "$COMPOSER_SIGNING_KEY_FILE" \
-  --builder-identity https://ci.example.com/release-composer \
-  --push-result composed-image.json
-```
-
-`--application` is either an initial application payload or a previously
-composed image satisfying §16.5.1. The supplied set is the complete desired
-dependency closure, not an implicit subset update.
-The signing environment variable contains a file path, not private key bytes.
-
-The existing `build`/`push` and Maven workflows remain valid. Maven can continue to
-derive the graph and launch from project inputs; the new operation is for
-artifact-to-artifact release composition, not a replacement Maven resolver.
-
-In a GitOps/release system, the two pinned references are pipeline inputs.
-After verification and testing, it updates an ordinary Deployment image digest.
-No proposed fields in this section are Kubernetes/Brewlet Pod annotations.
-
-### 16.7 Final composition attestation
-
-Define a versioned generic predicate, emitted as a signed OCI referrer and
-bound to the exact output image manifest digest.
-It MUST bind at least:
-
-- application source root and selected platform-manifest digests;
-- platform and preserved application-layer descriptors/diff IDs;
-- selected dependency-set, config, lock and SBOM digests;
-- dependency descriptors/diff IDs and their effective ordering;
-- original/effective launch digests and output config digest;
-- parent composition digest for replacement, where applicable;
-- release-builder identity and predicate version.
-
-This supplements existing layer-set publisher provenance. A generic verifier
-must not need Maven GAVs, JAR inspection, Python package resolution or CLR
-understanding to verify the final composition.
-Java-specific graph/thin-JAR evidence can be bound as producer-owned evidence,
-without becoming mandatory language-specific core fields.
-
-An `inspect`/verification interface MUST distinguish unsigned structural
-evidence, verified publisher provenance, verified composition provenance and
-any separately verified test/release approval. It MUST NOT collapse these into
-one ambiguous `verified` flag.
-
-The verifier SHOULD be callable by external admission policy. Initial delivery
-MUST NOT claim Brewlet 0.x's Ratify parity until a concrete integration is implemented,
-its policy is documented and real accept/reject cases are exercised.
-The inventory-only Brewlet admission path does not become a registry resolver.
-
-### 16.8 Compatibility and dependency-only remediation
-
-Layer replacement changes the deployed dependency closure, even when no
-application code is recompiled. Therefore:
-
-- initial Maven publication retains current exact graph/BOM/scoped-hash checks;
-- generic replacement records old and new materials honestly;
-- the application deployment workflow (§16.4) MUST run its configured
-  compatibility/integration checks against the final candidate image digest
-  before deploying a dependency-only release. Brewlet's composer and verifier do
-  not execute these checks; they report `testReleaseApproval: not-evaluated`
-  (§16.7) and MUST NOT infer a pass from a signature;
-- changing package versions/hashes does not authorize changing runtime IDs,
-  executable paths or process security implicitly;
-- compatibility failures stop the release; they never fall back to locally
-  resolving/bundling another graph or bypassing provenance;
-- rollback selects a prior approved final image digest, subject to current
-  policy; revocation does not grant an unsigned emergency bypass.
-
-For Java, a retained thin JAR may work with a patched library without
-recompilation. That must be tested; the old Maven build graph cannot be relabeled
-as the newly tested graph. Equivalent ecosystem-specific responsibilities stay
-in application CI/producer tooling for Python, Node and .NET.
-
-### 16.9 Fleet inventory and remediation workflow
-
-First provide a read-only inventory/export path that:
-
-1. selects explicit namespaces/workloads;
-2. records actual Pod UID/container ID and observed running image identity;
-3. resolves/verifies the application OCI digest and composition evidence;
-4. follows the exact dependency-set/SBOM bindings;
-5. exports package/file identities, versions and PURLs with their provenance.
-
-Do not assume every CRI `imageID` is the image manifest digest. Correlate
-protected/observed identities and verified OCI membership rather than guessing
-from a tag, desired Deployment spec or an unrelated config digest.
-
-Missing evidence, inaccessible registries, invalid signatures and ambiguous
-identity MUST be reported as **unverified**, not clean.
-Namespace exclusions and stale snapshots must remain visible in the report.
-
-Vulnerability evaluation consumes these facts through an explicitly configured
-scanner/advisory source. Generic core MUST NOT apply one naive version comparator
-to Maven, PEP 440, npm and NuGet ranges.
-Fixture advisories can drive deterministic tests; they are not a production
-vulnerability database.
-
-The release workflow then publishes a replacement set, composes candidates,
-tests them, updates native workload manifests and observes actual rollout.
-Post-remediation inventory MUST show the new running application digests and
-dependency identities. It MUST NOT report success from a template patch alone.
-No dependency-update loop is added to the node provisioner.
-
-### 16.10 Implementation milestones
-
-| Milestone | Deliverable | Exit criteria |
-| --- | --- | --- |
-| P1: contract and producer experience | Review this contract; add concrete platform/application Maven projects and neutral publication examples. | Current mechanisms are documented/tested; new commands remain explicitly proposed until implemented. |
-| P2: initial generic composition | App-payload plus one managed set, strict paths/platforms, byte-preserving output and deterministic result handoff. | No language inference; all malformed/collision/unknown-input cases fail; initial composition works locally. |
-| P3: composition trust | Versioned predicate, signing, verification, key/identity policy and inspect output. | Subject/digest/order tampering and unsigned downgrade fail; signing failures publish no accepted output. |
-| P4: dependency replacement | Accept verified prior compositions; replace the set while preserving app layers/launch unless explicitly changed. | Original build evidence stays intact; compatibility tests run against the new digest; no unverified layer stripping. |
-| P5: fleet/remediation qualification | Read-only inventory, scanner integration boundary, release/GitOps example and real-node matrix. | Affected/unaffected/unverified cases, complete rollout observation and rollback/revocation behavior are proven. |
-
-P3 depends on P2; P4 depends on P2/P3; P5's release scenario depends on P4.
-Read-only inventory prototyping and P1 documentation can be developed separately.
-No parallel orchestration or credit budget is authorized by this plan.
-
-### 16.11 Required acceptance matrix
-
-The final feature is not qualified by separate tests of its constituent parts.
-For the native-language qualification case (Python, §13.2):
-
-1. Publish an independent locked dependency set, SBOM and publisher provenance.
-2. Publish an immutable application payload through its normal external
-   toolchain/producer.
-3. Compose and verify the final image; prove exact app/dependency layer and
-   diff-ID reuse, launch/config consistency and conflict rejection.
-4. Run on a pinned compatible **unchanged upstream runtime image** with actual
-   HTTP/dependency, probes/Exec, identity, filesystem and resource observations.
-5. Publish a patched set, recompose the unchanged application layers, test the
-   new candidate and roll a native workload with controlled availability.
-6. Observe the actual updated dependencies and image digests in running Pods;
-   verify old processes are replaced normally rather than hot-patched.
-7. Complete normal workload/profile cleanup and exact-owned fixture destruction.
-
-Native arm64 local proof and native amd64 CI proof are separate scopes.
-Cross-builds do not substitute for either. An unchanged runtime input must be
-discovered and policy-qualified (for example, a reviewed chiseled candidate);
-an adapted root must not be relabeled unchanged.
-An unavailable compliant input remains an explicit matrix blocker.
-
-#### 16.11.1 WebAssembly composition companion
-
-WebAssembly is a required additional workload category, not implicitly covered
-by the native-language case. Qualify **both** the Wasmtime WASIp1 command
-and the Spin SDK HTTP component on native arm64 and native amd64 separately:
-
-1. Publish a complete locked external dependency payload, CycloneDX SBOM and
-   publisher provenance independently of the guest/application artifact.
-2. Compose and verify a signed final image. Exercise required-trust and managed
-   path-conflict rejection without publishing accepted output after failure.
-3. Observe the actual initial guest and Wasmtime guest Exec or Spin HTTP/probe
-   behavior, host Exec identity, non-root restrictions, read-only dependencies
-   and exclusion of the runtime filesystem and trusted engine cache.
-4. After original workloads are running, publish a changed external payload and
-   recompose from the verified prior image. Preserve the exact `.wasm` file
-   hashes, application/launch descriptors and diff IDs. Verify the old workloads
-   retain the old dependency and the candidate actually consumes the new bytes.
-5. Roll ordinary native Deployments only after candidate checks. Verify new
-   container/Pod identities, unchanged selected host source/epoch/generation,
-   real guest-visible dependency changes and pre/post observed inventory/SBOM
-   attribution. Controlled zero-failed-request observation applies to Spin HTTP,
-   not to a fabricated HTTP endpoint for the Wasmtime command.
-6. Complete normal profile/task/root cleanup and exact-owned fixture destruction.
-
-Record the host images' actual provenance. The existing examples use
-platform-built roots combining pinned distroless C/C++ userland with unchanged,
-checksum-pinned engine binaries; do not call these unchanged upstream engine
-OCI images or weaken the native-language unchanged-root requirement.
-
-Replacing external files/components that a guest explicitly consumes is not a
-patch for code statically linked into a `.wasm` file. Compiled-in dependency
-updates require a guest rebuild; host-engine/OS updates require runtime-image
-rotation. Neither a fixture asset update nor an SBOM proves compiled-in library
-remediation or complete application CVE coverage.
-
-Additional mandatory cases:
-
-- wrong BOM/graph/scope/classifier/hash, missing members and thin-JAR failures
-  through the optional Maven producer;
-- wrong keys/identities/subjects, malformed present provenance, expired/revoked
-  trust policy and each allowed/denied signing combination;
-- managed-path shadowing, whiteouts, symlink aliases and attempted file injection;
-- source/output platform mismatch and ambiguous index membership;
-- missing/invalid final composition evidence and no accepted output after failure;
-- old/new source references and app-layer digests preserved across replacement;
-- affected control/staging workloads and unknown images handled correctly;
-- zero dropped requests for the deliberately configured availability scenario,
-  not a universal zero-downtime product guarantee.
-
-Keep a requirements-to-tests checklist for these obligations. Publish exact
-inputs, commands, results and limitations; preserve failed runs as failed.
-The [Part I baseline ledger](../acceptance/requirements.json) does not
-qualify this feature.
-
-### 16.12 Documentation and release boundaries
-
-Publish an end-to-end platform-to-application guide, generic composition
-reference, trust/attestation reference and remediation runbook.
-Examples must use explicit platforms, immutable references and readable
-configuration, not an invented runtime dependency annotation.
-
-Document which source/app formats the new composer accepts and which it
-rejects. Archive existing receipts rather than rewriting them as evidence for
-new semantics. Keep installation/source-revision compatibility explicit.
-
-This approval authorizes the bounded producer/release work,
-not changes to the rejected shim-pulled dependency design (§15).
-
-### 16.13 References
-
-- [Main managed bundle workflow at the inspected revision](https://github.com/microsoft/brewlet/blob/fa7085335b220e29df6affbece4558c5f1259ecb/docs/managed-dependency-bundles.md)
-- [Main bundle validation](https://github.com/microsoft/brewlet/blob/fa7085335b220e29df6affbece4558c5f1259ecb/core/internal/artifact/dependency_bundle.go)
-- [Main CVE remediation scenario](https://github.com/microsoft/brewlet/blob/fa7085335b220e29df6affbece4558c5f1259ecb/integration-tests/e2e/tier19-cve-remediation.sh)
-- [Historical rewrite Maven managed consumption](https://github.com/microsoft/brewlet/blob/7077c1d3b7c2019ad10b8d3160f60a15dac9c930/maven-plugin/README.md#managed-consumption)
-- [Historical rewrite layer-set implementation](https://github.com/microsoft/brewlet/blob/7077c1d3b7c2019ad10b8d3160f60a15dac9c930/pkg/artifact/layerset.go)

@@ -602,8 +602,8 @@ auth:
                             "--name", self.producer_name]
         self.run_producer([*command, "build", "registry.brewlet.test/native:" + arch,
                            "--store", str(layout), "--platform", native_platform(arch),
-                           "--launch", str(launch), "--layer", f"dependency={dependency}:/app/dependency",
-                           "--layer", f"app={source}:/app/bin"])
+                           "--launch", str(launch), "--layer", f"{dependency}:/app/dependency",
+                           "--layer", f"{source}:/app/bin"])
         descriptor = json.loads((layout / "index.json").read_text())["manifests"][0]
         if descriptor["mediaType"] != INDEX:
             # A single manifest can be accepted by CRI before its config's

@@ -20,7 +20,7 @@ use it only for payloads that work unchanged on each one:
 ```sh
 brewlet build registry.example.com/apps/api:v2 \
   --platform linux/amd64 --platform linux/arm64 \
-  --launch launch.json --layer app=./src:/app/src
+  --launch launch.json --layer ./src:/app/src
 brewlet push registry.example.com/apps/api:v2
 ```
 
@@ -31,16 +31,15 @@ platform it belongs to; do not label one native payload as portable:
 ```sh
 brewlet build registry.example.com/apps/api:v2 \
   --platform linux/amd64 --platform linux/arm64 --launch launch.json \
-  --layer linux/amd64:dependency=./wheels-amd64:/app/dependencies \
-  --layer linux/arm64:dependency=./wheels-arm64:/app/dependencies \
-  --layer app=./src:/app/src
+  --layer linux/amd64:./wheels-amd64:/app/dependencies \
+  --layer linux/arm64:./wheels-arm64:/app/dependencies \
+  --layer ./src:/app/src
 brewlet push registry.example.com/apps/api:v2
 ```
 
 Each platform gets the shared layers plus its own, in command-line order, and
 must end up with at least one `app` layer. A prefix naming an undeclared
-platform fails with `InvalidPlatform`. Layer sets cannot carry platform
-prefixes. `brewlet index` remains available to combine manifests produced
+platform fails with `InvalidPlatform`. `brewlet index` remains available to combine manifests produced
 elsewhere into one index. See [CLI options](cli-reference.md).
 
 ## Scheduling and pool coverage

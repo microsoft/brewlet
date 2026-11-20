@@ -3,6 +3,7 @@ package sh.brewlet.maven;
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -14,7 +15,7 @@ class ConformanceTest {
     @Test void javaEvaluatorPassesEverySharedFixture() throws Exception {
         String data = Files.readString(FIXTURES);
         JsonNode results = Conformance.run(data);
-        int cases = MavenGraph.JSON.readTree(data).path("cases").size();
+        int cases = new ObjectMapper().readTree(data).path("cases").size();
         assertTrue(cases > 0);
         assertEquals(cases, results.size());
         for (JsonNode result : results) {

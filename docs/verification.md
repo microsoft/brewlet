@@ -19,9 +19,7 @@ arm64 runners. The real-node end-to-end suite covers:
   PATH, and retention across worker and containerd restarts.
 - CRI filesystem accounting and eviction, revocation, uninstall and normal host
   cleanup.
-- WebAssembly with Wasmtime and Spin, and
-  [governed dependency composition](managed-composition.md) for Python and
-  WebAssembly.
+- WebAssembly with Wasmtime and Spin.
 
 Python is the only native-language qualification fixture. The Java (with the
 Maven producer), Node.js, .NET and PHP example fixtures each run the real-node
@@ -43,12 +41,11 @@ and the [validation status report](https://github.com/microsoft/brewlet/blob/mai
   executed; see [providers and fencing](providers.md).
 - Better throughput, memory use or startup time than conventional containers.
 - Shared application processes or heaps, or automatic JVM/interpreter tuning.
-- Signature verification of final application images. Layer-set signing covers
-  dependency content only; see [security](security.md#supply-chain-scope).
+- Signature verification of application images or application dependency
+  inventories; see [security](security.md#supply-chain-scope).
 - Compatibility with descriptors, artifact formats or workload APIs from
   Brewlet 0.7.x or earlier.
-- A built-in vulnerability (CVE) scanner. Composition tests update explicit
-  fixture libraries, not real vulnerable packages.
+- A built-in vulnerability (CVE) scanner or package inventory.
 
 ## Interpreting failures
 

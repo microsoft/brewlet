@@ -111,13 +111,12 @@ Replace the registry and declare your actual platform:
 brewlet build registry.example.com/apps/php-demo:v1 \
   --platform linux/arm64 \
   --launch "$WORK/launch.json" \
-  --layer "app=$WORK/app:/app"
+  --layer "$WORK/app:/app"
 brewlet push registry.example.com/apps/php-demo:v1 --push-result "$WORK/push.json"
 ```
 
-To share `vendor/` across releases, package it as a separate layer, for example
-`--layer "dependency=$WORK/vendor:/app/vendor"`. See
-[dependency layer sets](dependency-layer-sets.md).
+Package `vendor/` as an ordinary application layer under `/app/vendor`.
+Updating packages requires rebuilding and republishing the application.
 
 ## Approve the runtime
 

@@ -39,7 +39,6 @@ func (r *Registry) Referrers(ctx context.Context, subject v1.Descriptor) ([]v1.D
 	}
 	page := r.endpoint("referrers", subject.Digest.String())
 	var candidates []v1.Descriptor
-	invalidAttestation := false
 	visited := map[string]bool{}
 	for page != nil {
 		if visited[page.String()] || len(visited) >= 1000 {
@@ -79,10 +78,6 @@ func (r *Registry) Referrers(ctx context.Context, subject v1.Descriptor) ([]v1.D
 		}
 		for _, d := range index.Manifests {
 			if d.MediaType != v1.MediaTypeImageManifest || d.Digest.Validate() != nil || d.Size < 0 {
-				if d.ArtifactType == MediaTypeAttestation {
-					invalidAttestation = true
-					continue
-				}
 				return nil, fmt.Errorf("invalid native referrer descriptor")
 			}
 			candidates = append(candidates, d)
@@ -92,9 +87,6 @@ func (r *Registry) Referrers(ctx context.Context, subject v1.Descriptor) ([]v1.D
 			return nil, e
 		}
 	}
-	if invalidAttestation && !hasAttestation(candidates) {
-		return nil, fmt.Errorf("provenance discovered without a usable candidate descriptor")
-	}
 	return uniqueReferrers(candidates)
 }
 func (r *Registry) fallbackReferrers(ctx context.Context, subject v1.Descriptor) ([]v1.Descriptor, error) {
@@ -103,9 +95,7 @@ func (r *Registry) fallbackReferrers(ctx context.Context, subject v1.Descriptor)
 	q.Set("n", "100")
 	page.RawQuery = q.Encode()
 	prefix := "sha256-" + subject.Digest.Encoded() + "."
-	known := map[string]string{digest.FromString(MediaTypeCycloneDX).Encoded()[:12]: MediaTypeCycloneDX, digest.FromString(MediaTypeAttestation).Encoded()[:12]: MediaTypeAttestation, digest.FromString(MediaTypeComposition).Encoded()[:12]: MediaTypeComposition}
 	var candidates []v1.Descriptor
-	invalidAttestation := false
 	visited := map[string]bool{}
 	for page != nil {
 		if visited[page.String()] || len(visited) >= 1000 {
@@ -144,24 +134,22 @@ func (r *Registry) fallbackReferrers(ctx context.Context, subject v1.Descriptor)
 			if len(suffix) != 2 {
 				continue
 			}
-			typ, ok := known[suffix[0]]
-			if !ok || len(suffix[1]) != 24 {
+			if len(suffix[0]) != 12 || len(suffix[1]) != 24 {
 				continue
 			}
-			descriptor, _, e := r.fetchManifest(ctx, tag)
+			descriptor, data, e := r.fetchManifest(ctx, tag)
 			if e != nil {
-				if typ == MediaTypeAttestation {
-					invalidAttestation = true
-					continue
-				}
 				return nil, e
 			}
-			descriptor.ArtifactType = typ
+			var manifest v1.Manifest
+			if e = StrictJSON(data, &manifest); e != nil {
+				return nil, e
+			}
+			if manifest.ArtifactType == "" || !strings.HasPrefix(digest.FromString(manifest.ArtifactType).Encoded(), suffix[0]) {
+				return nil, fmt.Errorf("fallback referrer type tag mismatch")
+			}
+			descriptor.ArtifactType = manifest.ArtifactType
 			if descriptor.MediaType != v1.MediaTypeImageManifest || !strings.HasPrefix(descriptor.Digest.Encoded(), suffix[1]) {
-				if typ == MediaTypeAttestation {
-					invalidAttestation = true
-					continue
-				}
 				return nil, fmt.Errorf("fallback referrer digest tag mismatch")
 			}
 			candidates = append(candidates, descriptor)
@@ -171,18 +159,7 @@ func (r *Registry) fallbackReferrers(ctx context.Context, subject v1.Descriptor)
 			return nil, e
 		}
 	}
-	if invalidAttestation && !hasAttestation(candidates) {
-		return nil, fmt.Errorf("provenance discovered without a usable candidate descriptor")
-	}
 	return uniqueReferrers(candidates)
-}
-func hasAttestation(candidates []v1.Descriptor) bool {
-	for _, d := range candidates {
-		if d.ArtifactType == MediaTypeAttestation {
-			return true
-		}
-	}
-	return false
 }
 func uniqueReferrers(input []v1.Descriptor) ([]v1.Descriptor, error) {
 	seen := map[digest.Digest]v1.Descriptor{}

@@ -7,7 +7,6 @@ compatibility target. The authoritative contract for this branch is
 - **Part I (§1–§15)** — language-agnostic runtime images, inventory,
   provisioning, workload execution, admission, the v2 capability-label and
   startup-fence contract (§9.1–§9.3), security and observability.
-- **Part II (§16)** — governed dependency composition and remediation.
 
 Implementations and user documentation must follow it. Substantial changes
 should begin as a reviewable design under [`proposals/`](proposals/README.md).

@@ -28,10 +28,8 @@ SUITES = {
     "uninstall": ("pinned_uninstall.py", "pinned-uninstall", NATIVE),
     "retirement": ("retirement.py", "retirement", NATIVE),
     "activation": ("activation.py", "activation", NATIVE),
-    "managed": ("managed.py", "managed-composition", NATIVE),
-    "managed-wasm": ("managed_wasm.py", "managed-wasm-composition", WASM),
 }
-COMPLETE = tuple(name for name in SUITES if name not in ("managed", "managed-wasm"))
+COMPLETE = tuple(SUITES)
 DEBUG_SUITES = {"control": ("harness.py", "control", NATIVE)}
 
 
@@ -169,9 +167,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--run", action="store_true", help="explicitly execute privileged disposable native suites")
-    mode.add_argument("--status-json", action="store_true", help="report all 22 receipt statuses and candidate identities")
+    mode.add_argument("--status-json", action="store_true", help="report all native receipt statuses and candidate identities")
     mode.add_argument("--verify-pr", type=Path, help="verify actual PR E2E execution, never promotion evidence")
-    parser.add_argument("--scenario", choices=("complete", "control", "managed", "managed-wasm"), default="complete")
+    parser.add_argument("--scenario", choices=("complete", "control"), default="complete")
     parser.add_argument("--architecture", choices=("amd64", "arm64"), default="amd64")
     parser.add_argument("--results", type=Path, default=ROOT / "acceptance/results")
     args = parser.parse_args()

@@ -1,5 +1,5 @@
-// Package inventory exports read-only observed dependency facts for external
-// scanners. It never resolves packages or changes Kubernetes workloads.
+// Package inventory exports read-only application and runtime binding facts.
+// It never resolves packages or changes Kubernetes workloads.
 package inventory
 
 import (
@@ -42,16 +42,16 @@ type Container struct {
 }
 
 type Report struct {
-	SchemaVersion int                                  `json:"schemaVersion"`
-	Cluster       string                               `json:"cluster"`
-	StartedAt     time.Time                            `json:"startedAt"`
-	FinishedAt    time.Time                            `json:"finishedAt"`
-	Namespaces    []string                             `json:"namespaces"`
-	Workloads     []string                             `json:"workloads,omitempty"`
-	Complete      bool                                 `json:"complete"`
-	Containers    []Container                          `json:"containers"`
-	Artifacts     map[string]artifact.DependencyReport `json:"artifacts"`
-	Warnings      []string                             `json:"warnings"`
+	SchemaVersion int                                   `json:"schemaVersion"`
+	Cluster       string                                `json:"cluster"`
+	StartedAt     time.Time                             `json:"startedAt"`
+	FinishedAt    time.Time                             `json:"finishedAt"`
+	Namespaces    []string                              `json:"namespaces"`
+	Workloads     []string                              `json:"workloads,omitempty"`
+	Complete      bool                                  `json:"complete"`
+	Containers    []Container                           `json:"containers"`
+	Artifacts     map[string]artifact.ApplicationReport `json:"artifacts"`
+	Warnings      []string                              `json:"warnings"`
 }
 
 type Options struct {
@@ -59,7 +59,7 @@ type Options struct {
 	Namespaces []string
 	Workloads  []string
 	MaxAge     time.Duration
-	ReadImage  func(context.Context, node.ApplicationIdentity) (artifact.DependencyReport, error)
+	ReadImage  func(context.Context, node.ApplicationIdentity) (artifact.ApplicationReport, error)
 }
 
 func controllerOwner(object client.Object) (*metav1.OwnerReference, error) {
@@ -183,7 +183,7 @@ func observedBinding(ctx context.Context, reader client.Reader, pod *corev1.Pod,
 
 func Capture(ctx context.Context, reader client.Reader, options Options) (Report, error) {
 	report := Report{SchemaVersion: 1, Cluster: options.Cluster, StartedAt: time.Now().UTC(), Namespaces: slices.Clone(options.Namespaces),
-		Workloads: slices.Clone(options.Workloads), Complete: true, Containers: []Container{}, Artifacts: map[string]artifact.DependencyReport{},
+		Workloads: slices.Clone(options.Workloads), Complete: true, Containers: []Container{}, Artifacts: map[string]artifact.ApplicationReport{},
 		Warnings: []string{"Point-in-time API reads are not an atomic cluster snapshot; absence outside the explicit scope is not evidence."}}
 	if options.Cluster == "" || len(options.Namespaces) == 0 || options.MaxAge <= 0 || options.MaxAge > 2*time.Minute || options.ReadImage == nil {
 		return report, fmt.Errorf("cluster, explicit namespaces, positive observation age and image evidence reader required")
@@ -237,12 +237,10 @@ func Capture(ctx context.Context, reader client.Reader, options Options) (Report
 						facts, err = options.ReadImage(ctx, identity)
 					}
 					if err == nil {
-						p := facts.Verification.Predicate
-						if p.Output.String() != identity.ManifestDigest || p.OutputConfig.Digest.String() != identity.ConfigDigest ||
-							!brewletplatform.Exact(p.Platform, identity.Platform) ||
-							!facts.Verification.Structural || !facts.Verification.CompositionSignature || !facts.Verification.PublisherProvenance ||
-							facts.Verification.PolicyMode != "production" {
-							err = fmt.Errorf("observed graph lacks production-verified composition/publisher evidence")
+						if facts.Root.Digest.String() != identity.RootDigest ||
+							facts.Manifest.Digest.String() != identity.ManifestDigest || facts.Config.Digest.String() != identity.ConfigDigest ||
+							!brewletplatform.Exact(facts.Platform, identity.Platform) || !facts.Structural {
+							err = fmt.Errorf("observed graph does not match verified application evidence")
 						} else {
 							report.Artifacts[key] = facts
 							row.Status, row.EvidenceKey = "verified", key

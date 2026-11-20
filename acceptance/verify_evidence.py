@@ -8,11 +8,11 @@ from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from acceptance import check, composition_check, qualify
+from acceptance import check, qualify
 from acceptance.evidence import ROOT, candidate_errors, read_json, working_identity
 
 
-def validate(root, index, *, expected=None, composition_only=False, baseline_only=False):
+def validate(root, index, *, expected=None, baseline_only=False):
     root = Path(root)
     expected = expected or working_identity(root)
     if (not isinstance(index, dict) or type(index.get("schemaVersion")) is not int or index["schemaVersion"] != 1
@@ -48,11 +48,8 @@ def validate(root, index, *, expected=None, composition_only=False, baseline_onl
             if name in files and files[name] != digest:
                 errors.append("conflicting indexed receipt: " + name)
             files[name] = digest
-    composition = copy.deepcopy(read_json(root / "acceptance/composition-requirements.json"))
     baseline = copy.deepcopy(read_json(root / "acceptance/requirements.json"))
-    if composition_only:
-        required = {binding["result"].removeprefix("results/") for binding in composition["checks"].values()}
-    elif baseline_only:
+    if baseline_only:
         required = {binding["result"].removeprefix("acceptance/results/")
                     for row in baseline["requirements"] + baseline.get("amendments", [])
                     for binding in row["evidence"]}
@@ -73,32 +70,23 @@ def validate(root, index, *, expected=None, composition_only=False, baseline_onl
         row["status"] = "verified"
         for evidence in row["evidence"]:
             evidence["outcome"] = "passed"
-    for binding in composition["checks"].values():
-        binding["outcome"] = "passed"
-    if not composition_only:
-        errors.extend(check.validate(baseline, root, expected=expected))
-    if not baseline_only and not composition_only:
-        errors.extend(qualify.validate_suites(root / "acceptance/results", root, expected))
+    errors.extend(check.validate(baseline, root, expected=expected))
     if not baseline_only:
-        errors.extend(composition_check.validate(composition, root / "acceptance",
-                                                 require_complete=True, expected=expected)[0])
+        errors.extend(qualify.validate_suites(root / "acceptance/results", root, expected))
     return errors
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--composition-only", action="store_true")
     args = parser.parse_args()
     try:
-        errors = validate(ROOT, read_json(ROOT / "acceptance/evidence-index.json"),
-                          composition_only=args.composition_only)
+        errors = validate(ROOT, read_json(ROOT / "acceptance/evidence-index.json"))
     except (OSError, ValueError) as error:
         errors = [str(error)]
     for error in errors:
         print(error, file=sys.stderr)
     if not errors:
-        print("Composition obligations verified from actual indexed receipts" if args.composition_only else
-              "All baseline/composition obligations and 22 native suites verified from actual indexed receipts")
+        print("All baseline obligations and native suites verified from actual indexed receipts")
     return int(bool(errors))
 
 

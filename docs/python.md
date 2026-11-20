@@ -9,13 +9,11 @@ provisions a [runtime image](runtime-images.md) containing Python and its Linux
 userland; your Kubernetes Deployment selects its runtime ID. Brewlet runs your
 declared interpreter command with application files read-only under `/app`.
 
-Resolve dependencies in your build pipeline, not on the node. They can ship with
-the application or optionally come from an approved
-[managed bundle](managed-composition.md). Release-time composition joins your
-source and a locked dependency set into a verifiable application artifact.
-Compatible package updates can preserve your source, but must be tested against
-the selected Python ABI, native libraries and import layout. Brewlet does not
-run pip or infer an interpreter.
+Resolve dependencies in your build pipeline and package them as ordinary
+application files, not on the node. Updating a package requires rebuilding and
+republishing the application artifact; test against the selected Python ABI,
+native libraries and import layout. Brewlet does not run pip or infer an
+interpreter.
 
 Updates use new task instances rather than modifying a running Python process.
 See the [architecture overview](concepts.md) and
@@ -104,14 +102,14 @@ also covers macOS). Replace the registry and declare your actual platform:
 brewlet build registry.example.com/apps/python-demo:v1 \
   --platform linux/arm64 \
   --launch "$WORK/launch.json" \
-  --layer "dependency=$WORK/dependencies:/app/dependencies" \
-  --layer "app=$WORK/src:/app/src"
+  --layer "$WORK/dependencies:/app/dependencies" \
+  --layer "$WORK/src:/app/src"
 brewlet push registry.example.com/apps/python-demo:v1 --push-result "$WORK/push.json"
 ```
 
-To publish dependencies once and share them across applications, see
-[dependency layer sets](dependency-layer-sets.md). Dependencies are still
-resolved at build time, never installed on the node.
+Dependencies are resolved and packaged with the application at build time,
+never installed on the node. Patching them requires rebuilding and republishing
+the application artifact.
 
 ## Native deployment
 
@@ -180,7 +178,7 @@ port-forward when finished.
 - Never install dependencies into read-only `/app` at startup, assume a shell exists, or set PATH in the Pod to find the interpreter (Pod PATH is ignored).
 - The example HTTP server is for evaluation, not a production Python web server.
 
-When application dependencies change, rebuild (or recompose) the application
-and roll it out.
+When application dependencies change, rebuild and republish the application
+artifact, then roll it out.
 A [runtime-only update](operations.md#rotate-without-rebuilding-application-bytes)
 does not update packaged Python libraries.

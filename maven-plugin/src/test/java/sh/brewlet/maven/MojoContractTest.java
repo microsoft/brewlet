@@ -2,33 +2,25 @@ package sh.brewlet.maven;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import java.io.File;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.lang.reflect.Field;
-import java.lang.reflect.Proxy;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.jar.JarOutputStream;
 import org.apache.maven.artifact.Artifact;
 import org.apache.maven.artifact.DefaultArtifact;
 import org.apache.maven.artifact.handler.DefaultArtifactHandler;
 import org.apache.maven.model.Build;
-import org.apache.maven.model.Dependency;
-import org.apache.maven.model.DependencyManagement;
 import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.project.DefaultProjectBuildingRequest;
 import org.apache.maven.project.MavenProject;
-import org.apache.maven.project.ProjectBuilder;
-import org.apache.maven.project.ProjectBuildingResult;
-import org.apache.maven.repository.RepositorySystem;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 class MojoContractTest {
     @TempDir Path temp;
-    private static final String DIGEST = "sha256:" + "a".repeat(64);
 
     private static void set(Object target, String name, Object value) throws Exception {
         Class<?> type = target.getClass();
@@ -70,47 +62,10 @@ class MojoContractTest {
 
     private void initialize(AbstractJavaMojo mojo, MavenProject project) throws Exception {
         mojo.project = project;
-        mojo.sourceBom = "example:bom:1";
-        Path inspected = temp.resolve("inspection.json");
-        var graph = new MavenGraph(mojo.sourceBom, MavenGraph.runtimeMembers(project.getArtifacts()), "/app/lib");
-        Files.write(inspected, MavenGraph.JSON.writeValueAsBytes(Map.of("digest", DIGEST,
-                "evidence", Map.of("manifestDigest", DIGEST),
-                "layerSet", Map.of("schemaVersion", 1, "ecosystem", "java"),
-                "lock", Map.of("schemaVersion", 1, "entries", graph.neutralEntries()))));
         Path cli = temp.resolve("fake brewlet");
-        Files.writeString(cli, "#!/bin/sh\nprintf '%s\\n' \"$@\" >> " + quote(temp.resolve("argv"))
-                + "\nif [ \"$1\" = inspect ]; then cat " + quote(inspected) + "; fi\n");
+        Files.writeString(cli, "#!/bin/sh\nprintf '%s\\n' \"$@\" >> " + quote(temp.resolve("argv")) + "\n");
         assertTrue(cli.toFile().setExecutable(true));
         mojo.executable = cli.toString();
-
-        Dependency approved = new Dependency();
-        approved.setGroupId("example");
-        approved.setArtifactId("library");
-        approved.setVersion("1");
-        DependencyManagement management = new DependencyManagement();
-        management.addDependency(approved);
-        MavenProject bom = new MavenProject();
-        bom.setPackaging("pom");
-        bom.getModel().setDependencyManagement(management);
-        ProjectBuildingResult result = (ProjectBuildingResult) Proxy.newProxyInstance(
-                getClass().getClassLoader(), new Class<?>[] {ProjectBuildingResult.class},
-                (proxy, method, args) -> method.getName().equals("getProject") ? bom : null);
-        ProjectBuilder builder = (ProjectBuilder) Proxy.newProxyInstance(
-                getClass().getClassLoader(), new Class<?>[] {ProjectBuilder.class},
-                (proxy, method, args) -> {
-                    assertEquals("build", method.getName());
-                    Artifact requested = (Artifact) args[0];
-                    assertEquals("example", requested.getGroupId());
-                    assertEquals("bom", requested.getArtifactId());
-                    assertEquals("1", requested.getVersion());
-                    return result;
-                });
-        RepositorySystem repository = (RepositorySystem) Proxy.newProxyInstance(
-                getClass().getClassLoader(), new Class<?>[] {RepositorySystem.class},
-                (proxy, method, args) -> new DefaultArtifact((String) args[0], (String) args[1],
-                        (String) args[2], null, "pom", null, new DefaultArtifactHandler("pom")));
-        set(mojo, "projectBuilder", builder);
-        set(mojo, "repositorySystem", repository);
     }
 
     private static String quote(Path path) {
@@ -139,90 +94,32 @@ class MojoContractTest {
         assertThrows(MojoExecutionException.class, mojo::execute);
     }
 
-    @Test void pushInspectsThenPinsWithoutBundlingAndForwardsTrustButNotSigning() throws Exception {
+    @Test void pushPackagesRuntimeLibrariesAndApplicationAsSeparateAppLayers() throws Exception {
         PushMojo mojo = new PushMojo();
-        initialize(mojo, project());
+        MavenProject project = project();
+        Path provided = Files.writeString(temp.resolve("provided.jar"), "provided");
+        project.getArtifacts().add(artifact("provided", "provided", provided));
+        initialize(mojo, project);
         set(mojo, "image", "registry.test/app:v2");
         set(mojo, "platforms", List.of("linux/arm64"));
         set(mojo, "mainClass", "example.Main");
-        set(mojo, "layerSets", List.of("registry.test/dependencies:approved"));
-        set(mojo, "trustKeys", List.of("/trust key one.pem", "/trust key two.pem"));
-        set(mojo, "signerIdentity", "trusted builder");
-        set(mojo, "requireProvenance", true);
-        mojo.signingKey = new File("/signing key.pem");
-        mojo.builderIdentity = "application builder";
-        mojo.execute();
-        List<String> argv = Files.readAllLines(temp.resolve("argv"));
-        assertEquals("inspect", argv.get(0));
-        assertEquals("registry.test/dependencies:approved", argv.get(1));
-        assertTrue(argv.contains("registry.test/dependencies@" + DIGEST));
-        assertEquals(4, argv.stream().filter("--trust-key"::equals).count());
-        assertEquals(2, argv.stream().filter("--require-provenance"::equals).count());
-        assertTrue(argv.contains("/trust key one.pem"));
-        assertTrue(argv.contains("trusted builder"));
-        assertFalse(argv.contains("--signing-key"));
-        assertFalse(argv.contains("--builder-identity"));
-        assertEquals(1, argv.stream().filter("--layer"::equals).count());
-        assertFalse(argv.stream().anyMatch(arg -> arg.startsWith("dependency=")));
-    }
-
-    @Test void standaloneLayerSetDoesNotRequireApplicationAndDelegatesNeutralFiles() throws Exception {
-        LayerSetMojo mojo = new LayerSetMojo();
-        MavenProject project = project();
-        initialize(mojo, project);
-        project.setArtifact(null);
-        set(mojo, "layerSet", "registry.test/dependencies:approved");
-        set(mojo, "name", "approved");
-        set(mojo, "version", "2026.10");
-        mojo.signingKey = new File("/signing key.pem");
-        mojo.builderIdentity = "dependency builder";
-        mojo.execute();
-        List<String> argv = Files.readAllLines(temp.resolve("argv"));
-        assertEquals("layer-set", argv.get(0));
-        assertFalse(argv.contains("push"));
-        assertTrue(argv.contains("/signing key.pem"));
-        assertTrue(argv.contains("dependency builder"));
-        Path config = Path.of(argv.get(argv.indexOf("--config") + 1));
-        Path lock = Path.of(argv.get(argv.indexOf("--lock") + 1));
-        assertEquals("java", MavenGraph.JSON.readTree(config.toFile()).path("ecosystem").asText());
-        assertEquals(2, MavenGraph.JSON.readTree(lock.toFile()).path("entries").size());
-        String layer = argv.get(argv.indexOf("--layer") + 1);
-        Path dependencies = Path.of(layer.substring("dependency=".length(), layer.length() - ":/app".length()));
-        assertTrue(Files.exists(dependencies.resolve("lib/library.jar")));
-        assertTrue(Files.exists(dependencies.resolve(".brewlet/maven-lock.json")));
-        assertFalse(Files.exists(dependencies.resolve("app.jar")));
-    }
-
-    @Test void applicationOnlyRetainsBuildGraphWithoutDependencyPayloadOrResolutionAtRelease() throws Exception {
-        PushMojo mojo = new PushMojo();
-        initialize(mojo, project());
-        set(mojo, "image", "registry.test/application:payload");
-        set(mojo, "platforms", List.of("linux/arm64"));
-        set(mojo, "mainClass", "example.Main");
-        set(mojo, "applicationOnly", true);
         mojo.execute();
         List<String> argv = Files.readAllLines(temp.resolve("argv"));
         assertEquals("build", argv.get(0));
         int push = argv.lastIndexOf("push");
         assertTrue(push > 0, "build without a store must be followed by push");
-        assertEquals(List.of("push", "registry.test/application:payload", "--store",
+        assertEquals(List.of("push", "registry.test/app:v2", "--store",
                 argv.get(argv.indexOf("--store") + 1)), argv.subList(push, argv.size()));
-        assertFalse(argv.contains("inspect"));
-        assertFalse(argv.contains("--layer-set"));
-        assertEquals(1, argv.stream().filter("--layer"::equals).count());
-        String layer = argv.get(argv.indexOf("--layer") + 1);
-        assertTrue(layer.startsWith("app="));
-        Path application = Path.of(layer.substring(4, layer.length() - ":/app".length()));
+        assertEquals(2, argv.stream().filter("--layer"::equals).count());
+        String libraryLayer = argv.get(argv.indexOf("--layer") + 1);
+        assertTrue(libraryLayer.endsWith(":/app/lib"));
+        Path libraries = Path.of(libraryLayer.substring(0, libraryLayer.length() - ":/app/lib".length()));
+        assertEquals("dependency", Files.readString(libraries.resolve("library.jar")));
+        assertFalse(Files.exists(libraries.resolve("provided.jar")));
+        String appLayer = argv.get(argv.lastIndexOf("--layer") + 1);
+        assertTrue(appLayer.endsWith(":/app"));
+        Path application = Path.of(appLayer.substring(0, appLayer.length() - ":/app".length()));
         assertTrue(Files.isRegularFile(application.resolve("app.jar")));
-        String originalBuild = Files.readString(application.resolve(".brewlet/application-build.json"));
-        assertEquals(0, Files.getLastModifiedTime(application.resolve(".brewlet/application-build.json")).toMillis());
-        assertEquals(0, Files.getLastModifiedTime(application.resolve(".brewlet")).toMillis());
-        assertEquals(0, Files.getLastModifiedTime(application).toMillis());
-        assertTrue(originalBuild.contains("example:bom:1"));
-        assertTrue(originalBuild.contains("library"));
-        assertFalse(Files.exists(application.resolve("lib/library.jar")));
-        set(mojo, "layerSets", List.of("registry.test/dependencies:approved"));
-        assertThrows(MojoExecutionException.class, mojo::execute);
     }
 
     @Test void pushValidatesPlatformsAndProposesRuntimeImagesBeforeTheCli() throws Exception {
@@ -240,7 +137,7 @@ class MojoContractTest {
         set(mojo, "platforms", List.of("linux/amd64"));
         mojo.execute();
         List<String> argv = Files.readAllLines(temp.resolve("argv"));
-        var launch = MavenGraph.JSON.readTree(Path.of(argv.get(argv.indexOf("--launch") + 1)).toFile());
+        var launch = new ObjectMapper().readTree(Path.of(argv.get(argv.indexOf("--launch") + 1)).toFile());
         assertEquals("[\"java-21\",\"java-25\"]", launch.path("runtimeImages").toString());
         Files.delete(temp.resolve("argv"));
         set(mojo, "runtimeImages", List.of("Java_21"));
@@ -249,27 +146,19 @@ class MojoContractTest {
         assertFalse(Files.exists(temp.resolve("argv")));
     }
 
-    @Test void graphMismatchAndMultipleSetsFailBeforePush() throws Exception {
+    @Test void pushRejectsUnresolvedRuntimeDependenciesBeforeCallingCli() throws Exception {
         PushMojo mojo = new PushMojo();
-        initialize(mojo, project());
+        MavenProject project = project();
+        project.getArtifacts().add(artifact("unresolved", "compile", temp.resolve("unused.jar")));
+        project.getArtifacts().stream().filter(a -> a.getArtifactId().equals("unresolved"))
+                .findFirst().orElseThrow().setFile(null);
+        initialize(mojo, project);
         set(mojo, "image", "app");
-        set(mojo, "platforms", List.of("linux/arm64"));
+        set(mojo, "platforms", List.of("linux/amd64"));
         set(mojo, "mainClass", "example.Main");
-        set(mojo, "layerSets", List.of("repo:approved"));
-        Files.writeString(temp.resolve("library.jar"), "substituted dependency");
-        assertThrows(MojoExecutionException.class, mojo::execute);
-        assertFalse(Files.readAllLines(temp.resolve("argv")).contains("build"));
-        Files.delete(temp.resolve("argv"));
-        set(mojo, "layerSets", List.of("repo:first", "repo:second"));
-        assertThrows(MojoExecutionException.class, mojo::execute);
+        MojoExecutionException error = assertThrows(MojoExecutionException.class, mojo::execute);
+        assertTrue(error.getMessage().contains("Unresolved runtime dependency"), error.getMessage());
         assertFalse(Files.exists(temp.resolve("argv")));
     }
 
-    @Test void localLayoutIsPinnedByManifestNotMutableIndex() throws Exception {
-        Path layout = Files.createDirectory(temp.resolve("layout with spaces:tag"));
-        assertEquals(layout + "@" + DIGEST, LayerSets.pin(layout.toString(), DIGEST));
-        assertEquals(layout + "@" + DIGEST, LayerSets.pin(layout + "@sha256:" + "b".repeat(64), DIGEST));
-        assertEquals("registry.test:5000/repo@" + DIGEST,
-                LayerSets.pin("registry.test:5000/repo:tag", DIGEST));
-    }
 }

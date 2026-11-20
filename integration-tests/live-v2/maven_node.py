@@ -17,29 +17,17 @@ def prepare(h):
     pom = h.work / "fixtures/java/app/pom.xml"
     goal = "sh.brewlet:brewlet-maven-plugin:" + json.loads((ROOT / "release.json").read_text())["version"] + ":"
     common = [f"-Dbrewlet.executable={wrapper}", "-Dbrewlet.platforms=linux/amd64,linux/arm64"]
-    layouts = {}
-    for variant in ("bundled", "managed"):
-        layout = h.work / ("oci-maven-" + variant)
-        options = []
-        if variant == "managed":
-            dependencies = h.work / "oci-maven-dependencies"
-            bom = "sh.brewlet.fixture:fixture-bom:2.0.0"
-            h.run(["mvn", "-B", "-q", "-f", pom, goal + "layer-set", *common,
-                   f"-Dbrewlet.store={dependencies}",
-                   "-Dbrewlet.layerSet=fixtures/java-dependencies:v2",
-                   "-Dbrewlet.sourceBom=" + bom], env=environment, timeout=300)
-            options = [f"-Dbrewlet.layerSetInput={dependencies}", "-Dbrewlet.sourceBom=" + bom]
-        h.run(["mvn", "-B", "-q", "-f", pom, "package", goal + "push", *common,
-               f"-Dbrewlet.store={layout}", "-Dbrewlet.image=fixtures/java-maven-" + variant + ":v2",
-               *options], env=environment, timeout=300)
-        target, roles = artifact_target(layout)
-        require(len(roles) == 2, "Maven producer did not emit both explicit platform variants")
-        descriptor = json.loads((layout / "index.json").read_text())["manifests"][0]
-        require(descriptor["digest"] == target, "Maven outer reference does not identify runnable index")
-        reference = h.delivery.publish(layout, descriptor, "delivery/maven-" + variant)
-        require(reference.endswith("@" + target), "Maven publication changed the produced OCI target")
-        layouts[variant] = reference
-    return layouts
+    layout = h.work / "oci-maven-application"
+    h.run(["mvn", "-B", "-q", "-f", pom, "package", goal + "push", *common,
+           f"-Dbrewlet.store={layout}", "-Dbrewlet.image=fixtures/java-maven-application:v2"],
+          env=environment, timeout=300)
+    target, roles = artifact_target(layout)
+    require(len(roles) == 2, "Maven producer did not emit both explicit platform variants")
+    descriptor = json.loads((layout / "index.json").read_text())["manifests"][0]
+    require(descriptor["digest"] == target, "Maven outer reference does not identify runnable index")
+    reference = h.delivery.publish(layout, descriptor, "delivery/maven-application")
+    require(reference.endswith("@" + target), "Maven publication changed the produced OCI target")
+    return {"application": reference}
 
 
 def execute(h):

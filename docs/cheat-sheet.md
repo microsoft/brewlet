@@ -12,9 +12,10 @@ It condenses the core workflows; use the recipes below for complete details.
 
 [![Developers publish application artifacts, while the platform approves and installs runtimes. On the node, a workload selects an image and runtime ID; the shim starts the app with the approved runtime.](assets/cheat-sheet/architecture.svg)](assets/cheat-sheet/architecture.svg)
 
-- **Application artifact** contains app and optional dependency layers under
-  `/app`, plus explicit launch metadata. Brewlet does not detect languages,
-  resolve dependencies, or guess an entrypoint.
+- **Application artifact** contains application layers under `/app`, plus
+  explicit launch metadata. Libraries and other dependencies are ordinary
+  application files. Brewlet does not detect languages, resolve dependencies,
+  or guess an entrypoint.
 - **RuntimeImage** is the platform-approved runtime source, pinned to an OCI
   digest. Its ID is the compatibility contract workloads request.
 - **NodeProfile** controls which node pools offer runtimes and how the
@@ -26,14 +27,13 @@ It condenses the core workflows; use the recipes below for complete details.
 
 ## Choose a workflow
 
-[![Local testing builds and runs an artifact; direct delivery builds, pushes, and deploys it; governed composition bundles app and dependency digests, then verifies, tests, and deploys the candidate.](assets/cheat-sheet/delivery-paths.svg)](assets/cheat-sheet/delivery-paths.svg)
+[![Local testing builds and runs an artifact; direct delivery builds, pushes, and deploys it.](assets/cheat-sheet/delivery-paths.svg)](assets/cheat-sheet/delivery-paths.svg)
 
 | Workflow | Use it for | Main steps |
 |---|---|---|
 | Local development | Exercise an artifact with Docker or Podman before deploying. | `build` → `run` |
 | Kubernetes deployment | Run an app using a runtime managed by the platform. | `build` → `push` or load artifact → apply workload |
-| Direct packaging | Ship app and dependency layers together. | `build` → `push` |
-| Governed composition | Independently approve dependency sets and compose at release time. | `layer-set` → app-only `build` → `bundle` → `verify` → test digest → deploy |
+| Application packaging | Ship application code and dependencies together. | `build` → `push` |
 | Eager runtime install | Install approved runtime roots before node readiness. | Platform sets `install: Eager` (default) |
 | OnDemand runtime install | Defer installing a root until a workload first requests it. | Platform sets `install: OnDemand`; first use has a bounded wait |
 
@@ -171,8 +171,8 @@ and environment your app needs. Then package explicit layers and platforms:
 brewlet build registry.example.com/apps/api:v2 \
   --platform linux/amd64 \
   --launch launch.json \
-  --layer dependency=./dependencies:/app/dependencies \
-  --layer app=./src:/app/src
+  --layer ./dependencies:/app/dependencies \
+  --layer ./src:/app/src
 
 brewlet inspect registry.example.com/apps/api:v2
 brewlet push registry.example.com/apps/api:v2 --push-result push.json
@@ -331,36 +331,7 @@ new tasks; it does not hot-patch running processes. Follow the
 [rotation and cleanup guide](operations.md) for rollout, revocation, and safe
 removal behavior.
 
-## Govern dependency releases
-
-Use a layer set when the platform and application teams publish dependencies
-and application bytes separately. The release pipeline composes immutable
-digests and verifies the exact candidate before deployment:
-
-```sh
-brewlet layer-set registry.example.com/platform/python-deps:2026.11 \
-  --config layerset.json --lock dependencies.lock.json \
-  --layer dependency=./dependencies:/app/dependencies
-
-brewlet build registry.example.com/builds/api:payload \
-  --platform linux/amd64 --launch launch.json \
-  --layer app=./src:/app
-
-brewlet bundle registry.example.com/releases/api:candidate \
-  --application registry.example.com/builds/api@sha256:<app-digest> \
-  --layer-set registry.example.com/platform/python-deps@sha256:<set-digest> \
-  --platform linux/amd64 --policy release-policy.yaml
-
-brewlet verify registry.example.com/releases/api@sha256:<candidate-digest> \
-  --platform linux/amd64 --policy release-policy.yaml
-```
-
-Test the verified candidate digest, then deploy that exact digest. Production
-composition also needs authorized signing configuration. For policy, trust,
-and inventory details, see
-[governed dependency composition](managed-composition.md).
-
-To export observed workload/dependency facts for an external scanner, replace
+To export observed workload image/runtime facts for external systems, replace
 `/path/to/kubeconfig` with a single file containing the current context and its
 cluster and user configuration. Unlike the commands above, `inventory`
 requires an explicit kubeconfig and context:
@@ -369,7 +340,7 @@ requires an explicit kubeconfig and context:
 brewlet inventory \
   --kubeconfig /path/to/kubeconfig \
   --context "$(kubectl config current-context)" \
-  --namespace payments --policy inventory-policy.yaml \
+  --namespace payments \
   --report inventory.json
 ```
 
@@ -386,7 +357,7 @@ workloads. Incomplete evidence returns a partial report and a nonzero exit.
   Secret volumes and explicit writable mounts for data.
 - Rotating a runtime does not update dependency copies packaged under `/app`.
 - `--insecure` explicitly selects HTTP; it does not disable TLS verification.
-- Pin workload and governed-release images by digest. Keep producer credentials
+- Pin workload images by digest. Keep producer credentials
   out of artifacts and use origin-scoped registry credentials.
 - Confirm the current kube context before cluster operations. Review
   `--dry-run` output before applying changes.

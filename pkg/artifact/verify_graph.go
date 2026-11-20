@@ -12,7 +12,7 @@ import (
 )
 
 // VerifyGraph checks the identity of every referenced OCI blob, including local
-// referrers, without applying Brewlet launch, rootfs, or layer-set policy. Layers
+// referrers, without applying Brewlet launch or rootfs policy. Layers
 // are hashed as streams and are never decompressed or rewritten.
 func VerifyGraph(ctx context.Context, store Store, target v1.Descriptor) error {
 	if target.MediaType != v1.MediaTypeImageManifest && target.MediaType != v1.MediaTypeImageIndex {
@@ -85,15 +85,6 @@ func VerifyGraph(ctx context.Context, store Store, target v1.Descriptor) error {
 			}
 			for _, ref := range referrers {
 				if e = walk(ref); e != nil {
-					return e
-				}
-			}
-			materials, e := CompositionMaterials(store, d)
-			if e != nil {
-				return e
-			}
-			for _, material := range materials {
-				if e = walk(material); e != nil {
 					return e
 				}
 			}

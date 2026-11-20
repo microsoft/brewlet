@@ -23,7 +23,7 @@ The manifest carries `brewlet.sh/artifact-version=1`.
 Brewlet's artifact and launch versions are independent of OCI image manifests
 and indexes, whose external `schemaVersion` remains `2`.
 
-Application/dependency layers remain under `/app`; unsafe links, private
+Application layers remain under `/app`; unsafe links, private
 permissions, set-ID entries, devices and extended attributes are rejected. On
 macOS, `brewlet build` ignores only the host-local `com.apple.provenance` and
 `com.apple.quarantine` attributes, which are never written into layers.

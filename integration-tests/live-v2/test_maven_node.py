@@ -39,25 +39,22 @@ class MavenNodeTests(unittest.TestCase):
         h.run = Mock(side_effect=run)
         return h, target
 
-    def test_maven_produces_both_ordinary_variants_with_private_repo_and_explicit_platforms(self):
+    def test_maven_produces_application_with_private_repo_and_explicit_platforms(self):
         h, target = self.harness()
         with patch("maven_node.artifact_target", return_value=(
-                target, [["dependency", "app", "launch"]] * 2)):
+                target, [["app", "app", "launch"]] * 2)):
             references = maven_node.prepare(h)
-        self.assertEqual(set(references), {"bundled", "managed"})
+        self.assertEqual(set(references), {"application"})
         self.assertTrue(all(value.endswith("@" + target) for value in references.values()))
-        self.assertEqual(h.delivery.publish.call_count, 2)
+        self.assertEqual(h.delivery.publish.call_count, 1)
         commands = [list(map(str, call.args[0])) for call in h.run.call_args_list]
-        self.assertEqual(len(commands), 4)
-        self.assertTrue(any("layer-set" in " ".join(command) for command in commands))
+        self.assertEqual(len(commands), 2)
         pushes = [command for command in commands if any(a.endswith(":push") for a in command)]
-        self.assertEqual(len(pushes), 2)
+        self.assertEqual(len(pushes), 1)
         for command in pushes:
             self.assertIn("-Dbrewlet.platforms=linux/amd64,linux/arm64", command)
             self.assertIn("-Dbrewlet.executable=" + str(self.work / "maven-brewlet"), command)
             self.assertFalse(any("runtimeImages" in value for value in command))
-        managed = next(c for c in pushes if any("java-maven-managed" in value for value in c))
-        self.assertIn("-Dbrewlet.layerSetInput=" + str(self.work / "oci-maven-dependencies"), managed)
         for call in h.run.call_args_list:
             self.assertEqual(call.kwargs["env"], {
                 "MAVEN_OPTS": "-Dmaven.repo.local=" + str(self.work / "m2")})
@@ -70,7 +67,7 @@ class MavenNodeTests(unittest.TestCase):
         h.delivery.publish.side_effect = None
         h.delivery.publish.return_value = "registry.test/app@sha256:" + "b" * 64
         with patch("maven_node.artifact_target", return_value=(
-                target, [["dependency", "app", "launch"]] * 2)):
+                target, [["app", "app", "launch"]] * 2)):
             with self.assertRaisesRegex(Failure, "changed the produced OCI target"):
                 maven_node.prepare(h)
 

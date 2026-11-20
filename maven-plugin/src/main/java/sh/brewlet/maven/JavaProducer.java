@@ -95,7 +95,7 @@ final class JavaProducer {
     }
 
     static List<String> command(String executable, String image, Path store,
-                                List<String> platforms, List<String> layerSets, Prepared prepared) {
+                                List<String> platforms, Prepared prepared) {
         if (platforms.isEmpty()) {
             throw new IllegalArgumentException("Explicit brewlet.platforms are required");
         }
@@ -107,34 +107,17 @@ final class JavaProducer {
             command.addAll(List.of("--platform", platform));
         }
         command.addAll(List.of("--launch", prepared.launch().toString()));
-        for (String layerSet : layerSets) {
-            command.addAll(List.of("--layer-set", layerSet));
-        }
         if (prepared.dependencies() != null) {
             command.addAll(List.of("--layer",
-                    "dependency=" + prepared.dependencies() + ":" + prepared.dependencyTarget()));
+                    prepared.dependencies() + ":" + prepared.dependencyTarget()));
         }
-        command.addAll(List.of("--layer", "app=" + prepared.application() + ":/app"));
+        command.addAll(List.of("--layer", prepared.application() + ":/app"));
         return command;
     }
 
     /** Publishes the layout written by {@link #command} unchanged. */
     static List<String> pushCommand(String executable, String image, Path store) {
         return new ArrayList<>(List.of(executable, "push", image, "--store", store.toString()));
-    }
-
-    static void requireThinJar(Path path) throws IOException {
-        requireFile(path);
-        try (JarFile jar = new JarFile(path.toFile())) {
-            var entries = jar.entries();
-            while (entries.hasMoreElements()) {
-                var entry = entries.nextElement();
-                if (!entry.isDirectory() && entry.getName().toLowerCase(java.util.Locale.ROOT).endsWith(".jar")) {
-                    throw new IOException("Managed layer sets require a thin application JAR; nested JAR: "
-                            + entry.getName());
-                }
-            }
-        }
     }
 
     private static void requireFile(Path file) throws IOException {

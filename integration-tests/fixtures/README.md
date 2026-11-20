@@ -1,12 +1,12 @@
 # Language contract fixtures
 
 Each fixture serves JSON on port 8000 and supports `--probe` to print the same
-JSON once. All report runtime version, a value from a separate dependency layer,
+JSON once. All report runtime version, a value from a library in the app payload,
 argv boundaries, cwd, UID/GID, PATH, HOME and one explicitly named test
 environment value. They do not dump arbitrary environment variables.
 
 Every `launch.json` is hand-written. No CLI inference is involved. Application
-and dependency source groups are supplied explicitly. The Java Maven producer is
+and library source groups are supplied explicitly as `app` layers. The Java Maven producer is
 an additional route to an ordinary v1 artifact, not an alternate runtime path.
 
 Python is the qualification fixture used by pull request, full and promotion
@@ -32,9 +32,8 @@ python3 integration-tests/fixtures/check.py --brewlet ./bin/brewlet --languages 
 `dotnet` and `php` (default `python`). The Maven producer checks always run.
 The harness builds and runs the selected fixtures on the **host**, packages each twice,
 checks deterministic OCI targets and layer deduplication across declared
-platforms, and packages Java again through Maven. Java additionally publishes
-an explicitly BOM-governed layer set, consumes it without duplicate dependency
-layers, and rejects changed Maven scope despite identical dependency bytes.
+platforms, and packages Java again through Maven with its resolved libraries
+and application JAR in ordinary app layers.
 Shared raw launch/ID/platform fixtures also pass through the actual Maven
 adapter. It retains invocation-unique
 temporary work and `result.json`. For fixture-only development:

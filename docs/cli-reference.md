@@ -6,16 +6,14 @@ the built-in reference.
 
 | Command | Purpose |
 | --- | --- |
-| `brewlet build REF` | Validate and package app/dependency layers and `launch.json` into a local OCI layout. |
+| `brewlet build REF` | Validate and package application layers and `launch.json` into a local OCI layout. |
 | `brewlet push REF` | Upload a local build (or any local OCI layout) to a registry without rewriting bytes. |
-| `brewlet inspect REF` | Show the effective `launch.json` and layer/evidence structure of an image or layer set. |
+| `brewlet inspect REF` | Show the effective `launch.json` and layer structure of an application image. |
 | `brewlet index REF` | Advanced: combine separately produced platform manifest descriptors into one index. |
-| `brewlet layer-set REF` | Publish an independently governed dependency layer set. |
-| `brewlet bundle REF` | Bundle one pinned application with one approved layer set under an explicit release policy. |
-| `brewlet verify REF` | Verify a pinned bundle, keeping structural, publisher and release-signature evidence distinct. |
+| `brewlet verify REF` | Verify the structure and content of an OCI artifact graph. |
 | `brewlet run REF` | Run a local build on an explicitly chosen runtime image with Docker or Podman. |
 | `brewlet k8s ...` | Manage runtimes and node profiles on a Brewlet cluster: dashboard, runtime, profile, doctor. |
-| `brewlet inventory` | Export observed workload/dependency facts for external scanning; never mutate workloads or scan CVEs. |
+| `brewlet inventory` | Export observed workload image/runtime facts; never mutate workloads or scan CVEs. |
 | `brewlet version` | Print the release version, source commit and native platform. |
 
 Usage errors exit with status 2, `--help` with 0, and `brewlet run` passes the
@@ -23,7 +21,7 @@ container's exit status through.
 
 ### Output formats
 
-`build`, `push`, `layer-set`, `index`, `inspect`, `bundle`, `verify`,
+`build`, `push`, `index`, `inspect`, `verify`,
 `inventory` and `version` print readable text by default. Add `-o json` (or
 `--output json`) for indented JSON that scripts can parse:
 
@@ -43,8 +41,8 @@ or redirected, so scripts must request `-o json` explicitly. Files written by
 brewlet build registry.example.com/apps/api:v2 \
   --platform linux/arm64 \
   --launch launch.json \
-  --layer dependency=./dependencies:/app/dependencies \
-  --layer app=./src:/app/src
+  --layer ./dependencies:/app/lib \
+  --layer ./src:/app/src
 brewlet push registry.example.com/apps/api:v2 --push-result push.json
 ```
 
@@ -57,8 +55,7 @@ brewlet push registry.example.com/apps/api:v2 --push-result push.json
 | --- | --- |
 | `--launch FILE` | Authoritative version-1 launch descriptor; required. |
 | `--platform OS/ARCH[/VARIANT]` | Required explicit declaration; repeat to build a multi-platform index. |
-| `--layer [OS/ARCH[/VARIANT]:]ROLE=DIRECTORY:/app/PATH` | Explicit `app` or `dependency` payload. Unprefixed layers are shared by every platform; prefixed layers belong to that declared platform only. Each platform needs an `app` layer. |
-| `--layer-set REF` | Reuse verified, platform-neutral dependency layers byte-for-byte. |
+| `--layer [OS/ARCH[/VARIANT]:]DIRECTORY:/app/PATH` | Explicit application payload. Every supplied layer is automatically assigned the `app` role. Unprefixed layers are shared by every platform; prefixed layers belong to that declared platform only. |
 | `--store DIRECTORY` | Output layout instead of `.brewlet/images/<REF>`. |
 | `--result FILE` | Also write the JSON result (reference, digest, media type, size, store). |
 
@@ -78,34 +75,24 @@ platform-scoped native layers.
 | Command/options | Contract |
 | --- | --- |
 | `index --manifest FILE` (repeatable) | Explicit OCI platform manifest descriptors; no native-payload discovery. Prefer platform-prefixed `build` layers. |
-| `layer-set --config FILE --lock FILE` | Neutral identity/config and optional file lock; producer computes layer bindings. |
-| `layer-set --sbom FILE` | Supply the supported CycloneDX inventory instead of generating it from inputs. |
-| `layer-set --signing-key FILE --builder-identity VALUE` | PKCS#8 ECDSA-P256 signing key and explicit builder identity. Never put private keys in app layers. |
-| `layer-set --store DIRECTORY` | Write the set to a local OCI layout instead of publishing it to REF. |
-| `--trust-key FILE` (repeatable), `--signer-identity VALUE`, `--require-provenance` | Trust policy for consuming or inspecting layer sets (`build`, `inspect`, `layer-set`). `--trust-key` and `--signer-identity` must be used together. |
 | `--registry-scheme https`, `--insecure` | Explicit transport choices; HTTP is an opt-in, not an insecure-TLS mode. |
 
-The layer-set trust flags are not a general application signing facility.
-Maven/BOM metadata is producer-owned and not interpreted by the CLI.
 Invalid or unsupported inputs return a nonzero status; there is no
 success-shaped compatibility fallback.
 
-## Governed composition and observation
+## Artifact verification and inventory
 
-`bundle` requires one `--application`, one `--layer-set`, one `--platform` and
-an explicit `--policy`. Production also requires authorized `--signing-key`
-and `--builder-identity`. Optional `--launch` is an explicit, recorded
-replacement; `--store` chooses local publication and `--push-result` writes an
-atomic successful handoff.
+`verify REF@sha256:DIGEST --platform OS/ARCH` checks the OCI graph and the
+selected platform's launch and layer contract, including referenced manifests,
+configs, layers, and digests. This verifies structural integrity, not publisher
+authenticity or vulnerability status.
 
-`verify REF --platform PLATFORM --policy FILE` checks a digest-pinned
-bundle without publication. `inventory` requires explicit `--kubeconfig`,
-`--context`, repeated `--namespace`, and `--policy`; use `--report FILE` to also
-write the JSON report (stdout shows a summary, or JSON with `-o json`), optional repeated `--workload Kind/namespace/name`
-selectors and `--max-age` (default and maximum `2m`) for node observation
-freshness. Incomplete evidence produces a partial report and nonzero exit.
-See [governed composition](managed-composition.md) for policy, provenance and
-external scanning examples.
+`inventory` exports observed runtime bindings and a structurally verified
+`ApplicationReport` for each application. Its report contains
+`schemaVersion`, `structural`, `root`, `manifest`, `config`, `platform`,
+`layers`, and `launch`. The command is read-only. Provide an
+explicit kubeconfig, context, and namespaces as required by
+`brewlet inventory --help`. Incomplete observations are reported as such.
 
 ## Local testing with `brewlet run`
 

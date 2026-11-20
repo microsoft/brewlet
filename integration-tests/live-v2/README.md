@@ -8,7 +8,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 integration-tests/live-v2/wasm.py \
 ```
 
 It uses the existing native runc path, pinned platform-built Wasmtime/Spin roots
-and explicit Go WASIp1/Rust Spin SDK HTTP guests with managed dependency layers.
+and explicit Go WASIp1/Rust Spin SDK HTTP guests with libraries as app payload.
 It requires the pinned Rust toolchain/target in addition to Go.
 See [Wasm scope and instructions](../../docs/webassembly.md);
 the native arm64 companion has its own successful scoped receipt, not proof
@@ -65,8 +65,7 @@ seeded before the harness and extracted after a successful run. Promotion
 scenarios never use those caches.
 
 The `complete` scope additionally selects the core fault/accounting coverage and
-all eight companion suites, with a 180-minute job deadline. Managed native/Wasm
-composition remains separate on each architecture. The job exports each private
+all eight companion suites, with a 180-minute job deadline. The job exports each private
 result through `acceptance/export_result.py` and uploads only whitelisted public
 identities/outcomes, never raw observations or private work directories. Generated
 receipts are Actions artifacts, not source files; see the
@@ -263,7 +262,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 integration-tests/live-v2/harness.py \
 
 Run these sequentially. Both require the base real runtime execution,
 rotation/observability and production cleanup. The Maven case additionally
-runs the optional producer's bundled/BOM-managed artifacts on-node and rotates
+runs the optional producer's application artifact with libraries on-node and rotates
 their runtime without republishing. The lifecycle case runs the unchanged real
 authorization-expiry, recovery, revocation, retention and collection callbacks.
 Only the selected callback is added; omitted suites and fixture languages
@@ -529,7 +528,7 @@ The default run fails on any missing protocol, reason, transition or evidence:
   builder, then explicitly packaged by this checkout's generic CLI with
   distinct dependency/application roles and one final launch layer.
 * In the Java job of the weekly language workflow (`--scenario maven`), not the default
-  run, the optional Maven producer separately emits both bundled and BOM-managed
+  run, the optional Maven producer emits application
   Java artifacts. Their exact OCI targets are published unchanged through the
   authenticated registry and run through the same RuntimeClass, shim, exec,
   probe and non-root/read-only checks. A further approved Java runtime update

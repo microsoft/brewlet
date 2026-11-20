@@ -33,7 +33,7 @@ layout given by --store); registries are never contacted for the application.
 The container is assembled the way the Brewlet shim does on a cluster:
 
   - the runtime image provides the root filesystem, PATH and base environment;
-  - application and dependency layers are materialized into a private
+  - application payload layers are materialized into a private
     directory and bind-mounted read-only at /app, hiding any runtime /app;
   - the root filesystem is read-only, all capabilities are dropped and
     no-new-privileges is set;
@@ -61,7 +61,7 @@ RuntimeImage volumeMountPaths enforcement except for --tmpfs with
 
 Examples:
   brewlet build example.com/hello:1 --launch launch.json --platform linux/arm64 \
-      --layer app=./dist:/app
+      --layer ./dist:/app
   brewlet run example.com/hello:1 --runtime python-3.12=python:3.12-slim -p 8000:8000
   brewlet run example.com/hello:1 --runtime python-3.12 --from-cluster -- --debug
   brewlet run example.com/hello:1 --runtime busybox:1.36 --user 1000:1000 --dry-run`

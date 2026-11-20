@@ -20,7 +20,8 @@ code; image minimalism does not replace approval.
 
 ## Immutable code, explicit writable data
 
-Application/dependency files are confined to read-only, world-readable `/app`.
+Application files, including libraries and dependencies, are confined to
+read-only, world-readable `/app`.
 Never bake credentials into them. Mount scoped Secrets and separate writable
 volumes. Runtime `/app` content is hidden, not inherited by the application.
 The entire runtime-visible root is also required to be read-only. Admission
@@ -44,13 +45,7 @@ sources need a reviewed derived image or a different runtime, not a policy bypas
 ## Supply-chain scope
 
 Digests provide integrity, not a statement about who built an image or whether
-it is safe. Layer-set lock/SBOM/provenance binds dependency content and signer
-policy. It does not automatically attest every final application.
-
-The [governed composer](managed-composition.md) separately signs its exact
-final image and preserves original application build inputs. Its verifier
-distinguishes publisher evidence from release-composition signatures and
-does not claim application tests passed or hidden code was discovered.
+it is safe.
 
 Brewlet does not verify application image signatures at admission. Enforce
 any application signature or admission policy with separate platform tooling;
@@ -66,6 +61,6 @@ it is not built into the shim.
 - Keep startup fences until independently validated readiness.
 - Preserve original identities, leases, journals and receipts during recovery.
 
-Runtime updates only remediate runtime-root content. For libraries packaged
-under `/app`, follow the [dependency update workflow](dependency-layer-sets.md).
+Runtime updates only remediate runtime-root content. Updating libraries
+packaged under `/app` requires rebuilding and republishing the application.
 For missing hosts and unresolved cleanup, use [safe removal](uninstallation.md).

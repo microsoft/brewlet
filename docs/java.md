@@ -9,13 +9,10 @@ provisions a Java [runtime image](runtime-images.md); your Kubernetes Deployment
 selects its runtime ID. Brewlet runs your declared Java command with application
 files mounted read-only under `/app`.
 
-Dependencies can ship with your application or optionally come from an approved
-[managed bundle](managed-composition.md). Release-time composition combines your
-thin JAR with the locked dependency set into a new, verifiable application
-artifact. Compatible library updates can preserve your application JAR, but
-still require testing. The
-[optional Maven plugin](applications.md#optional-maven-producer) prepares
-Java-specific inputs; the `brewlet` CLI itself does not resolve Maven
+Package dependencies as ordinary application files alongside your JARs.
+Updating a library requires rebuilding and republishing the application
+artifact. The [optional Maven plugin](applications.md#optional-maven-producer)
+prepares Java-specific inputs; the `brewlet` CLI itself does not resolve Maven
 dependencies or construct your classpath.
 
 Updates run in new task instances, not by patching a live JVM. See the
@@ -100,19 +97,15 @@ also covers macOS). Replace the registry with your own:
 brewlet build registry.example.com/apps/java-demo:v1 \
   --platform linux/arm64 \
   --launch "$WORK/launch.json" \
-  --layer "dependency=$WORK/dependencies:/app/lib" \
-  --layer "app=$WORK/application:/app"
+  --layer "$WORK/dependencies:/app/lib" \
+  --layer "$WORK/application:/app"
 brewlet push registry.example.com/apps/java-demo:v1 --push-result "$WORK/push.json"
 ```
 
-This puts dependencies in their own layer but does not publish a shared,
-independently managed layer set. For that, see
-[dependency layer sets](dependency-layer-sets.md).
-
 Instead of the manual steps above, the optional
 [Maven plugin](applications.md#optional-maven-producer) can generate the Java
-arguments and dependency layers, or consume a verified layer set. Use plugin
-version 0.8.1 with the 0.8.1 CLI. The plugin does not apply Kubernetes
+arguments and package dependency files as ordinary application payload. Use
+plugin version 0.8.1 with the 0.8.1 CLI. The plugin does not apply Kubernetes
 resources.
 
 ## Native deployment

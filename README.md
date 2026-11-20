@@ -27,14 +27,8 @@ integration tests, website, and user-facing documentation.
 ## Project status
 
 > [!IMPORTANT]
-> **Brewlet 0.8.0 is a pivot.** Brewlet is now a language-agnostic runtime
-> governance solution. It still does most of what the Java-specific 0.7.x line
-> did, now tracked in the
-> [`brewlet-0.x-java`](https://github.com/microsoft/brewlet/tree/brewlet-0.x-java)
-> branch, but it is no longer specific to Java.
->
-> **All 0.x releases are betas and are not stable.** They can break, change
-> incompatibly or pivot again between versions. General availability (GA)
+> **All 0.x releases are betas and are not stable.** They can break or change
+> incompatibly between versions. General availability (GA)
 > will be 1.0.0.
 
 Brewlet is a clean-slate, pre-GA implementation under active development.
@@ -44,7 +38,7 @@ in a disposable environment, not a production or shared cluster. Do not
 substitute the 0.x CLI, chart, artifact format or runbooks.
 
 The [acceptance ledger](acceptance/requirements.json) records scoped successful
-local evidence for all 111 requirements. This is not cloud-provider autoscaling
+local evidence for the current requirements. This is not cloud-provider autoscaling
 certification, physical alternate-architecture hardware qualification, or proof
 of a published stable release. Unit and cross-compilation results remain
 distinct from real-node evidence. See the
@@ -101,7 +95,7 @@ distinct from real-node evidence. See the
 2. The node provisioner installs and validates the containerd shim and runtime
    roots, advertises capabilities, and removes the startup fence only when the
    node is ready. OnDemand policy can defer fetching a root until first use.
-3. The developer packages application and dependency layers confined to `/app`,
+3. The developer packages application files confined to `/app`,
    with an explicit, language-neutral `launch.json`, and publishes the artifact.
 4. An ordinary Kubernetes workload selects `runtimeClassName: brewlet` and
    explicitly selects a runtime for each managed container with
@@ -125,7 +119,7 @@ process, including its interpreter or VM.
 | Core runtime | [`cmd/`](cmd/), [`pkg/`](pkg/), [`shim/`](shim/) | Provides the Brewlet CLI, artifact tooling, shared runtime packages, and containerd Runtime v2 shim. |
 | Node provisioner | [`provisioner/`](provisioner/) | Installs, rotates and safely removes approved runtime roots, the shim and owned containerd configuration on Linux nodes. |
 | Kubernetes platform | [`kubernetes/`](kubernetes/) | Provides the operator, admission webhook, `RuntimeImage` and `NodeProfile` APIs, manifests, RBAC, and Helm chart. |
-| Maven plugin | [`maven-plugin/`](maven-plugin/) | Packages Java applications and dependency layer sets through the language-neutral CLI; it does not deploy workloads. |
+| Maven plugin | [`maven-plugin/`](maven-plugin/) | Packages Java applications through the language-neutral CLI; it does not deploy workloads. |
 | Specifications | [`specs/`](specs/) | Defines the authoritative architecture, artifact formats, runtime contracts, APIs, and compatibility rules. |
 | Integration tests | [`integration-tests/`](integration-tests/) | Exercises application producers, runtime execution, Kubernetes placement, provisioning, rotation and cleanup. |
 | Acceptance | [`acceptance/`](acceptance/) | Tracks requirements, scoped evidence, and strict promotion qualification. |

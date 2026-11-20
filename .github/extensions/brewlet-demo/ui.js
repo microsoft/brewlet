@@ -5,7 +5,7 @@ const steps = ["local", "package", "artifact", "deploy", "upgrade", "rollback"];
 const snippets = {
     golden: "Platform team: verified JDK archive + pinned OS base\nDockerfile -> build-time CA checks -> golden OCI digest",
     local: "mvn -pl spring-boot -am -Djib.skip=true package\njava -jar showmyjvm-springboot.jar",
-    package: "java -Djarmode=tools -jar app.jar extract\nbrewlet build <ref> --launch launch.json \\\n  --layer dependency=lib:/app/lib --layer app=app:/app",
+    package: "java -Djarmode=tools -jar app.jar extract\nbrewlet build <ref> --launch launch.json \\\n  --layer lib:/app/lib --layer app:/app",
     artifact: "brewlet inspect <ref> --store <oci>\ntar -tvf <layer-blob>",
     deploy: 'kubectl apply -f deployment.yaml\nruntimeClassName: brewlet\nruntime-image.brewlet.sh/app: temurin-25',
     upgrade: 'kubectl patch runtimeimage temurin-25\nspec.source.image: <golden JDK digest>',
