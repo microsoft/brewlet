@@ -10,7 +10,7 @@ It condenses the core workflows; use the recipes below for complete details.
 
 ## The short version
 
-[![Developers publish application artifacts, while the platform approves and installs runtimes. On the node, a workload selects an image and runtime ID; the shim starts the app with the approved runtime.](assets/cheat-sheet/architecture.svg)](assets/cheat-sheet/architecture.svg)
+[![Developers publish application artifacts, while the platform approves and installs runtimes. Each managed container selects its own approved runtime ID; unselected containers keep ordinary OCI behavior. The shim composes each selected runtime with its application.](assets/cheat-sheet/architecture.svg)](assets/cheat-sheet/architecture.svg)
 
 - **Application artifact** contains application layers under `/app`, plus
   explicit launch metadata. Libraries and other dependencies are ordinary
@@ -21,9 +21,9 @@ It condenses the core workflows; use the recipes below for complete details.
 - **NodeProfile** controls which node pools offer runtimes and how the
   provisioner installs them.
 - **Workload** remains a native Kubernetes Deployment, StatefulSet, DaemonSet,
-  or other supported resource. It selects `runtimeClassName: brewlet` and an
-  explicit runtime ID for each managed container through its Pod annotation;
-  containers without a selection use ordinary OCI behavior.
+  or other supported resource. Its Pod-wide `runtimeClassName: brewlet` selects
+  the handler; a Pod annotation selects an explicit runtime ID for each managed
+  container. Containers without a selection use ordinary OCI behavior.
 
 ## Choose a workflow
 

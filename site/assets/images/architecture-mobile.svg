@@ -1,7 +1,7 @@
 <!-- Copyright (c) Microsoft Corporation. Licensed under the MIT License. -->
 <svg xmlns="http://www.w3.org/2000/svg" width="360" height="1080" viewBox="0 0 360 1080" role="img" aria-labelledby="architecture-title architecture-description">
   <title id="architecture-title">Brewlet architecture on a worker node</title>
-  <desc id="architecture-description">Application publication sends code, dependencies and launch.json to an OCI registry. RuntimeImage and NodeProfile are reconciled by the operator as infrastructure. A native workload explicitly selects the runtime ID and Kubernetes schedules its Pod. On the worker, containerd CRI pulls application content; the fenced provisioner acquires and validates an immutable runtime generation. The shim verifies the application, authorizes and leases that root, composes the filesystem and delegates to runc. Runtime provisioning is an infrastructure operation independent of application publication.</desc>
+  <desc id="architecture-description">Application publication sends code, dependencies and launch.json to an OCI registry. The Pod-wide runtimeClassName selects the Brewlet handler; each managed container selects its own runtime ID through a Pod annotation, and unselected containers keep ordinary OCI behavior. RuntimeImage and NodeProfile are reconciled by the operator as infrastructure. Kubernetes schedules the Pod. On the worker, containerd CRI pulls application content; the fenced provisioner acquires and validates immutable runtime generations. The shim verifies each application, authorizes and leases its selected runtime, composes the filesystem and delegates to runc.</desc>
   <style>
     :root{color-scheme:light;--cp-bg:#fffdf9;--cp-surface:#fff;--cp-elevated:#fbf4e6;--cp-border:#e7dcc9;--cp-text:#2a1f18;--cp-muted:#6b5d51;--cp-accent:#6f4e37;--cp-link:#326ce5}
     text{font-family:"Segoe UI",Aptos,Calibri,sans-serif;fill:var(--cp-text)}
@@ -39,12 +39,13 @@
   <path class="runtime-flow" d="M20 222H8V645H40" marker-end="url(#runtime-arrow)"/>
   <text class="lane" x="20" y="306">Native Kubernetes</text>
   <g id="workload">
-    <rect class="box" x="20" y="322" width="320" height="90" rx="10"/>
+    <rect class="box" x="20" y="322" width="320" height="100" rx="10"/>
     <text class="title" x="36" y="349">Native workload / Pod</text>
-    <text class="code" x="36" y="371">runtimeClassName: brewlet</text>
-    <text class="body" x="36" y="393">Explicit runtime ID · admission + scheduler</text>
+    <text class="code" x="36" y="371">runtimeClassName: brewlet · Pod-wide</text>
+    <text class="code" x="36" y="393">runtime-image.brewlet.sh/&lt;name&gt;: &lt;id&gt;</text>
+    <text class="body" x="36" y="413">Unselected containers use ordinary OCI</text>
   </g>
-  <path class="flow" d="M180 412V460" marker-end="url(#application-arrow)"/>
+  <path class="flow" d="M180 422V460" marker-end="url(#application-arrow)"/>
   <text class="label" x="194" y="440">schedules Pod</text>
 
   <rect id="worker" class="worker" x="20" y="460" width="320" height="592" rx="12"/>

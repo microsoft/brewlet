@@ -80,7 +80,8 @@ other extended attribute rather than stripping validation checks.
 ## Native workload example
 
 The following is a template, not directly executable: replace the application
-digest and select an ID already approved and offered by your platform.
+digest and select an ID already approved and offered by your platform. The
+annotation suffix must match the managed container's name.
 
 ```yaml
 apiVersion: apps/v1
@@ -97,7 +98,7 @@ spec:
       labels:
         app: api
       annotations:
-        runtime-image.brewlet.sh/app: python-3.13
+        runtime-image.brewlet.sh/api: python-3.13
     spec:
       runtimeClassName: brewlet
       nodeSelector:

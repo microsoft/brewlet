@@ -191,7 +191,12 @@ running **4. Deploy on Temurin 25.0.4.1+1** (`deploy`).
 **Source template** shows the repository template; **Deployment YAML** shows
 the resolved input, including the application digest.
 
-[![The resolved Deployment YAML uses the app-only image digest, runtimeClassName brewlet, the temurin-25 Pod annotation and the Deployment's restart-on-rotation opt-in.](assets/demo/deployment.png){ width=957 height=580 loading=lazy }](assets/demo/deployment.png)
+> This historical screenshot was captured with Brewlet 0.9.2 and shows the
+> earlier Pod-wide runtime annotation. It is not the current selection syntax:
+> current workloads use `runtime-image.brewlet.sh/<container-name>: <id>` for
+> each managed container.
+
+[![Historical 0.9.2 deployment screenshot; its Pod-wide runtime annotation is not current syntax. Current workloads select each managed container with runtime-image.brewlet.sh/<container-name>.](assets/demo/deployment.png){ width=957 height=580 loading=lazy }](assets/demo/deployment.png)
 
 *This is a plain Kubernetes Deployment. The runtime selector belongs to the
 Pod template; the restart-on-rotation opt-in belongs to the Deployment.*

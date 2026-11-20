@@ -19,9 +19,11 @@ ordinary application files) to an OCI registry. Platform teams approve
 **runtime images** — digest-pinned "golden" base images such as a JRE, a Python
 interpreter, a Node.js runtime, a .NET runtime, a native WebAssembly host such as
 Wasmtime or Spin, or a distroless base for static binaries — in the
-Brewlet inventory. A pod selects a runtime image **by ID only**, never by digest,
-and the node-resident shim composes the approved runtime with the application at
-launch time.
+Brewlet inventory. Each managed container in a Pod selects its runtime image
+**by ID only**, never by digest, through a Pod annotation named for that
+container. `runtimeClassName: brewlet` is Pod-wide; containers without a
+selection retain ordinary OCI behavior. The node-resident shim composes each
+selected container's approved runtime with its application at launch time.
 
 Bare `§N` references cite sections of this specification. References written
 as `SPEC §N` instead cite the **0.x** design reference,
@@ -78,8 +80,9 @@ Brewlet 1.0.0 expresses this flow in language-neutral terms:
  NodeProfile: which IDs on which pools     OCI registry (digest-addressed)
             │                                     │
             ▼                                     ▼
- Provisioner installs read-only            Pod: runtimeClassName: brewlet
- runtime roots per ID + generation              annotation runtime-image.brewlet.sh/app: python-3.12
+ Provisioner installs read-only            Pod: RuntimeClass/brewlet
+ runtime roots per ID + generation          Per-container annotation:
+                                             runtime-image.brewlet.sh/<name>: <id>
             │                                     │
             └──────────────┐   ┌──────────────────┘
                            ▼   ▼
@@ -1242,7 +1245,7 @@ spec:
   template:
     metadata:
       annotations:
-        runtime-image.brewlet.sh/app: python-3.12
+        runtime-image.brewlet.sh/api: python-3.12
     spec:
       runtimeClassName: brewlet
       nodeSelector:
