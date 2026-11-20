@@ -333,44 +333,25 @@ func (r *Registry) Pull(ctx context.Context, store Store) (v1.Descriptor, error)
 				if e = importBlob(blob); e != nil {
 					return e
 				}
-				if m.ArtifactType == MediaTypeLayerSet || m.Annotations["brewlet.sh/artifact-version"] == "1" {
-					refs, err := r.Referrers(ctx, desc)
+			}
+			if m.Annotations["brewlet.sh/artifact-version"] == "1" {
+				refs, err := r.Referrers(ctx, desc)
+				if err != nil {
+					return err
+				}
+				for _, ref := range refs {
+					got, data, err := r.fetchManifest(ctx, ref.Digest.String())
+					if err == nil && !sameSubject(got, ref) {
+						err = fail("DigestMismatch", "referrer manifest identity mismatch")
+					}
+					if err == nil {
+						err = importManifest(ref, data)
+					}
 					if err != nil {
 						return err
 					}
-					for _, ref := range refs {
-						got, data, err := r.fetchManifest(ctx, ref.Digest.String())
-						if err == nil && !sameSubject(got, ref) {
-							err = fail("DigestMismatch", "referrer manifest identity mismatch")
-						}
-						if err == nil {
-							err = importManifest(ref, data)
-						}
-						if err != nil && ref.ArtifactType != MediaTypeAttestation {
-							return err
-						}
-						if err = store.RecordReferrer(desc, ref); err != nil {
-							return err
-						}
-					}
-					materials, err := CompositionMaterials(store, desc)
-					if err != nil {
+					if err = store.RecordReferrer(desc, ref); err != nil {
 						return err
-					}
-					for _, material := range materials {
-						if imported[material.Digest] {
-							continue
-						}
-						got, data, err := r.fetchManifest(ctx, material.Digest.String())
-						if err != nil {
-							return err
-						}
-						if !sameSubject(got, material) {
-							return fail("DigestMismatch", "composition material identity mismatch")
-						}
-						if err = importManifest(material, data); err != nil {
-							return err
-						}
 					}
 				}
 			}
@@ -502,15 +483,6 @@ func (r *Registry) Push(ctx context.Context, store Store, target v1.Descriptor) 
 				if err != nil {
 					return err
 				}
-			}
-		}
-		materials, e := CompositionMaterials(store, d)
-		if e != nil {
-			return e
-		}
-		for _, material := range materials {
-			if e = pushManifest(material, material.Digest.String()); e != nil {
-				return e
 			}
 		}
 		return nil

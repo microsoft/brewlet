@@ -22,7 +22,7 @@ requirements.
 | Containerd shim | [`shim/`](https://github.com/microsoft/brewlet/tree/main/shim) | Assembles the application's runtime environment and manages tasks through containerd's Runtime v2 interface. |
 | Node provisioner | [`provisioner/`](https://github.com/microsoft/brewlet/tree/main/provisioner) | Installs, rotates, and removes approved runtime roots, the shim, and owned containerd configuration. |
 | Kubernetes platform | [`kubernetes/`](https://github.com/microsoft/brewlet/tree/main/kubernetes) | Contains the operator, admission webhook, APIs, CRDs, RBAC, and Helm chart. |
-| Maven producer | [`maven-plugin/`](https://github.com/microsoft/brewlet/tree/main/maven-plugin) | Packages Java applications and dependency layer sets through the CLI; it does not deploy workloads. |
+| Maven producer | [`maven-plugin/`](https://github.com/microsoft/brewlet/tree/main/maven-plugin) | Packages Java applications through the CLI; it does not deploy workloads. |
 | Tests and evidence | [`integration-tests/`](https://github.com/microsoft/brewlet/tree/main/integration-tests), [`acceptance/`](https://github.com/microsoft/brewlet/tree/main/acceptance) | Exercises producers and runtime behavior, and records requirements and scoped qualification evidence. |
 | Contracts and design | [`specs/`](https://github.com/microsoft/brewlet/tree/main/specs) | Holds the specification and design proposals. |
 | Documentation and website | [`docs/`](https://github.com/microsoft/brewlet/tree/main/docs), [`site/`](https://github.com/microsoft/brewlet/tree/main/site) | Contains user guides, the static landing page, and the MkDocs configuration and build tooling. |

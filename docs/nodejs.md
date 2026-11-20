@@ -9,10 +9,9 @@ a Node.js [runtime image](runtime-images.md), and your Kubernetes Deployment
 selects it by runtime ID. Brewlet runs the declared command with your
 application files mounted read-only under `/app`.
 
-Dependencies can ship inside the application image or be published separately
-as a [dependency layer set](dependency-layer-sets.md) or
-[governed bundle](managed-composition.md). Brewlet does not run npm, discover a
-package entrypoint or rewrite module resolution.
+Dependencies must be included as ordinary files in the application image.
+Brewlet does not run npm, discover a package entrypoint or rewrite module
+resolution.
 
 An update starts new Pods; it never replaces modules inside a running Node.js
 process. See [concepts](concepts.md) and the
@@ -136,14 +135,13 @@ Replace the registry with your own:
 brewlet build registry.example.com/apps/node-demo:v1 \
   --platform linux/arm64 \
   --launch launch.json \
-  --layer "dependency=./dependencies:/app/dependencies" \
+  --layer "app=./dependencies:/app/dependencies" \
   --layer "app=./src:/app/src"
 brewlet push registry.example.com/apps/node-demo:v1 --push-result push.json
 ```
 
-This produces separate dependency and app layers. `push.json` records the
-pushed digest. To consume an independently published dependency set instead,
-use [dependency layer sets](dependency-layer-sets.md).
+This produces separate application layers for package files and source.
+`push.json` records the pushed digest.
 
 ## Deploy
 
@@ -219,4 +217,4 @@ that.
 - `/app` is read-only. Put application data and caches on explicit volumes.
   Node.js options are set by the application, not injected by Brewlet.
 - Updating the runtime image does not fix vulnerabilities in your own npm
-  dependencies; rebuild or recompose the application for that.
+  dependencies; rebuild and republish the application artifact.

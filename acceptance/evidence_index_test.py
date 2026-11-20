@@ -78,7 +78,7 @@ class ArtifactTests(unittest.TestCase):
         for name in ("e2e-amd64-pr-", "e2e-amd64-control-", "checks-unrelated-"):
             with self.assertRaises(ValueError):
                 index.artifact_files(name + "a" * 40, "a" * 40)
-        self.assertEqual(33, len(index.required_files()))
+        self.assertEqual(29, len(index.required_files()))
         self.assertNotIn("pr-e2e-amd64.json", index.required_files())
 
     def test_documentation_receipts_come_from_the_standalone_website_workflow(self):
@@ -158,15 +158,13 @@ class IndexedAcceptanceTests(unittest.TestCase):
         self.fixture.setUp()
         self.addCleanup(self.fixture.doCleanups)
         self.root = self.fixture.root
-        for filename in ("requirements.json", "composition-requirements.json"):
+        for filename in ("requirements.json",):
             (self.root / "acceptance" / filename).write_bytes((ROOT / "acceptance" / filename).read_bytes())
         (self.root / ".gitignore").write_text("/acceptance/results/\n")
         self.fixture.commit()
         self.identity = working_identity(self.root)
-        obligations = sorted(check.REQUIRED_IDS | {
-            row["id"] for row in read_json(ROOT / "acceptance/composition-requirements.json")["requirements"]})
         assertion = [{"name": "synthetic isolated Git fixture, never public evidence",
-                      "outcome": "passed", "requirements": obligations}]
+                      "outcome": "passed", "requirements": sorted(check.REQUIRED_IDS)}]
         base = {**self.fixture.result, **self.identity, "assertions": assertion, "fullAcceptance": False}
         records = {}
         for name, definition in run_check.CHECKS.items():
@@ -186,9 +184,6 @@ class IndexedAcceptanceTests(unittest.TestCase):
                 if suite == "core":
                     receipt.update(scope="real-node-execution-and-remote-delivery",
                                    kubeletPullVerified=True, tlsTransportVerified=True)
-                if suite == "managed-wasm":
-                    provenance = read_json(ROOT / "acceptance/testdata/wasm-receipt.json")
-                    receipt.update({key: provenance[key] for key in ("wasmGuestInputs", "wasmRuntimes")})
                 records[f"candidate-{architecture}-{suite}.json"] = receipt
         for name, receipt in records.items():
             (self.root / "acceptance/results" / name).write_text(json.dumps(receipt))
@@ -196,7 +191,7 @@ class IndexedAcceptanceTests(unittest.TestCase):
                  *[f"checks-{group}-{architecture}-" for group in ("producer", "kernel")
                    for architecture in ("amd64", "arm64")],
                  *[f"e2e-{architecture}-{scenario}-" for architecture in ("amd64", "arm64")
-                   for scenario in ("complete", "managed", "managed-wasm")]]
+                   for scenario in ("complete",)]]
         artifacts = []
         for number, prefix in enumerate(names, 1):
             name = prefix + self.identity["checkout"]
@@ -238,18 +233,14 @@ class IndexedAcceptanceTests(unittest.TestCase):
 
     def test_all_actual_bindings_can_pass_without_rewriting_source_declarations(self):
         original = (self.root / "acceptance/requirements.json").read_bytes()
-        composition = (self.root / "acceptance/composition-requirements.json").read_bytes()
         self.assertEqual([], verify_evidence.validate(self.root, self.index))
         self.assertEqual(original, (self.root / "acceptance/requirements.json").read_bytes())
-        self.assertEqual(composition, (self.root / "acceptance/composition-requirements.json").read_bytes())
         self.assertTrue(all(row["status"] == "pending"
                             for row in read_json(self.root / "acceptance/requirements.json")["requirements"]))
 
     def test_bad_payload_is_rejected_even_if_index_checksum_is_updated(self):
         cases = (
             ("candidate-amd64-core.json", lambda r: r.update(selectedScenario="pr")),
-            ("candidate-arm64-managed.json", lambda r: r.update(productionCleanupVerified=False)),
-            ("candidate-arm64-managed-wasm.json", lambda r: r.update(selectedLanguages=["wasmtime"])),
             ("go-contracts.json", lambda r: r.update(assertions=[])),
             ("native-contracts-arm64.json", lambda r: r.update(nativeExecution=False)),
             ("documentation.json", lambda r: r.update(command="weaker command")),

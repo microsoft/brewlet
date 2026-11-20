@@ -252,7 +252,7 @@ func Resolve(ctx context.Context, open BlobOpener, target v1.Descriptor, platfor
 		role := d.Annotations["brewlet.sh/layer"]
 		if role == "app" {
 			apps++
-		} else if role != "dependency" && role != "launch" {
+		} else if role != "launch" {
 			return nil, fail("UnsupportedArtifact", "invalid layer role")
 		}
 		if (role == "launch") != (i == len(m.Layers)-1) {
@@ -278,12 +278,6 @@ func Resolve(ctx context.Context, open BlobOpener, target v1.Descriptor, platfor
 		return nil, fail("UnsupportedArtifact", "application layer required")
 	}
 	if e = ValidateComposition(ctx, out.Layers); e != nil {
-		return nil, e
-	}
-	if e = ValidateEvidence(out.Manifest); e != nil {
-		return nil, e
-	}
-	if e = validateEvidenceDiffIDs(out.Manifest, out.Image); e != nil {
 		return nil, e
 	}
 	if e = ValidateMirror(out.Launch, out.Image); e != nil {

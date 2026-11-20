@@ -24,8 +24,6 @@ class QualificationMatrixTests(unittest.TestCase):
         categories = {row["category"] for rows in self.document["fixtureGroups"].values() for row in rows}
         self.assertEqual(categories, {"python", "webassembly"})
         self.assertEqual(set(self.document["architectures"]), {"arm64", "amd64"})
-        self.assertEqual(set(self.document["compositionScopes"]),
-                         {"arm64", "amd64", "wasm-arm64", "wasm-amd64"})
 
     def test_matrix_cannot_omit_duplicate_or_reclassify_required_fixtures(self):
         for group, rows in self.document["fixtureGroups"].items():
@@ -61,24 +59,12 @@ class QualificationMatrixTests(unittest.TestCase):
         document = copy.deepcopy(self.document)
         document["architectures"] = ["arm64", "arm64"]
         self.assertTrue(qualification.validate_matrix(document))
-        for name in self.document["compositionScopes"]:
-            document = copy.deepcopy(self.document)
-            del document["compositionScopes"][name]
-            self.assertTrue(qualification.validate_matrix(document))
-            for key, value in (("architecture", "unknown"), ("group", "unknown"),
-                               ("group", "wasm" if not name.startswith("wasm-") else "native"),
-                               ("scenario", "wasm-runc-examples"), ("extra", "unsupported")):
-                with self.subTest(scope=name, key=key, value=value):
-                    document = copy.deepcopy(self.document)
-                    document["compositionScopes"][name][key] = value
-                    self.assertTrue(qualification.validate_matrix(document))
 
     def test_malformed_declarations_fail_without_type_errors_or_defaults(self):
         for value in (None, [], {}, {**self.document, "schemaVersion": True},
                       {**self.document, "architectures": [[]]},
                       {**self.document, "architectures": ["arm64", "unknown"]},
                       {**self.document, "fixtureGroups": []},
-                      {**self.document, "compositionScopes": []},
                       {**self.document, "extra": "unsupported"}):
             with self.subTest(value=value):
                 self.assertTrue(qualification.validate_matrix(value))
@@ -99,7 +85,7 @@ class QualificationMatrixTests(unittest.TestCase):
     def test_acceptance_entry_points_and_harness_refuse_a_partial_matrix(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            scripts = ("acceptance/check.py", "acceptance/composition_check.py",
+            scripts = ("acceptance/check.py",
                        "integration-tests/live-v2/harness.py")
             for relative in (*scripts, "acceptance/__init__.py", "acceptance/qualification.py",
                              "acceptance/evidence.py", "acceptance/qualify.py", "acceptance/export_result.py"):

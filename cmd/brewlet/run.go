@@ -33,7 +33,7 @@ layout given by --store); registries are never contacted for the application.
 The container is assembled the way the Brewlet shim does on a cluster:
 
   - the runtime image provides the root filesystem, PATH and base environment;
-  - application and dependency layers are materialized into a private
+  - application payload layers are materialized into a private
     directory and bind-mounted read-only at /app, hiding any runtime /app;
   - the root filesystem is read-only, all capabilities are dropped and
     no-new-privileges is set;

@@ -49,26 +49,24 @@ type command struct {
 
 const (
 	groupBuild   = "Build and publish application images"
-	groupRelease = "Managed dependencies and release composition"
+	groupVerify  = "Verification"
 	groupLocal   = "Local testing"
 	groupCluster = "Kubernetes"
 	groupOther   = "Other"
 )
 
-var groups = []string{groupBuild, groupRelease, groupLocal, groupCluster, groupOther}
+var groups = []string{groupBuild, groupVerify, groupLocal, groupCluster, groupOther}
 
 func commands() []command {
 	return []command{
-		{"build", "Package app/dependency layers and launch.json into a local OCI layout", groupBuild, runBuild},
+		{"build", "Package application files and launch.json into a local OCI layout", groupBuild, runBuild},
 		{"push", "Upload a local build to a registry, byte for byte", groupBuild, runPush},
-		{"inspect", "Show the effective launch.json and layer table of an image or layer set", groupBuild, runInspect},
+		{"inspect", "Show the effective launch.json and layer table of an image", groupBuild, runInspect},
 		{"index", "Advanced: combine separately built platform manifests into one index", groupBuild, runIndex},
-		{"layer-set", "Publish an independently governed dependency layer set", groupRelease, runLayerSet},
-		{"bundle", "Bundle a pinned application with one approved layer set into a signed release image", groupRelease, releaseCommand("bundle")},
-		{"verify", "Verify a pinned release bundle against a release policy", groupRelease, releaseCommand("verify")},
+		{"verify", "Verify a pinned application's OCI graph and launch contract", groupVerify, runVerify},
 		{"run", "Run a local build on a chosen runtime image with Docker or Podman", groupLocal, runLocal},
 		{"k8s", "Manage runtimes on a Brewlet cluster (dashboard, list, add, rotate, remove, doctor)", groupCluster, runK8s},
-		{"inventory", "Report which dependency sets running workloads were built from", groupCluster, runInventory},
+		{"inventory", "Report observed application images and runtime bindings", groupCluster, runInventory},
 		{"version", "Print version, commit and platform", groupOther, func(_ context.Context, args []string, stdout, _ io.Writer) error {
 			return writeVersion(stdout, args)
 		}},
@@ -96,7 +94,7 @@ Usage:
 	}
 	fmt.Fprint(out, `Typical flow:
   brewlet build registry.example.com/apps/api:v1 --platform linux/amd64 --platform linux/arm64 \
-    --launch launch.json --layer dependency=./deps:/app/lib --layer app=./build:/app
+    --launch launch.json --layer app=./deps:/app/lib --layer app=./build:/app
   brewlet run   registry.example.com/apps/api:v1 --runtime java-21=eclipse-temurin:21-jre
   brewlet push  registry.example.com/apps/api:v1
 
@@ -174,40 +172,6 @@ func (r *registryFlags) registry(ref string) (*artifact.Registry, error) {
 	return reg, nil
 }
 
-// trustFlags select publishers trusted for consumed layer sets.
-type trustFlags struct {
-	keys     repeated
-	identity *string
-	require  *bool
-}
-
-func addTrustFlags(fs *flag.FlagSet) *trustFlags {
-	t := &trustFlags{}
-	fs.Var(&t.keys, "trust-key", "SPKI public PEM trusted for layer-set provenance (repeatable)")
-	t.identity = fs.String("signer-identity", "", "expected trusted layer-set signer identity")
-	t.require = fs.Bool("require-provenance", false, "require trusted signed layer-set provenance")
-	return t
-}
-
-func (t *trustFlags) load() (artifact.LayerSetTrust, error) {
-	trust := artifact.LayerSetTrust{ExpectedIdentity: *t.identity, RequireProvenance: *t.require}
-	for _, file := range t.keys {
-		b, e := os.ReadFile(file)
-		if e != nil {
-			return trust, e
-		}
-		key, e := artifact.ParseTrustKey(b)
-		if e != nil {
-			return trust, e
-		}
-		trust.PublicKeys = append(trust.PublicKeys, key)
-	}
-	if (len(trust.PublicKeys) > 0 || trust.RequireProvenance || trust.ExpectedIdentity != "") && (len(trust.PublicKeys) == 0 || trust.ExpectedIdentity == "") {
-		return trust, fmt.Errorf("--trust-key and --signer-identity required together")
-	}
-	return trust, nil
-}
-
 // writeResult reports a build, push or publish. The optional result file is
 // always compact JSON for tooling; stdout follows format and describes the
 // outcome with action (for example "Pushed image").
@@ -282,28 +246,25 @@ multi-platform image (an OCI index) in one step. Layers apply to every platform
 unless prefixed with a platform, which keeps native files per architecture:
 
   --layer app=./build:/app
-  --layer linux/amd64:dependency=./native/amd64:/app/native
-  --layer linux/arm64:dependency=./native/arm64:/app/native
+  --layer linux/amd64:app=./native/amd64:/app/native
+  --layer linux/arm64:app=./native/arm64:/app/native
 
-Layers are stacked in the order given; --layer-set layers come first and the
-launch layer is always last. The default layout is .brewlet/images/<REF>.
+Libraries are ordinary application files. Layers are stacked in the order
+given; the launch layer is always last. The default layout is .brewlet/images/<REF>.
 
 Example:
   brewlet build registry.example.com/apps/api:v1 --platform linux/amd64 --platform linux/arm64 \
-    --launch launch.json --layer dependency=./venv/site-packages:/app/site-packages --layer app=./src:/app/src`
+    --launch launch.json --layer app=./venv/site-packages:/app/site-packages --layer app=./src:/app/src`
 
 func runBuild(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	fs := newFlagSet("build", buildSynopsis, stdout)
-	var platforms, layers, sets repeated
+	var platforms, layers repeated
 	fs.Var(&platforms, "platform", "target OS/ARCH[/VARIANT] (repeatable; required)")
-	fs.Var(&layers, "layer", "[OS/ARCH:]app|dependency=DIR:/app/PATH (repeatable; at least one app layer per platform)")
-	fs.Var(&sets, "layer-set", "dependency layer set: registry ref or local DIR[@sha256:DIGEST] (repeatable)")
+	fs.Var(&layers, "layer", "[OS/ARCH:]app=DIR:/app/PATH (repeatable; at least one app layer per platform)")
 	launchFile := fs.String("launch", "", "author-written launch.json (required)")
 	storeDir := fs.String("store", "", "output OCI layout (default .brewlet/images/<REF>)")
 	resultFile := fs.String("result", "", "also write the JSON result {reference,digest,mediaType,size,store} to FILE")
 	output := addOutputFlag(fs)
-	trustOpts := addTrustFlags(fs)
-	reg := addRegistryFlags(fs)
 	ref, err := parseRefCommand(fs, args)
 	if err != nil {
 		return err
@@ -311,21 +272,14 @@ func runBuild(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 	if err = checkTextOutput("build", *output); err != nil {
 		return err
 	}
-	if err = reg.validate(); err != nil {
-		return err
-	}
 	if *launchFile == "" {
 		return fmt.Errorf("--launch required")
-	}
-	trust, err := trustOpts.load()
-	if err != nil {
-		return err
 	}
 	launch, err := os.ReadFile(*launchFile)
 	if err != nil {
 		return err
 	}
-	o := artifact.BuildOptions{Launch: launch, LayerSetTrust: trust}
+	o := artifact.BuildOptions{Launch: launch}
 	for _, raw := range layers {
 		s, e := artifact.ParseLayerSpec(raw)
 		if e != nil {
@@ -341,28 +295,6 @@ func runBuild(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 		o.Platforms = append(o.Platforms, v)
 	}
 	store := artifact.Store{Dir: storeForRef(ref, *storeDir)}
-	for _, setRef := range sets {
-		var d v1.Descriptor
-		source, localTarget, isLocal, e := localLayerSet(setRef)
-		if e != nil {
-			return e
-		}
-		if isLocal {
-			d = localTarget
-			if e = artifact.CopyGraph(ctx, source, store, d); e != nil {
-				return e
-			}
-		} else {
-			r, e := reg.registry(setRef)
-			if e != nil {
-				return e
-			}
-			if d, e = r.Pull(ctx, store); e != nil {
-				return e
-			}
-		}
-		o.LayerSets = append(o.LayerSets, d)
-	}
 	target, err := artifact.Build(ctx, store, o)
 	if err != nil {
 		return err
@@ -387,7 +319,7 @@ BREWLET_REGISTRY_PASSWORD.
 Example:
   brewlet push registry.example.com/apps/api:v1`
 
-var buildOnlyFlags = []string{"launch", "layer", "layer-set", "platform", "config", "lock", "manifest"}
+var buildOnlyFlags = []string{"launch", "layer", "platform", "manifest"}
 
 func runPush(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	for _, a := range args {
@@ -443,101 +375,6 @@ func runPush(ctx context.Context, args []string, stdout, stderr io.Writer) error
 	return writeResult(stdout, *output, "Pushed image", *resultFile, ref, target, "")
 }
 
-const layerSetSynopsis = `Usage: brewlet layer-set REF --config CONFIG.json --layer dependency=DIR:/app/PATH... [flags]
-
-Publishes an independently governed dependency layer set that applications
-consume with "brewlet build --layer-set". Without --store the set is published
-to the registry named by REF; with --store it is written to that local layout.
-
-Example:
-  brewlet layer-set registry.example.com/platform/deps:2026.10 --config set.json --lock lock.json \
-    --layer dependency=./deps:/app/lib --signing-key key.pem --builder-identity https://ci.example.com/deps`
-
-func runLayerSet(ctx context.Context, args []string, stdout, stderr io.Writer) error {
-	fs := newFlagSet("layer-set", layerSetSynopsis, stdout)
-	var layers repeated
-	fs.Var(&layers, "layer", "dependency=DIR:/app/PATH (repeatable)")
-	configFile := fs.String("config", "", "layer set config JSON (required)")
-	lockFile := fs.String("lock", "", "optional layer set lock JSON")
-	sbomFile := fs.String("sbom", "", "explicit CycloneDX 1.5 inventory; otherwise generated from lock/files")
-	signingKey := fs.String("signing-key", "", "PKCS#8 ECDSA-P256 private PEM for publisher provenance")
-	builderIdentity := fs.String("builder-identity", "", "identity bound into the provenance (requires --signing-key)")
-	storeDir := fs.String("store", "", "write to this local OCI layout instead of publishing")
-	resultFile := fs.String("push-result", "", "also write the JSON result {reference,digest,mediaType,size} to FILE")
-	output := addOutputFlag(fs)
-	trustOpts := addTrustFlags(fs)
-	reg := addRegistryFlags(fs)
-	ref, err := parseRefCommand(fs, args)
-	if err != nil {
-		return err
-	}
-	if err = checkTextOutput("layer-set", *output); err != nil {
-		return err
-	}
-	if err = reg.validate(); err != nil {
-		return err
-	}
-	if *configFile == "" {
-		return fmt.Errorf("--config required")
-	}
-	trust, err := trustOpts.load()
-	if err != nil {
-		return err
-	}
-	var specs []artifact.LayerSpec
-	for _, raw := range layers {
-		s, e := artifact.ParseLayerSpec(raw)
-		if e != nil {
-			return e
-		}
-		specs = append(specs, s)
-	}
-	b, err := os.ReadFile(*configFile)
-	if err != nil {
-		return err
-	}
-	var c artifact.LayerSetConfig
-	if err = artifact.StrictJSON(b, &c); err != nil {
-		return err
-	}
-	var lock *artifact.LayerSetLock
-	if *lockFile != "" {
-		if b, err = os.ReadFile(*lockFile); err != nil {
-			return err
-		}
-		lock = &artifact.LayerSetLock{}
-		if err = artifact.StrictJSON(b, lock); err != nil {
-			return err
-		}
-	}
-	options := artifact.LayerSetPublishOptions{Trust: trust}
-	if *sbomFile != "" {
-		if options.SBOM, err = os.ReadFile(*sbomFile); err != nil {
-			return err
-		}
-	}
-	if *signingKey != "" {
-		b, e := os.ReadFile(*signingKey)
-		if e != nil {
-			return e
-		}
-		key, e := artifact.ParseSigningKey(b)
-		if e != nil {
-			return e
-		}
-		options.Signer = &artifact.LayerSetSigner{Key: key, Identity: *builderIdentity}
-	} else if *builderIdentity != "" {
-		return fmt.Errorf("--builder-identity requires --signing-key")
-	}
-	return withStore(*storeDir, func(store artifact.Store) error {
-		target, e := artifact.BuildLayerSet(ctx, store, c, specs, lock, options)
-		if e != nil {
-			return e
-		}
-		return publish(ctx, stdout, reg, store, *storeDir != "", "layer set", *output, ref, *resultFile, target)
-	})
-}
-
 const indexSynopsis = `Usage: brewlet index REF --manifest DESCRIPTOR.json... [--store DIR] [flags]
 
 Advanced. Combines separately built platform manifests into one OCI index. Most
@@ -574,8 +411,7 @@ func runIndex(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 
 const inspectSynopsis = `Usage: brewlet inspect REF [--store DIR] [--platform OS/ARCH] [flags]
 
-Prints the effective launch.json and layer table of an application image, or
-the config, lock, layers and provenance evidence of a layer set. REF may be a
+Prints the effective launch.json and layer table of an application image. REF may be a
 registry reference, a local OCI layout directory (DIR[@sha256:DIGEST]), or a
 reference inside --store.`
 
@@ -585,7 +421,6 @@ func runInspect(ctx context.Context, args []string, stdout, stderr io.Writer) er
 	fs.Var(&platforms, "platform", "show only this OS/ARCH[/VARIANT]")
 	storeDir := fs.String("store", "", "local OCI layout to read REF from")
 	output := addOutputFlag(fs)
-	trustOpts := addTrustFlags(fs)
 	reg := addRegistryFlags(fs)
 	ref, err := parseRefCommand(fs, args)
 	if err != nil {
@@ -600,10 +435,6 @@ func runInspect(ctx context.Context, args []string, stdout, stderr io.Writer) er
 	if len(platforms) > 1 {
 		return fmt.Errorf("inspect accepts at most one --platform")
 	}
-	trust, err := trustOpts.load()
-	if err != nil {
-		return err
-	}
 	var store artifact.Store
 	var target v1.Descriptor
 	var dir string
@@ -613,7 +444,7 @@ func runInspect(ctx context.Context, args []string, stdout, stderr io.Writer) er
 			return err
 		}
 	} else {
-		source, localTarget, isLocal, e := localLayerSet(ref)
+		source, localTarget, isLocal, e := localLayout(ref)
 		if e != nil {
 			return e
 		}
@@ -634,39 +465,10 @@ func runInspect(ctx context.Context, args []string, stdout, stderr io.Writer) er
 			}
 		}
 	}
-	return inspectTarget(ctx, stdout, *output, store, target, platforms, trust)
+	return inspectTarget(ctx, stdout, *output, store, target, platforms)
 }
 
-func inspectTarget(ctx context.Context, stdout io.Writer, format string, store artifact.Store, target v1.Descriptor, platforms []string, trust artifact.LayerSetTrust) error {
-	if target.MediaType == v1.MediaTypeImageManifest {
-		b, e := store.Read(target)
-		if e != nil {
-			return e
-		}
-		var manifest v1.Manifest
-		if e = json.Unmarshal(b, &manifest); e != nil {
-			return e
-		}
-		if manifest.ArtifactType == artifact.MediaTypeLayerSet {
-			layers, evidence, e := artifact.ConsumeLayerSet(ctx, store, target, trust)
-			if e != nil {
-				return e
-			}
-			config, e := store.Read(manifest.Config)
-			if e != nil {
-				return e
-			}
-			var lock json.RawMessage
-			for _, descriptor := range manifest.Layers {
-				if descriptor.MediaType == artifact.MediaTypeLayerSetLock {
-					if lock, e = store.Read(descriptor); e != nil {
-						return e
-					}
-				}
-			}
-			return renderLayerSet(stdout, format, layerSetInspection{target.Digest.String(), config, lock, layers, evidence})
-		}
-	}
+func inspectTarget(ctx context.Context, stdout io.Writer, format string, store artifact.Store, target v1.Descriptor, platforms []string) error {
 	if len(platforms) == 0 {
 		var entries []v1.Descriptor
 		b, e := store.Read(target)

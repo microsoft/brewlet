@@ -6,7 +6,6 @@ from acceptance.qualification import fixture_names
 import harness
 import wasm
 import accounting
-from acceptance import composition_check
 
 
 class QualificationSelectionTests(unittest.TestCase):
@@ -25,12 +24,6 @@ class QualificationSelectionTests(unittest.TestCase):
         self.assertEqual(tuple(harness.IDS), harness.FIXTURE_LANGUAGES)
         self.assertEqual(harness.WASM_HOSTS, fixture_names(matrix, "wasm"))
         self.assertEqual(tuple(wasm.IDS), fixture_names(matrix, "wasm"))
-        for name, declaration in matrix["compositionScopes"].items():
-            architecture, scenario, workloads, obligations = composition_check.NATIVE_SCOPES[name]
-            self.assertEqual(architecture, declaration["architecture"])
-            self.assertEqual(scenario, declaration["scenario"])
-            self.assertEqual(workloads, set(fixture_names(matrix, declaration["group"])))
-            self.assertEqual(len(obligations), 8 if declaration["group"] == "native" else 4)
 
     def test_existing_fixture_ids_and_receipt_selection_order_are_preserved(self):
         self.assertEqual(harness.IDS, {language: "fixture-" + language

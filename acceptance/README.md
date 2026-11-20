@@ -7,7 +7,7 @@
 | `PR validation` | `pr.yml`, pull requests only | Only the checks, CodeQL languages, real E2E and website build impacted by the PR's changed files; native checks and E2E on amd64 | Fast required PR validation |
 | `Release Gate Tests` | `release-gate-tests.yml`, weekly on `main`, manual dispatch, and called by every release | Every check, every CodeQL language, native producer/kernel checks and Python real E2E on both amd64 and arm64 | Complete end-to-end validation of one immutable commit; the release gate, not promotion qualification |
 | `Language Example E2E` | `language-e2e.yml`, weekly on `main` and manual dispatch | A matrix job per fixture (Python, Java, Node.js, .NET, PHP, WebAssembly) running its real-node runtime contract and rotation (Java adds the Maven producer; WebAssembly runs the `wasm.py` Wasmtime/Spin examples) | Non-gating weekly coverage; never qualification evidence |
-| `Promotion qualification` | Local `make acceptance` after `evidence_index.py fetch` (no workflow) | All current indexed receipts, all 115 baseline and 29 composition obligations, all 22 native suites | Optional full immutable-candidate qualification before promotion |
+| `Promotion qualification` | Local `make acceptance` after `evidence_index.py fetch` (no workflow) | All current indexed receipts, all 112 baseline obligations, all 18 native suites | Optional full immutable-candidate qualification before promotion |
 
 Both validation workflows reuse the same building blocks: `checks.yml`
 (contracts, Maven, offline Python, legal, producer and kernel checks),
@@ -91,13 +91,13 @@ PR artifacts and failed/debug artifacts are not promotion evidence.
 ## Full native qualification
 
 After the baseline is stable and inputs are frozen, the full requirement remains
-11 suites per architecture on native Linux amd64 and arm64:
+9 suites per architecture on native Linux amd64 and arm64:
 
 `core`, `cold`, `tutorial`, `wasm`, `upstream`, `native`, `uninstall`,
-`retirement`, `activation`, `managed`, `managed-wasm`.
+`retirement`, `activation`.
 
-Six manual native scopes supply the 22 receipts: `complete`, `managed` and
-`managed-wasm` on each architecture. `complete` expands into the first nine.
+Two manual native scopes supply the 18 receipts: `complete` on each
+architecture. `complete` expands into all nine suites.
 Use the already completed CI run for ten distinct non-live filenames, plus a
 manual `site-pages.yml` run at the same immutable source for the two website
 receipts. These runs do not need repeating before every live debugging attempt.
@@ -113,12 +113,10 @@ checkout with an empty receipt cache and a read-only `GITHUB_TOKEN`:
 
 ```sh
 python3 acceptance/evidence_index.py record-candidate \
-  --run CI_RUN_ID --run WEBSITE_RUN_ID --run AMD64_COMPLETE --run ARM64_COMPLETE \
-  --run AMD64_MANAGED --run ARM64_MANAGED \
-  --run AMD64_MANAGED_WASM --run ARM64_MANAGED_WASM
+  --run CI_RUN_ID --run WEBSITE_RUN_ID --run AMD64_COMPLETE --run ARM64_COMPLETE
 ```
 
-Supply the CI run, standalone website run and all six native scope runs. The
+Supply the CI run, standalone website run and both native scope runs. The
 command fetches only the
 expected public artifact groups from this repository, checks successful run
 event/workflow/source and artifact ownership/expiry, rejects unsafe ZIP paths,
@@ -131,7 +129,6 @@ remain equal to the frozen source. From that clean committed descendant:
 ```sh
 make acceptance
 python3 acceptance/check.py --require-complete
-python3 acceptance/composition_check.py --require-complete
 python3 acceptance/qualify.py
 ```
 
@@ -190,7 +187,7 @@ retention is needed; no new cloud storage or publication is configured here.
 Checksums and provenance metadata are review aids, not third-party attestations:
 review the workflow and actual execution before accepting an index.
 
-`check.py --structure-only`, `composition_check.py --structure-only` and
+`check.py --structure-only` and
 `reconcile.py` remain source-preparation checks, not execution proof.
 Do not run `reconcile.py --write` after freezing inputs or use it to claim success.
 See [current status and historical provenance](RESULTS.md).

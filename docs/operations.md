@@ -128,7 +128,7 @@ to Exec sessions, probes and hooks. A runtime image without PATH or account
 files is still run as a numeric non-root user, and CRI's default PATH is not
 used.
 
-Application and dependency layers are confined to `/app`, so they cannot
+Application files are confined to `/app`, so they cannot
 replace runtime files. This does not control how the application loads its own
 libraries or what volumes contain. Rotating the runtime does not fix
 vulnerable libraries packaged with the application. Never package secrets into

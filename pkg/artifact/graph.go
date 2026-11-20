@@ -72,20 +72,11 @@ func copyGraph(ctx context.Context, source, destination Store, target v1.Descrip
 			return e
 		}
 		for _, ref := range refs {
-			if e = copyGraph(ctx, source, destination, ref, seen); e != nil && ref.ArtifactType != MediaTypeAttestation {
+			if e = copyGraph(ctx, source, destination, ref, seen); e != nil {
 				return e
 			}
 			if e = destination.RecordReferrer(target, ref); e != nil {
 				return e
-			}
-			materials, e := CompositionMaterials(source, target)
-			if e != nil {
-				return e
-			}
-			for _, material := range materials {
-				if e = copyGraph(ctx, source, destination, material, seen); e != nil {
-					return e
-				}
 			}
 		}
 	}

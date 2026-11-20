@@ -141,7 +141,7 @@ brewlet inspect "$APP"
 brewlet push "$APP" --push-result push.json
 brewlet run "$APP" --platform linux/amd64 \
   --runtime python-3.13 --from-cluster</pre>
-        <p class="note"><code>build</code> writes a local OCI layout; <code>push</code> publishes it. Add explicit dependency layers as needed. Local <code>run</code> uses Docker (or <code>--engine podman</code>), not cluster admission.</p>
+        <p class="note"><code>build</code> writes a local OCI layout; <code>push</code> publishes it. Package libraries and other dependencies as ordinary application files under <code>/app</code>. Local <code>run</code> uses Docker (or <code>--engine podman</code>), not cluster admission.</p>
         <h3>Select the runtime in your workload</h3>
         <p class="note">Merge this fragment into <code>Deployment.spec.template</code>. Keep your labels, probes, resources and volumes.</p>
         <pre>metadata:
@@ -159,7 +159,7 @@ spec:
         <pre>kubectl -n apps apply -f deployment.yaml
 kubectl -n apps rollout status deployment/api</pre>
         <p class="note">Use an existing application namespace. Admission defaults the required read-only root to <code>true</code>; explicit <code>false</code> is rejected.</p>
-        <div class="policies"><p><strong>Direct delivery</strong>build / push / apply</p><p><strong>Governed delivery</strong>Separate app + dependency approval.</p></div>
+        <div class="policies"><p><strong>Application delivery</strong>Build / push / apply</p><p><strong>Runtime delivery</strong>Approved and rotated by the platform.</p></div>
       </section>
 
       <section class="column operations" aria-labelledby="operations">
@@ -189,9 +189,6 @@ brewlet k8s runtime remove python-3.13 --dry-run</pre>
   namespace="apps", pod="api-&lt;suffix&gt;"
 }</pre>
         <p class="note">Run this as a Prometheus instant query at time T. First enable <code>metrics.enabled: true</code> and scrape node metrics. History is limited by retention and scrape gaps; short-lived containers can be missed. <a href="https://brewlet.sh/docs/observability/#look-up-historical-runtime-bindings">Historical lookup guide</a>.</p>
-        <h3>Govern dependencies separately</h3>
-        <ol class="pipeline"><li><code>layer-set</code></li><li>app-only <code>build</code></li><li><code>bundle</code></li><li><code>verify</code></li><li>test candidate</li><li>deploy digest</li></ol>
-        <p class="note">Compose immutable app + layer-set digests. Verify, test and deploy the same candidate digest. Runtime rotation does not patch dependencies packaged in the app.</p>
         <p class="note"><strong>More commands:</strong> <code>brewlet &lt;command&gt; --help</code><br><a href="https://brewlet.sh/docs/cli-reference/">Full CLI reference</a> | <a href="https://brewlet.sh/docs/operations/">Rotation + cleanup</a></p>
       </section>
     </div>

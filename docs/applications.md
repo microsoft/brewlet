@@ -9,7 +9,8 @@ runtime ID.
 
 An application is a runnable OCI image with:
 
-- One or more app layers and optional dependency layers under `/app`.
+- One or more application layers under `/app`. Application code, libraries,
+  generated assets, and other dependencies are all ordinary application files.
 - Exactly one final launch layer containing `launch.json`.
 - `brewlet.sh/artifact-version=1` on its manifest.
 - An OCI config that exactly mirrors the launch process.
@@ -32,7 +33,7 @@ explicit producer assertion, not evidence that a native dependency is portable.
     "env": [
       {
         "name": "PYTHONPATH",
-        "value": "/app/dependencies"
+        "value": "/app/lib"
       },
       {
         "name": "PYTHONDONTWRITEBYTECODE",
@@ -56,7 +57,7 @@ brewlet build registry.example.com/apps/api:v2 \
   --platform linux/amd64 \
   --platform linux/arm64 \
   --launch launch.json \
-  --layer dependency=./dependencies:/app/dependencies \
+  --layer app=./dependencies:/app/lib \
   --layer app=./src:/app/src
 brewlet push registry.example.com/apps/api:v2 --push-result push.json
 ```
@@ -75,17 +76,6 @@ On macOS, the producer runs locally, but the shim and node worker execute on
 Linux. The producer ignores the host-local `com.apple.provenance` and
 `com.apple.quarantine` attributes because layers never carry xattrs; remove any
 other extended attribute rather than stripping validation checks.
-
-## Independent dependency layer sets
-
-`brewlet layer-set` publishes neutral dependency layers, a config and optional
-lock. Passing it to `brewlet build --layer-set` reuses the compressed layers
-byte-for-byte, and the application manifest records which layer set they came
-from. Optional signed provenance and the CycloneDX inventory describe the layer
-set, not every application built from it.
-
-The kubelet still pulls one application image per container. The shim never
-resolves dependencies from a package manager or pulls a layer set itself.
 
 ## Native workload example
 
@@ -158,8 +148,8 @@ All app/init/sidecar/ephemeral containers in the Pod require v1 artifacts.
 ## Optional Maven producer
 
 Java-specific project knowledge lives in the separately packaged Maven plugin.
-It can prepare classpath/module argv and dependency layers, or consume one
-verified complete Java layer-set graph.
+It can prepare classpath/module argv and package the application and its
+dependencies as ordinary files in app layers.
 Replace the example plugin version with the release reported by
 `brewlet version`.
 
@@ -172,7 +162,6 @@ mvn package sh.brewlet:brewlet-maven-plugin:0.8.1:push \
 
 The plugin requires Java 17 or later and a matching `brewlet` CLI on the
 `PATH` (or set `-Dbrewlet.executable`). It does not generate Kubernetes
-manifests, choose Pod runtime annotations or apply workloads. Consuming a
-managed dependency layer set requires a thin JAR, not a nested-JAR (fat JAR)
-application. See [Java applications](java.md) and the
+manifests, choose Pod runtime annotations or apply workloads. See
+[Java applications](java.md) and the
 [Maven plugin reference](https://github.com/microsoft/brewlet/blob/main/maven-plugin/README.md).

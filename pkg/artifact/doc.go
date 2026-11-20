@@ -1,4 +1,4 @@
-// Package artifact defines Brewlet application and layer-set artifacts.
+// Package artifact defines Brewlet application artifacts.
 //
 // Producers supply explicit launch bytes, platforms and source/destination
 // mappings. Build preserves launch bytes and source modes/mtimes, rejects all
@@ -18,22 +18,12 @@
 // Visible link targets are checked against the composed namespace without
 // lexically collapsing ".." before preceding symlinks are resolved.
 //
-// Every layer set has exactly one CycloneDX 1.5 SBOM referrer. With an explicit
-// lock, components mirror its ecosystem/name/version/path/hash and optional
-// author-supplied group/purl. Without a lock, components are file inventories,
-// not inferred dependency identities. Maven owns its BOM/GAV graph and supplies
-// its group and Maven package URL explicitly; generic code never detects Java.
-//
-// Optional layer-set provenance uses ECDSA-P256 DSSE and an in-toto Statement v1.
-// Its predicate type is LayerSetPredicateType and LayerSetPredicate binds the
-// manifest, config, ordered layer/diff-ID pairs, optional lock, SBOM blob and
-// builder identity. Presence of any provenance requires explicit public keys and
-// expected signer identity; at least one complete candidate must validate.
+// Libraries are ordinary application payload files in app layers.
 // Referrers are discovered through OCI layout indexes, the paginated registry
 // Referrers API, or paginated deterministic per-referrer digest tags.
 //
 // VerifyGraph and the push CLI command are byte-preserving OCI transport,
 // not Brewlet semantic validators. They can publish ordinary approved-runtime
-// inputs and negative conformance fixtures. Normal push still validates the
-// launch and layers, and runtime consumers independently enforce the contract.
+// inputs and negative conformance fixtures. InspectApplication and runtime
+// consumers independently enforce the launch and layer contract.
 package artifact

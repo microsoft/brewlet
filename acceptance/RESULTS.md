@@ -2,8 +2,8 @@
 
 **Full promotion qualification remains unproven.** No current-candidate bundle
 is indexed. Green unit/contract checks, partial live assertions and historical
-declarations do not satisfy the 115 baseline obligations, 29 composition
-obligations or 22-suite native matrix.
+declarations do not satisfy the 112 baseline obligations or 18-suite native
+matrix.
 
 The PR gate includes real Python application execution,
 rotations, protected CRI identity and normal production cleanup. It is distinct

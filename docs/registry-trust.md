@@ -5,7 +5,7 @@ others.
 
 | Client | Purpose | Configuration responsibility |
 | --- | --- | --- |
-| Brewlet producer | Publish/inspect application and layer-set OCI graphs. | Producer credentials and host/producer CA roots. |
+| Brewlet producer | Publish and inspect application OCI graphs. | Producer credentials and host/producer CA roots. |
 | Kubelet/containerd CRI | Pull application images. | Pod/service-account imagePullSecrets and node registry trust. |
 | Node provisioner/containerd | Acquire approved runtime sources. | Reviewed node source-registry authentication, CA roots and mirror policy. |
 | Application runtime | Outbound application TLS. | Runtime/application trust store, explicit configuration and mounted trust material. |

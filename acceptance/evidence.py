@@ -51,7 +51,7 @@ def _normalized(path, content):
         return None
     if path == "acceptance/RESULTS.md":
         return None
-    if path in ("acceptance/requirements.json", "acceptance/composition-requirements.json"):
+    if path == "acceptance/requirements.json":
         document = json.loads(content, object_pairs_hook=_unique)
         for row in document.get("requirements", []) + document.get("amendments", []):
             row.pop("status", None)

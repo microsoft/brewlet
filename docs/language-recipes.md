@@ -18,7 +18,7 @@ for a complete workflow.
 
 | Workload | Guide focus |
 | --- | --- |
-| [Java](java.md) | Thin JARs, Maven, classpath/module choices and managed dependencies. |
+| [Java](java.md) | Thin JARs, Maven, classpath/module choices and packaged dependencies. |
 | [Python](python.md) | Import layout, resolved dependencies, interpreter ABI and read-only execution. |
 | [Node.js](nodejs.md) | ES modules/CommonJS, dependency paths and native addons. |
 | [.NET](dotnet.md) | Framework-dependent publishing, managed/native assets and runtime compatibility. |
@@ -29,9 +29,8 @@ for a complete workflow.
 Other languages work the same way. The tested
 [fixtures](https://github.com/microsoft/brewlet/tree/main/integration-tests/fixtures)
 cover Java, Python, Node.js and .NET. Unmodified distroless runtime images are
-also tested for Java, Python, Node.js and static binaries on arm64. For
-dependency layer sets shared across applications, see
-[managed composition](managed-composition.md).
+also tested for Java, Python, Node.js and static binaries on arm64. Resolve
+dependencies with your ecosystem tools and package them as application files.
 
 ## Python
 
@@ -64,7 +63,7 @@ Read the [complete Python guide](python.md). For a distroless Python runtime ima
 
 ```sh
 brewlet build registry.example.com/apps/python:v1 --platform linux/arm64 \
-  --launch launch.json --layer dependency=./dependencies:/app/dependencies \
+  --launch launch.json --layer app=./dependencies:/app/dependencies \
   --layer app=./src:/app/src
 brewlet push registry.example.com/apps/python:v1
 ```
@@ -149,7 +148,8 @@ Read the [complete .NET guide](dotnet.md). For a runtime explicitly providing
 ```
 
 Publish compatible framework-dependent application bytes and preserve the
-required managed/native assets. Map app and dependency layers into `/app` and select an approved runtime with
+required managed/native assets. Package all of these files in app layers under
+`/app` and select an approved runtime with
 the matching .NET major version. Check actual file paths and native ABI.
 
 ## PHP

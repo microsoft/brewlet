@@ -127,16 +127,16 @@ func (f *referrerRegistryFixture) serve(w http.ResponseWriter, r *http.Request) 
 	}
 	w.WriteHeader(404)
 }
-func TestRegistryLayerSetReferrersNativeAndFallback(t *testing.T) {
+func TestRegistryApplicationReferrersNativeAndFallback(t *testing.T) {
 	for _, native := range []bool{true, false} {
 		t.Run(map[bool]string{true: "native", false: "fallback"}[native], func(t *testing.T) {
 			dir := testDir(t)
 			store := Store{Dir: filepath.Join(dir, "source")}
-			root, predicate := fixtureLayerSet(t, store, true, true)
-			old := testSigner(t, "platform")
-			current := testSigner(t, "platform")
-			addSignature(t, store, root, predicate, old)
-			addSignature(t, store, root, predicate, current)
+			root := fixtureApplication(t, store)
+			for _, document := range []string{`{"bomFormat":"CycloneDX"}`, `{"note":"application evidence"}`} {
+				_, err := publishReferrer(store, root, MediaTypeCycloneDX, MediaTypeCycloneDX, []byte(document))
+				must(t, err)
+			}
 			fixture := &referrerRegistryFixture{native: native, objects: map[string]registryObject{}, referrers: map[string][]v1.Descriptor{}, tags: map[string]bool{}}
 			server := httptest.NewServer(http.HandlerFunc(fixture.serve))
 			defer server.Close()
@@ -148,26 +148,22 @@ func TestRegistryLayerSetReferrersNativeAndFallback(t *testing.T) {
 			got, e := reg.Pull(context.Background(), remote)
 			must(t, e)
 			if got.Digest != root.Digest {
-				t.Fatal("layer-set digest changed")
+				t.Fatal("application digest changed")
 			}
-			_, ev, e := ConsumeLayerSet(context.Background(), remote, got, signerTrust(current))
+			refs, e := remote.Referrers(got)
 			must(t, e)
-			if ev.SBOMDigest != predicate.SBOMDigest {
-				t.Fatal("registry SBOM binding changed")
+			if len(refs) != 2 {
+				t.Fatal("registry lost application referrers")
 			}
-			_, _, e = ConsumeLayerSet(context.Background(), remote, got, signerTrust(old))
-			must(t, e)
-			if _, _, e = ConsumeLayerSet(context.Background(), remote, got); e == nil {
-				t.Fatal("remote signed set accepted without credentials")
-			}
+			must(t, VerifyGraph(context.Background(), remote, got))
 			fixture.mu.Lock()
 			defer fixture.mu.Unlock()
 			if native {
-				if fixture.nativePages < 3 || len(fixture.tags) != 1 {
+				if fixture.nativePages < 2 || len(fixture.tags) != 1 {
 					t.Fatalf("native discovery or publication incorrect: pages=%d tags=%d", fixture.nativePages, len(fixture.tags))
 				}
-			} else if fixture.tagPages < 4 || len(fixture.tags) != 4 {
-				t.Fatalf("fallback signer-rotation tags not preserved: pages=%d tags=%d", fixture.tagPages, len(fixture.tags))
+			} else if fixture.tagPages < 3 || len(fixture.tags) != 3 {
+				t.Fatalf("fallback referrer tags not preserved: pages=%d tags=%d", fixture.tagPages, len(fixture.tags))
 			}
 		})
 	}

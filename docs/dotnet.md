@@ -19,10 +19,8 @@ compiled executable directly rather than using a platform-supplied `dotnet`
 runtime. See [Native (Go, Rust, etc)](native.md) for the platform-managed golden
 image model and its maintenance boundaries.
 
-Dependencies can ship inside the application image or be published separately
-as a [dependency layer set](dependency-layer-sets.md) or
-[governed bundle](managed-composition.md). Brewlet does not run NuGet or infer
-your publishing model.
+Dependencies must be included as ordinary files in the application image.
+Brewlet does not run NuGet or infer your publishing model.
 
 An update starts new Pods; it never patches a running CLR process. See
 [concepts](concepts.md) and the
@@ -32,13 +30,9 @@ The runtime root is also read-only, so temporary files and caches need
 
 ## Tested runtime images
 
-Brewlet has been tested with .NET 10 using:
-
-- unchanged Canonical `ubuntu/dotnet-runtime:10.0` images on arm64 and amd64
-  ([digests](../integration-tests/fixtures/runtimes/managed-dotnet.json));
-- Microsoft `mcr.microsoft.com/dotnet/runtime` 10.0 images adapted for Brewlet
-  ([digests](../integration-tests/fixtures/runtimes/rotation.json)).
-
+Brewlet's .NET runtime rotation examples use Microsoft
+`mcr.microsoft.com/dotnet/runtime` 10.0 images adapted for Brewlet
+([fixture digests](../integration-tests/fixtures/runtimes/rotation.json)).
 These are test inputs, not a security recommendation.
 
 The .NET example fixture runs weekly against `main` in the
@@ -67,7 +61,7 @@ main `App.dll` and a separate `Greeting.dll` dependency, and pins .NET SDK
       --output published --self-contained false --nologo
     ```
 
-2. Split the output into an application layer and a dependency layer:
+2. Split the output into two application layers:
 
     ```sh
     mkdir application dependencies
@@ -115,15 +109,15 @@ Replace the registry with your own:
 brewlet build registry.example.com/apps/dotnet-demo:v1 \
   --platform linux/arm64 \
   --launch launch.json \
-  --layer "dependency=./dependencies:/app" \
+  --layer "app=./dependencies:/app" \
   --layer "app=./application:/app"
 brewlet push registry.example.com/apps/dotnet-demo:v1 --push-result push.json
 ```
 
 A .NET assembly is not automatically platform-independent: RID-specific
 assets, P/Invoke and native libraries still need compatible Linux targets.
-[Dependency layer sets](dependency-layer-sets.md) are assembled when you build
-the image; Brewlet never runs NuGet restore at container startup.
+Dependencies are assembled into the application when you build the image;
+Brewlet never runs NuGet restore at container startup.
 
 ## Deploy
 

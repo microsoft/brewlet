@@ -41,7 +41,7 @@ func TestHelpAndDispatch(t *testing.T) {
 	if e := dispatch(context.Background(), []string{"--help"}, &out, &errOut); e != nil {
 		t.Fatal(e)
 	}
-	for _, want := range []string{"build", "push", "bundle", "run", "k8s", "inventory"} {
+	for _, want := range []string{"build", "push", "verify", "run", "k8s", "inventory"} {
 		if !strings.Contains(out.String(), "  "+want+" ") {
 			t.Errorf("help missing %q:\n%s", want, out.String())
 		}
@@ -51,7 +51,7 @@ func TestHelpAndDispatch(t *testing.T) {
 			t.Errorf("help lists %q", hidden)
 		}
 	}
-	for _, args := range [][]string{{"build", "--help"}, {"help", "push"}, {"bundle", "-h"}, {"inspect", "--help"}} {
+	for _, args := range [][]string{{"build", "--help"}, {"help", "push"}, {"verify", "-h"}, {"inspect", "--help"}} {
 		out.Reset()
 		if e := dispatch(context.Background(), args, &out, &errOut); !isHelp(e) || !strings.Contains(out.String(), "Usage: brewlet") {
 			t.Errorf("%v: err=%v output=%q", args, e, out.String())
@@ -93,12 +93,20 @@ func TestBuildDefaultsToPerReferenceLayoutAndPushFindsIt(t *testing.T) {
 	if e := dispatch(context.Background(), []string{"build", ref, "--platform", "linux/amd64", "--launch", "launch.json", "--layer", "app=src:/app", "-o", "json"}, &jsonOut, &errOut); e != nil {
 		t.Fatal(e)
 	}
-	var result struct{ Reference, Store string }
+	var result struct{ Reference, Store, Digest string }
 	if e := json.Unmarshal([]byte(jsonOut.String()), &result); e != nil || result.Reference != ref || result.Store != want {
 		t.Fatalf("unexpected JSON build result (%v): %s", e, jsonOut.String())
 	}
 	if _, e := os.Stat(filepath.Join(want, "index.json")); e != nil {
 		t.Fatal(e)
+	}
+	jsonOut.Reset()
+	if e := dispatch(context.Background(), []string{"verify", want + "@" + result.Digest, "--platform", "linux/amd64", "-o", "json"}, &jsonOut, &errOut); e != nil {
+		t.Fatal(e)
+	}
+	var verification artifact.ApplicationReport
+	if e := json.Unmarshal([]byte(jsonOut.String()), &verification); e != nil || !verification.Structural || verification.Root.Digest.String() != result.Digest {
+		t.Fatalf("unexpected verification (%v): %s", e, jsonOut.String())
 	}
 	if e := dispatch(context.Background(), []string{"push", "registry.example.test/apps/other:v1"}, &out, &errOut); e == nil || !strings.Contains(e.Error(), "no local build") {
 		t.Fatalf("push of unbuilt reference: %v", e)

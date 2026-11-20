@@ -16,7 +16,7 @@ def validate_matrix(document):
     if not isinstance(document, dict):
         return ["qualification matrix must be an object"]
     errors = []
-    if (set(document) != {"schemaVersion", "architectures", "fixtureGroups", "compositionScopes"}
+    if (set(document) != {"schemaVersion", "architectures", "fixtureGroups"}
             or type(document.get("schemaVersion")) is not int or document["schemaVersion"] != 1):
         errors.append("unknown qualification matrix fields/version")
     architectures = document.get("architectures")
@@ -40,16 +40,6 @@ def validate_matrix(document):
                 continue
             if len(rows) != len(required) or {row["id"]: row["category"] for row in rows} != required:
                 errors.append(f"{group}: all required fixtures/categories must occur exactly once")
-    scopes = document.get("compositionScopes")
-    required_scopes = {
-        **{arch: {"architecture": arch, "group": "native", "scenario": "managed-composition"}
-           for arch in REQUIRED_ARCHITECTURES},
-        **{"wasm-" + arch: {"architecture": arch, "group": "wasm",
-                           "scenario": "managed-wasm-composition"}
-           for arch in REQUIRED_ARCHITECTURES},
-    }
-    if not isinstance(scopes, dict) or scopes != required_scopes:
-        errors.append("all native/Wasm composition scopes require their exact architecture, group and scenario")
     return errors
 
 

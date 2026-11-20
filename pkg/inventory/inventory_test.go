@@ -66,13 +66,12 @@ func makeFixture(t *testing.T) fixture {
 	host.Annotations = map[string]string{node.BindingsAnnotation: string(data), api.OwnerName: profile.Name}
 	calls := new(int)
 	options := Options{Cluster: "https://cluster.example", Namespaces: []string{"prod"}, MaxAge: time.Minute,
-		ReadImage: func(ctx context.Context, identity node.ApplicationIdentity) (artifact.DependencyReport, error) {
+		ReadImage: func(ctx context.Context, identity node.ApplicationIdentity) (artifact.ApplicationReport, error) {
 			*calls++
-			return artifact.DependencyReport{Verification: artifact.CompositionInspection{SchemaVersion: 1,
-				Structural: true, PublisherProvenance: true, CompositionSignature: true, PolicyMode: "production",
-				Predicate: artifact.CompositionPredicate{Output: digest.Digest(identity.ManifestDigest), Platform: identity.Platform,
-					OutputConfig: v1.Descriptor{Digest: digest.Digest(identity.ConfigDigest)}}},
-				Packages: []artifact.LockEntry{{Name: "shared", Version: "1", PURL: "pkg:generic/shared@1"}}}, nil
+			return artifact.ApplicationReport{SchemaVersion: 1, Structural: true,
+				Root:     v1.Descriptor{Digest: digest.Digest(identity.RootDigest)},
+				Manifest: v1.Descriptor{Digest: digest.Digest(identity.ManifestDigest)},
+				Config:   v1.Descriptor{Digest: digest.Digest(identity.ConfigDigest)}, Platform: identity.Platform}, nil
 		}}
 	return fixture{fake.NewClientBuilder().WithScheme(scheme).WithObjects(pod, host, profile, deployment, rs).Build(),
 		pod, host, deployment, options, calls}
@@ -136,15 +135,15 @@ func TestCaptureFailsClosed(t *testing.T) {
 			}
 		},
 		"registry-unavailable": func(f *fixture) {
-			f.options.ReadImage = func(context.Context, node.ApplicationIdentity) (artifact.DependencyReport, error) {
-				return artifact.DependencyReport{}, fmt.Errorf("registry unavailable")
+			f.options.ReadImage = func(context.Context, node.ApplicationIdentity) (artifact.ApplicationReport, error) {
+				return artifact.ApplicationReport{}, fmt.Errorf("registry unavailable")
 			}
 		},
-		"unsigned": func(f *fixture) {
+		"unverified-structure": func(f *fixture) {
 			original := f.options.ReadImage
-			f.options.ReadImage = func(ctx context.Context, i node.ApplicationIdentity) (artifact.DependencyReport, error) {
+			f.options.ReadImage = func(ctx context.Context, i node.ApplicationIdentity) (artifact.ApplicationReport, error) {
 				r, e := original(ctx, i)
-				r.Verification.CompositionSignature = false
+				r.Structural = false
 				return r, e
 			}
 		},

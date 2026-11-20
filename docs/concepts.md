@@ -8,7 +8,7 @@ process, heap, writable filesystem or resource limit.
 
 | Decision | Authority | Result |
 | --- | --- | --- |
-| What to execute | Application producer | Explicit `launch.json`, app/dependency layers and platform declarations. |
+| What to execute | Application producer | Explicit `launch.json`, application files/layers and platform declarations. |
 | Which runtime bytes are approved | Platform administrator | A digest-pinned `RuntimeImage` and default numeric identity. |
 | Where that runtime is offered | Platform administrator | `NodeProfile` pool selection, installation mode and lifecycle policy. |
 | Where a workload runs | Kubernetes scheduler | Native workload constraints combined with admitted runtime capabilities. |
@@ -62,7 +62,7 @@ See [rotation and cleanup](operations.md).
 
 ## Boundaries
 
-Application and dependency bytes live under read-only `/app`. Runtime `/app`
+Application files, including libraries and dependencies, live under read-only `/app`. Runtime `/app`
 content is hidden, not merged into that prefix. Explicit volume mounts can
 provide writable data or secrets. Runtime and application caches are immutable.
 

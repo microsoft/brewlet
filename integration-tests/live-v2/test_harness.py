@@ -929,7 +929,7 @@ class ContractTests(ProjectWork):
         config = put({"config": {}})
         manifest = put({"annotations": {"brewlet.sh/artifact-version": "1"}, "config": config,
                         "layers": [{"annotations": {"brewlet.sh/layer": role}}
-                                   for role in ("dependency", "app", "launch")]})
+                                   for role in ("app", "app", "launch")]})
         inner = put({"manifests": [manifest]})
         (layout / "index.json").write_text(json.dumps({"manifests": [inner]}))
         self.assertEqual(h.artifact_target(layout)[0], inner["digest"])

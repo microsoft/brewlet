@@ -3,15 +3,11 @@ package main
 import (
 	"bytes"
 	"context"
-	"regexp"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/microsoft/brewlet/pkg/artifact"
 	"github.com/microsoft/brewlet/pkg/inventory"
-	digest "github.com/opencontainers/go-digest"
-	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
 func TestHumanSize(t *testing.T) {
@@ -27,29 +23,6 @@ func TestOutputFlagRejectsUnknownFormat(t *testing.T) {
 	err := dispatch(context.Background(), []string{"push", "registry.example.test/a:v1", "-o", "yaml"}, &out, &errOut)
 	if err == nil || !strings.Contains(err.Error(), "text|json") {
 		t.Fatalf("unknown format accepted or unclear: %v", err)
-	}
-}
-
-func TestWriteVerificationKeepsChecksDistinct(t *testing.T) {
-	var out bytes.Buffer
-	err := writeVerification(&out, "  ", artifact.CompositionInspection{
-		Structural: true, TestReleaseApproval: "none", PolicyMode: "production",
-		Predicate: artifact.CompositionPredicate{
-			Platform:      v1.Platform{OS: "linux", Architecture: "arm64"},
-			DependencySet: v1.Descriptor{Digest: digest.FromString("deps")},
-		},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	text := out.String()
-	for _, want := range []string{"Structure:", "Publisher provenance:", "Composition signature: not verified", "linux/arm64", digest.FromString("deps").String()} {
-		if !strings.Contains(text, want) {
-			t.Errorf("verification text missing %q:\n%s", want, text)
-		}
-	}
-	if !regexp.MustCompile(`Structure:\s+verified`).MatchString(text) {
-		t.Errorf("structural check must read as verified:\n%s", text)
 	}
 }
 

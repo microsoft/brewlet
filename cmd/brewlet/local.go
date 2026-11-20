@@ -10,7 +10,7 @@ import (
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
-func localLayerSet(reference string) (artifact.Store, v1.Descriptor, bool, error) {
+func localLayout(reference string) (artifact.Store, v1.Descriptor, bool, error) {
 	directory, pin := reference, ""
 	if i := strings.LastIndex(reference, "@sha256:"); i >= 0 {
 		directory, pin = reference[:i], reference[i+1:]

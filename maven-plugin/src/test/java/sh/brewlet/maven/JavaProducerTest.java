@@ -10,7 +10,6 @@ import java.nio.file.attribute.FileTime;
 import java.util.List;
 import java.util.jar.Attributes;
 import java.util.jar.JarOutputStream;
-import java.util.jar.JarEntry;
 import java.util.jar.Manifest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -82,29 +81,28 @@ class JavaProducerTest {
         var prepared = new JavaProducer.Prepared(temp.resolve("launch with spaces.json"),
                 temp.resolve("app with spaces"), null, "/app/lib");
         assertThrows(IllegalArgumentException.class, () -> JavaProducer.command("brewlet", "app",
-                null, List.of(), List.of(), prepared));
+                null, List.of(), prepared));
         List<String> command = JavaProducer.command("brewlet", "registry.test/apps/a:v2",
-                temp.resolve("oci"), List.of("linux/amd64", "linux/arm64"),
-                List.of("registry.test/dep@sha256:" + "a".repeat(64)), prepared);
+                temp.resolve("oci"), List.of("linux/amd64", "linux/arm64"), prepared);
         assertEquals(2, command.stream().filter("--platform"::equals).count());
         assertTrue(command.contains(prepared.launch().toString()));
         assertEquals("app=" + prepared.application() + ":/app", command.get(command.size() - 1));
         assertFalse(command.contains("manifest"));
     }
 
-    @Test void managedConsumptionRejectsNestedJarsRegardlessOfLaunchAuthority() throws Exception {
-        Path thin = jar("thin.jar", "example.Main");
-        JavaProducer.requireThinJar(thin);
-        for (String entry : List.of("BOOT-INF/lib/dependency.jar", "WEB-INF/lib/dependency.JAR",
-                "hidden.jar")) {
-            Path fat = temp.resolve(entry.replace('/', '_'));
-            try (JarOutputStream output = new JarOutputStream(Files.newOutputStream(fat))) {
-                output.putNextEntry(new JarEntry(entry));
-                output.write(new byte[] {1, 2, 3});
-                output.closeEntry();
-            }
-            assertThrows(IOException.class, () -> JavaProducer.requireThinJar(fat));
-        }
+    @Test void librariesUseAppRoleAndModuleTargetAndRejectDuplicateNames() throws Exception {
+        Path library = Files.writeString(temp.resolve("library.jar"), "library");
+        var prepared = JavaProducer.prepare(new JavaProducer.Inputs(jar("app.jar", "example.Main"),
+                List.of(library), null, null, "example.app", List.of(), List.of()),
+                Files.createDirectory(temp.resolve("module")));
+        List<String> command = JavaProducer.command("brewlet", "app", null, List.of("linux/amd64"), prepared);
+        assertTrue(command.contains("app=" + prepared.dependencies() + ":/app/mods"));
+        assertEquals("library", Files.readString(prepared.dependencies().resolve("library.jar")));
+        Path other = Files.createDirectory(temp.resolve("other")).resolve("library.jar");
+        Files.writeString(other, "different");
+        assertThrows(IOException.class, () -> JavaProducer.prepare(new JavaProducer.Inputs(
+                temp.resolve("app.jar"), List.of(library, other), null, null, null, List.of(), List.of()),
+                Files.createDirectory(temp.resolve("duplicate"))));
     }
 
     @Test void handWrittenDescriptorOverridesAllGeneratedLaunchOptions() throws Exception {

@@ -11,7 +11,7 @@ obligations and evidence rules live in [`acceptance/`](../acceptance/README.md).
   invocation-unique kind cluster, kubeconfig, registry and checkout-built
   images; it never uses an existing cluster or context. See
   [`live-v2/README.md`](live-v2/README.md) for scenarios (`pr`, `control`,
-  `complete` and focused suites) and `wasm.py`/`managed_wasm.py` companions.
+  `complete` and focused suites) and the `wasm.py` companion.
 - `fixtures/` — the Python qualification fixture, Java/Node.js/.NET/PHP example
   fixtures (weekly matrix `language-e2e.yml` workflow, which also runs `wasm.py`), pinned runtime inputs and
   `fixtures/check.py`, the producer/consumer conformance check.

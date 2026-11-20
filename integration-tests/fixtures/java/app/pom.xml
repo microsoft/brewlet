@@ -27,16 +27,4 @@
       <configuration><mainClass>sh.brewlet.fixture.Main</mainClass></configuration>
     </plugin>
   </plugins></build>
-  <profiles>
-    <profile>
-      <id>managed-layer-set</id>
-      <activation><property><name>brewlet.layerSetInput</name></property></activation>
-      <build><plugins><plugin>
-        <groupId>sh.brewlet</groupId><artifactId>brewlet-maven-plugin</artifactId>
-        <configuration>
-          <layerSets><layerSet>${brewlet.layerSetInput}</layerSet></layerSets>
-        </configuration>
-      </plugin></plugins></build>
-    </profile>
-  </profiles>
 </project>

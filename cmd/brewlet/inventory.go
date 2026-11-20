@@ -21,11 +21,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-const inventorySynopsis = `Usage: brewlet inventory --kubeconfig FILE --context NAME --namespace NS... --policy POLICY [flags]
+const inventorySynopsis = `Usage: brewlet inventory --kubeconfig FILE --context NAME --namespace NS... [flags]
 
-Reports which dependency layer sets running workloads were built from, with the
+Reports observed application images and runtime bindings, with structural
 verification evidence behind each container. It observes and exports facts; it
-does not scan for vulnerabilities or change workloads. Incomplete evidence
+does not verify publisher trust, scan for vulnerabilities or change workloads. Incomplete evidence
 prints a partial report and exits nonzero. Unverified containers are unknown,
 not clean.
 
@@ -36,7 +36,6 @@ func runInventory(ctx context.Context, args []string, stdout, _ io.Writer) error
 	fs := newFlagSet("inventory", inventorySynopsis, stdout)
 	kubeconfig := fs.String("kubeconfig", "", "explicit Kubernetes configuration")
 	contextName := fs.String("context", "", "explicit context")
-	policyFile := fs.String("policy", "", "release trust policy")
 	reportFile := fs.String("report", "", "also write the full JSON report to FILE")
 	output := addOutputFlag(fs)
 	authFile := fs.String("registry-auth", "", "origin-scoped registry credentials")
@@ -52,15 +51,11 @@ func runInventory(ctx context.Context, args []string, stdout, _ io.Writer) error
 	if err := checkTextOutput("inventory", *output); err != nil {
 		return err
 	}
-	if fs.NArg() != 0 || *kubeconfig == "" || *contextName == "" || *policyFile == "" || len(namespaces) == 0 ||
+	if fs.NArg() != 0 || *kubeconfig == "" || *contextName == "" || len(namespaces) == 0 ||
 		*maxAge <= 0 || *maxAge > 2*time.Minute || *insecure && *https {
-		return fmt.Errorf("inventory requires --kubeconfig, --context, --policy, --namespace and observation age in (0,2m]")
+		return fmt.Errorf("inventory requires --kubeconfig, --context, --namespace and observation age in (0,2m]")
 	}
-	policy, err := readReleasePolicy(*policyFile)
-	if err != nil {
-		return err
-	}
-	registries, err := loadReleaseRegistries(*authFile, *insecure, *https)
+	registries, err := loadRegistries(*authFile, *insecure, *https)
 	if err != nil {
 		return err
 	}
@@ -92,12 +87,12 @@ func runInventory(ctx context.Context, args []string, stdout, _ io.Writer) error
 	defer os.RemoveAll(temp)
 	store := artifact.Store{Dir: temp}
 	report, err := inventory.Capture(ctx, reader, inventory.Options{Cluster: config.Host, Namespaces: namespaces, Workloads: workloads,
-		MaxAge: *maxAge, ReadImage: func(ctx context.Context, identity node.ApplicationIdentity) (artifact.DependencyReport, error) {
-			target, err := pinnedReleaseInput(ctx, store, identity.Reference, registries)
+		MaxAge: *maxAge, ReadImage: func(ctx context.Context, identity node.ApplicationIdentity) (artifact.ApplicationReport, error) {
+			target, err := pinnedInput(ctx, store, identity.Reference, registries)
 			if err != nil {
-				return artifact.DependencyReport{}, err
+				return artifact.ApplicationReport{}, err
 			}
-			return artifact.InspectDependencies(ctx, store, target, identity.Platform, policy)
+			return artifact.InspectApplication(ctx, store, target, identity.Platform)
 		}})
 	if err != nil {
 		return err
@@ -107,7 +102,7 @@ func runInventory(ctx context.Context, args []string, stdout, _ io.Writer) error
 		if err != nil {
 			return err
 		}
-		if err = atomicReleaseResult(*reportFile, append(data, '\n')); err != nil {
+		if err = atomicResult(*reportFile, append(data, '\n')); err != nil {
 			return err
 		}
 	}
@@ -151,9 +146,9 @@ func writeInventory(w io.Writer, r inventory.Report) error {
 	rows = rows[:0]
 	for _, key := range keys {
 		facts := r.Artifacts[key]
-		rows = append(rows, []string{key, fmt.Sprint(len(facts.Packages)), orDash(facts.Verification.Predicate.DependencySet.Digest.String())})
+		rows = append(rows, []string{key, facts.Manifest.Digest.String(), facts.Config.Digest.String(), platformLabel(&facts.Platform)})
 	}
-	if err := writeTable(w, "  ", []string{"APPLICATION", "PACKAGES", "DEPENDENCY SET"}, rows); err != nil {
+	if err := writeTable(w, "  ", []string{"APPLICATION", "MANIFEST", "CONFIG", "PLATFORM"}, rows); err != nil {
 		return err
 	}
 	if len(r.Warnings) > 0 {

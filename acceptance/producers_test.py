@@ -1,5 +1,3 @@
-import copy
-import importlib.util
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -7,12 +5,6 @@ import unittest
 from unittest.mock import patch
 
 from acceptance import native_contracts, producer_check, run_check
-
-
-ROOT = Path(__file__).resolve().parents[1]
-SPEC = importlib.util.spec_from_file_location("registry_check", ROOT / "integration-tests/registry.py")
-registry = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(registry)
 
 
 class ProducerTests(unittest.TestCase):
@@ -96,31 +88,6 @@ class ProducerTests(unittest.TestCase):
                     self.assertRaisesRegex(ValueError, "ownership changed"):
                 native_contracts.cleanup_container(path, "owner")
             self.assertTrue(all(call.args[0][:2] != ["docker", "rm"] for call in run.call_args_list))
-
-    def test_full_descriptor_diff_id_and_provenance_are_preserved(self):
-        descriptor = {"digest": "sha256:compressed", "size": 123, "mediaType": "layer",
-                      "annotations": {"brewlet.sh/layer": "dependency"}}
-        bindings = {"manifestDigest": "sha256:source", "configDigest": "sha256:config",
-                    "lockDigest": "sha256:lock", "sbomDigest": "sha256:sbom",
-                    "attestationDigest": "sha256:provenance",
-                    "layers": [{"digest": "sha256:compressed", "diffId": "sha256:uncompressed"}]}
-        source = {"layers": [{"descriptor": descriptor, "diffId": "sha256:uncompressed"}],
-                  "evidence": bindings}
-        manifest = {"layers": [descriptor], "annotations": {"brewlet.sh/layerset-evidence": json.dumps([bindings])}}
-        config = {"rootfs": {"diff_ids": ["sha256:uncompressed"]}}
-        registry.dependency_reuse(manifest, config, source)
-        for key in ("digest", "size", "mediaType"):
-            changed = copy.deepcopy(manifest)
-            changed["layers"][0][key] = "changed"
-            with self.subTest(key=key), self.assertRaises(AssertionError):
-                registry.dependency_reuse(changed, config, source)
-        with self.assertRaisesRegex(AssertionError, "diff ID"):
-            registry.dependency_reuse(manifest, {"rootfs": {"diff_ids": ["changed"]}}, source)
-        for key in bindings:
-            changed = copy.deepcopy(manifest)
-            changed["annotations"]["brewlet.sh/layerset-evidence"] = json.dumps([{**bindings, key: "changed"}])
-            with self.subTest(binding=key), self.assertRaisesRegex(AssertionError, "provenance"):
-                registry.dependency_reuse(changed, config, source)
 
 
 if __name__ == "__main__":

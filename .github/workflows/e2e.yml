@@ -23,7 +23,7 @@ on:
         type: choice
         required: true
         default: pr
-        options: [pr, complete, control, managed, managed-wasm]
+        options: [pr, complete, control]
       architecture:
         description: Execute on the actual native architecture, not emulation
         type: choice
@@ -56,7 +56,7 @@ jobs:
           ARCHITECTURE: ${{ inputs.architecture }}
         run: |
           test "$REPOSITORY" = microsoft/brewlet
-          case "$SCENARIO" in pr|complete|control|managed|managed-wasm) ;; *) exit 1 ;; esac
+          case "$SCENARIO" in pr|complete|control) ;; *) exit 1 ;; esac
           case "$ARCHITECTURE" in amd64|arm64) ;; *) exit 1 ;; esac
           [[ "$EXPECTED_SOURCE" =~ ^[0-9a-f]{40}$ ]]
           test "$SOURCE" = "$EXPECTED_SOURCE"
@@ -120,7 +120,7 @@ jobs:
           go install sigs.k8s.io/kind@v0.33.0
           command -v htpasswd
       - name: Install pinned WebAssembly toolchain for promotion companions
-        if: inputs.scenario == 'complete' || inputs.scenario == 'managed-wasm'
+        if: inputs.scenario == 'complete'
         run: rustup toolchain install 1.97.1 --profile minimal --target wasm32-wasip2
       - name: Seed BuildKit Go build cache mount for PR E2E
         if: inputs.scenario == 'pr'

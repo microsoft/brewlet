@@ -1,4 +1,4 @@
-.PHONY: test test-python test-dashboard build acceptance composition-acceptance ledger site-build site-contract-check cheat-sheet-pdf notices go-notices maven-notices site-notices site-notices-check legal-check release-check release-candidate
+.PHONY: test test-python test-dashboard build acceptance ledger site-build site-contract-check cheat-sheet-pdf notices go-notices maven-notices site-notices site-notices-check legal-check release-check release-candidate
 
 SITE_PYTHON ?= python3
 
@@ -15,7 +15,6 @@ test-python:
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s acceptance -p '*_test.py' -v
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s integration-tests/live-v2 -p 'test_*.py' -v
 	python3 acceptance/check.py --structure-only
-	python3 acceptance/composition_check.py --structure-only
 
 build:
 	mkdir -p bin
@@ -62,9 +61,6 @@ ledger:
 
 acceptance:
 	python3 acceptance/verify_evidence.py
-
-composition-acceptance:
-	python3 acceptance/verify_evidence.py --composition-only
 
 site-contract-check:
 	PYTHONDONTWRITEBYTECODE=1 $(SITE_PYTHON) -m unittest discover -s site/scripts -p 'test_*.py' -v

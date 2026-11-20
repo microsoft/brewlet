@@ -91,7 +91,7 @@
   document.querySelectorAll("code[data-lang]").forEach(highlight);
   const examples = {
     python: {entrypoint: ["python3"], args: ["/app/src/main.py"], layer: "app=./src:/app/src",
-      note: "This example has no third-party dependencies. Add explicit dependency layers and lookup paths when your application needs them."},
+      note: "This example has no third-party dependencies. Package any libraries your application needs as ordinary files under /app."},
     java: {entrypoint: ["java"], args: ["-jar", "/app/app.jar"], layer: "app=./target/app:/app",
       note: "Place your executable JAR at target/app/app.jar first. The optional Maven producer can prepare classpath or module layers for you."},
     node: {entrypoint: ["node"], args: ["/app/src/server.js"], layer: "app=./src:/app/src",
