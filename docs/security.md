@@ -45,8 +45,7 @@ sources need a reviewed derived image or a different runtime, not a policy bypas
 ## Supply-chain scope
 
 Digests provide integrity, not a statement about who built an image or whether
-it is safe. Brewlet does not sign application artifacts or evaluate release
-policy.
+it is safe.
 
 Brewlet does not verify application image signatures at admission. Enforce
 any application signature or admission policy with separate platform tooling;

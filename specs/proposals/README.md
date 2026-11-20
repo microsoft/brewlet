@@ -5,10 +5,7 @@ begin here as numbered, reviewable proposals. A proposal is not a current
 contract; once approved and implemented, its requirements are merged into the
 specification and the proposal file is removed. Committed history retains it.
 
-There are no open proposals. Approved Proposal 0009 (language-agnostic runtime
-images) is the basis of the current specification. Proposal 0010's governed
-dependency-composition contract was removed before 1.0 and is not part of the
-current specification. New proposals continue the numbering after 0010.
+There are no open proposals.
 
 ## Deferred research
 

@@ -84,14 +84,13 @@ success-shaped compatibility fallback.
 
 `verify REF@sha256:DIGEST --platform OS/ARCH` checks the OCI graph and the
 selected platform's launch and layer contract, including referenced manifests,
-configs, layers, and digests. It does not authenticate the publisher or evaluate
-release policy, package inventories, signatures, or provenance.
+configs, layers, and digests. This verifies structural integrity, not publisher
+authenticity or vulnerability status.
 
 `inventory` exports observed runtime bindings and a structurally verified
 `ApplicationReport` for each application. Its report contains
 `schemaVersion`, `structural`, `root`, `manifest`, `config`, `platform`,
-`layers`, and `launch`; it does not list packages, evaluate managed-package
-policy, authenticate publishers, scan CVEs, or mutate workloads. Provide an
+`layers`, and `launch`. The command is read-only. Provide an
 explicit kubeconfig, context, and namespaces as required by
 `brewlet inventory --help`. Incomplete observations are reported as such.
 
