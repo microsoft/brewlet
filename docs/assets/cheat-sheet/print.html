@@ -142,11 +142,11 @@ brewlet push "$APP" --push-result push.json
 brewlet run "$APP" --platform linux/amd64 \
   --runtime python-3.13 --from-cluster</pre>
         <p class="note"><code>build</code> writes a local OCI layout; <code>push</code> publishes it. Package libraries and other dependencies as ordinary application files under <code>/app</code>. Local <code>run</code> uses Docker (or <code>--engine podman</code>), not cluster admission.</p>
-        <h3>Select the runtime in your workload</h3>
+        <h3>Select a runtime per managed container</h3>
         <p class="note">Merge this fragment into <code>Deployment.spec.template</code>. Keep your labels, probes, resources and volumes.</p>
         <pre>metadata:
   annotations:
-    runtime-image.brewlet.sh/app: python-3.13
+    runtime-image.brewlet.sh/api: python-3.13
 spec:
   runtimeClassName: brewlet
   nodeSelector:
@@ -155,7 +155,7 @@ spec:
     - name: api
       image: &gt;-
         registry.example.com/apps/api@sha256:&lt;digest&gt;</pre>
-        <p class="note">Use the actual published digest and a runtime approved for your architecture. Select runtimes per managed container; unselected containers use ordinary OCI behavior.</p>
+        <p class="note">The annotation suffix matches the <code>api</code> container. <code>runtimeClassName</code> selects the Pod-wide handler; each managed container selects its own runtime ID. Unselected containers use ordinary OCI behavior.</p>
         <pre>kubectl -n apps apply -f deployment.yaml
 kubectl -n apps rollout status deployment/api</pre>
         <p class="note">Use an existing application namespace. Admission defaults the required read-only root to <code>true</code>; explicit <code>false</code> is rejected.</p>

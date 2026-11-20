@@ -111,13 +111,13 @@ FORM: Adapt the existing main landing structure; no invented performance or prod
         <ol class="workflow">
           <li><h3>Approve the runtime</h3><p>A cluster-scoped <code>RuntimeImage</code> binds a stable ID to a digest-pinned image and non-root numeric defaults. A <code>NodeProfile</code> offers it on selected pools.</p></li>
           <li><h3>Publish the application</h3><p>Package explicit application files under <code>/app</code>, a versioned <code>launch.json</code> and declared OCI platforms. The CLI never guesses the language.</p></li>
-          <li><h3>Select, schedule, compose</h3><p>Use a normal Deployment with <code>runtimeClassName: brewlet</code> and one runtime ID. The shim validates the artifact, leases a runtime generation and delegates to runc.</p></li>
+          <li><h3>Select, schedule, compose</h3><p>Use a normal Deployment with the Pod-wide <code>runtimeClassName: brewlet</code> and select a runtime ID for each managed container. Unselected containers keep ordinary OCI behavior.</p></li>
         </ol>
         <figure id="architecture" class="architecture-diagram" aria-labelledby="architecture-diagram-title">
           <h3 id="architecture-diagram-title">How the pieces fit</h3>
           <picture>
             <source media="(max-width: 760px)" srcset="assets/images/architecture-mobile.svg" width="360" height="1080">
-            <img src="assets/images/architecture-desktop.svg" width="1160" height="710" loading="lazy" decoding="async" alt="Brewlet architecture: containerd pulls the application artifact, infrastructure provisions the runtime generation, and the shim validates, leases and composes them before delegating to runc. Kubernetes schedules ordinary workloads; the operator reconciles runtime infrastructure.">
+            <img src="assets/images/architecture-desktop.svg" width="1160" height="710" loading="lazy" decoding="async" alt="Brewlet architecture: runtimeClassName selects the Pod-wide handler, while each managed container selects its own runtime ID by Pod annotation. Unselected containers use ordinary OCI behavior. Containerd pulls application artifacts, infrastructure provisions runtime generations, and the shim validates, leases and composes each selected runtime before delegating to runc.">
           </picture>
           <figcaption>The application is the workload; the runtime is infrastructure. Containerd pulls the application image. Only the fenced provisioner installs runtime roots; the shim uses verified local content. <a href="assets/images/architecture-desktop.svg">Open full-size diagram</a> · <a href="assets/images/architecture.excalidraw" download>Download editable source</a></figcaption>
         </figure>

@@ -1,7 +1,7 @@
 <!-- Copyright (c) Microsoft Corporation. Licensed under the MIT License. -->
 <svg xmlns="http://www.w3.org/2000/svg" width="1160" height="710" viewBox="0 0 1160 710" role="img" aria-labelledby="architecture-title architecture-description">
   <title id="architecture-title">Brewlet: application workloads, infrastructure runtimes</title>
-  <desc id="architecture-description">An application publisher sends code, libraries, other application files and launch.json to an OCI registry. Native Kubernetes workloads explicitly select a runtime ID; admission and the scheduler place the Pod. RuntimeImage and NodeProfile are reconciled by the Brewlet operator. On a Linux worker, containerd CRI pulls the application image, while the fenced provisioner installs a validated runtime generation. The Brewlet shim verifies the local application artifact, authorizes and leases that runtime generation, composes the root filesystem and delegates the process to runc. The operator does not generate application workloads, and the shim does not pull images.</desc>
+  <desc id="architecture-description">An application publisher sends code, libraries, other application files and launch.json to an OCI registry. The Pod-wide runtimeClassName selects the Brewlet handler; each managed container selects its own runtime ID through a Pod annotation, and unselected containers keep ordinary OCI behavior. Admission and the scheduler place the Pod. RuntimeImage and NodeProfile are reconciled by the Brewlet operator. On a Linux worker, containerd CRI pulls application images, while the fenced provisioner installs validated runtime generations. The Brewlet shim verifies each local application artifact, authorizes and leases its selected runtime generation, composes the root filesystem and delegates the process to runc. The operator does not generate application workloads, and the shim does not pull images.</desc>
   <style>
     :root{color-scheme:light;--cp-bg:#fffdf9;--cp-surface:#fff;--cp-elevated:#fbf4e6;--cp-border:#e7dcc9;--cp-text:#2a1f18;--cp-muted:#6b5d51;--cp-accent:#6f4e37;--cp-link:#326ce5}
     text{font-family:"Segoe UI",Aptos,Calibri,sans-serif;fill:var(--cp-text)}
@@ -13,7 +13,7 @@
     .body{font-size:13px;fill:var(--cp-muted)}
     .label{font-size:13px;font-weight:600;fill:var(--cp-muted)}
     .lane{font-size:15px;font-weight:700}
-    .code{font-family:Consolas,"Courier New",monospace;font-size:12px;fill:var(--cp-muted)}
+    .code{font-family:Consolas,"Courier New",monospace;font-size:11px;fill:var(--cp-muted)}
     .flow{fill:none;stroke:var(--cp-link);stroke-width:1.8;stroke-linejoin:round;stroke-linecap:round}
     .runtime-flow{fill:none;stroke:var(--cp-accent);stroke-width:1.8;stroke-linejoin:round;stroke-linecap:round}
     .mask{fill:var(--cp-elevated)}
@@ -43,14 +43,15 @@
   <g id="workload">
     <rect class="box" x="420" y="44" width="280" height="100" rx="10"/>
     <text class="title" x="438" y="72">Native workload / Pod</text>
-    <text class="code" x="438" y="96">runtimeClassName: brewlet</text>
-    <text class="body" x="438" y="119">Explicit runtime ID + app digest</text>
+    <text class="code" x="438" y="96">runtimeClassName: brewlet · Pod-wide</text>
+    <text class="code" x="438" y="119">runtime-image.brewlet.sh/&lt;name&gt;: &lt;id&gt;</text>
+    <text class="body" x="438" y="139">Unselected containers use ordinary OCI</text>
   </g>
   <path class="flow" d="M560 144V185" marker-end="url(#application-arrow)"/>
   <g id="scheduler">
     <rect class="box" x="420" y="185" width="280" height="72" rx="10"/>
     <text class="title" x="438" y="214">Admission + scheduler</text>
-    <text class="body" x="438" y="238">Validate selection · place the Pod</text>
+    <text class="body" x="438" y="238">Validate selections · place the Pod</text>
   </g>
 
   <g id="inventory">

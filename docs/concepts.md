@@ -24,11 +24,16 @@ entrypoint is not an alternative application descriptor.
 Producer -> registry: application OCI image and explicit platforms
 Administrator -> RuntimeImage: approved source digest and numeric UID/GID
 Administrator -> NodeProfile: offer that ID on selected pools
-Workload -> admission: RuntimeClass + explicit runtime ID
+Workload -> admission: Pod-wide RuntimeClass + runtime ID per managed container
 Admission -> scheduler: preserve author constraints and add runtime capability
 Provisioner -> node: validate, authorize and publish an immutable generation
 containerd -> Brewlet shim -> runc: lease runtime, isolate /app, run explicit argv
 ```
+
+`runtimeClassName: brewlet` selects the handler for the whole Pod. Each managed
+container independently selects its runtime by a Pod annotation named
+`runtime-image.brewlet.sh/<container-name>`; unselected containers keep ordinary
+OCI behavior.
 
 Kubelet pulls the application image. The provisioner acquires runtime sources.
 The shim verifies application content and resolves trusted local runtime state;
