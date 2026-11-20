@@ -57,8 +57,8 @@ brewlet build registry.example.com/apps/api:v2 \
   --platform linux/amd64 \
   --platform linux/arm64 \
   --launch launch.json \
-  --layer app=./dependencies:/app/lib \
-  --layer app=./src:/app/src
+  --layer ./dependencies:/app/lib \
+  --layer ./src:/app/src
 brewlet push registry.example.com/apps/api:v2 --push-result push.json
 ```
 

@@ -141,7 +141,7 @@ cat > "$WORK/launch.json" <<'EOF'
 EOF
 
 brewlet build example.invalid/brewlet/hello:v1 --platform "linux/$ARCH" \
-  --launch "$WORK/launch.json" --layer "app=$WORK/app:/app" --store "$WORK/image"
+  --launch "$WORK/launch.json" --layer "$WORK/app:/app" --store "$WORK/image"
 APP="example.invalid/brewlet/hello@$(grep -o 'sha256:[0-9a-f]*' "$WORK/image/index.json")"
 echo "$APP"
 ```

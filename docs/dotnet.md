@@ -109,8 +109,8 @@ Replace the registry with your own:
 brewlet build registry.example.com/apps/dotnet-demo:v1 \
   --platform linux/arm64 \
   --launch launch.json \
-  --layer "app=./dependencies:/app" \
-  --layer "app=./application:/app"
+  --layer "./dependencies:/app" \
+  --layer "./application:/app"
 brewlet push registry.example.com/apps/dotnet-demo:v1 --push-result push.json
 ```
 

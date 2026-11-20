@@ -143,12 +143,12 @@ Each artifact includes its needed application files:
 ```sh
 brewlet build registry.example.com/apps/wasmtime-demo:v1 \
   --platform linux/arm64 --launch examples/wasm/wasmtime-launch.json \
-  --layer "app=$WORK/wasmtime-app:/app"
+  --layer "$WORK/wasmtime-app:/app"
 brewlet push registry.example.com/apps/wasmtime-demo:v1 --push-result "$WORK/wasmtime-push.json"
 
 brewlet build registry.example.com/apps/spin-demo:v1 \
   --platform linux/arm64 --launch examples/wasm/spin-launch.json \
-  --layer "app=$WORK/spin-app:/app"
+  --layer "$WORK/spin-app:/app"
 brewlet push registry.example.com/apps/spin-demo:v1 --push-result "$WORK/spin-push.json"
 ```
 

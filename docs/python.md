@@ -102,8 +102,8 @@ also covers macOS). Replace the registry and declare your actual platform:
 brewlet build registry.example.com/apps/python-demo:v1 \
   --platform linux/arm64 \
   --launch "$WORK/launch.json" \
-  --layer "app=$WORK/dependencies:/app/dependencies" \
-  --layer "app=$WORK/src:/app/src"
+  --layer "$WORK/dependencies:/app/dependencies" \
+  --layer "$WORK/src:/app/src"
 brewlet push registry.example.com/apps/python-demo:v1 --push-result "$WORK/push.json"
 ```
 

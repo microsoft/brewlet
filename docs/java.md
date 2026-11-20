@@ -97,8 +97,8 @@ also covers macOS). Replace the registry with your own:
 brewlet build registry.example.com/apps/java-demo:v1 \
   --platform linux/arm64 \
   --launch "$WORK/launch.json" \
-  --layer "app=$WORK/dependencies:/app/lib" \
-  --layer "app=$WORK/application:/app"
+  --layer "$WORK/dependencies:/app/lib" \
+  --layer "$WORK/application:/app"
 brewlet push registry.example.com/apps/java-demo:v1 --push-result "$WORK/push.json"
 ```
 

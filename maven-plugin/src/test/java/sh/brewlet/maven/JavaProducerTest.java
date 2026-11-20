@@ -86,7 +86,7 @@ class JavaProducerTest {
                 temp.resolve("oci"), List.of("linux/amd64", "linux/arm64"), prepared);
         assertEquals(2, command.stream().filter("--platform"::equals).count());
         assertTrue(command.contains(prepared.launch().toString()));
-        assertEquals("app=" + prepared.application() + ":/app", command.get(command.size() - 1));
+        assertEquals(prepared.application() + ":/app", command.get(command.size() - 1));
         assertFalse(command.contains("manifest"));
     }
 
@@ -96,7 +96,7 @@ class JavaProducerTest {
                 List.of(library), null, null, "example.app", List.of(), List.of()),
                 Files.createDirectory(temp.resolve("module")));
         List<String> command = JavaProducer.command("brewlet", "app", null, List.of("linux/amd64"), prepared);
-        assertTrue(command.contains("app=" + prepared.dependencies() + ":/app/mods"));
+        assertTrue(command.contains(prepared.dependencies() + ":/app/mods"));
         assertEquals("library", Files.readString(prepared.dependencies().resolve("library.jar")));
         Path other = Files.createDirectory(temp.resolve("other")).resolve("library.jar");
         Files.writeString(other, "different");

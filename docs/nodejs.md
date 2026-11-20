@@ -135,8 +135,8 @@ Replace the registry with your own:
 brewlet build registry.example.com/apps/node-demo:v1 \
   --platform linux/arm64 \
   --launch launch.json \
-  --layer "app=./dependencies:/app/dependencies" \
-  --layer "app=./src:/app/src"
+  --layer "./dependencies:/app/dependencies" \
+  --layer "./src:/app/src"
 brewlet push registry.example.com/apps/node-demo:v1 --push-result push.json
 ```
 

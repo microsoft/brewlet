@@ -20,7 +20,7 @@ use it only for payloads that work unchanged on each one:
 ```sh
 brewlet build registry.example.com/apps/api:v2 \
   --platform linux/amd64 --platform linux/arm64 \
-  --launch launch.json --layer app=./src:/app/src
+  --launch launch.json --layer ./src:/app/src
 brewlet push registry.example.com/apps/api:v2
 ```
 
@@ -31,9 +31,9 @@ platform it belongs to; do not label one native payload as portable:
 ```sh
 brewlet build registry.example.com/apps/api:v2 \
   --platform linux/amd64 --platform linux/arm64 --launch launch.json \
-  --layer linux/amd64:app=./wheels-amd64:/app/dependencies \
-  --layer linux/arm64:app=./wheels-arm64:/app/dependencies \
-  --layer app=./src:/app/src
+  --layer linux/amd64:./wheels-amd64:/app/dependencies \
+  --layer linux/arm64:./wheels-arm64:/app/dependencies \
+  --layer ./src:/app/src
 brewlet push registry.example.com/apps/api:v2
 ```
 

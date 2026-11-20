@@ -29,32 +29,31 @@ type LayerSpec struct {
 	Platform                  *v1.Platform
 }
 
-// ParseLayerSpec parses [OS/ARCH[/VARIANT]:]ROLE=SOURCE:/app/PATH.
+// ParseLayerSpec parses [OS/ARCH[/VARIANT]:]SOURCE:/app/PATH as app payload.
 func ParseLayerSpec(s string) (LayerSpec, error) {
-	role, rest, ok := strings.Cut(s, "=")
+	i := strings.LastIndex(s, ":")
+	if i < 1 {
+		return LayerSpec{}, fmt.Errorf("layer must be [OS/ARCH[/VARIANT]:]SOURCE:/app/PATH")
+	}
+	source, dest := s[:i], s[i+1:]
 	var platform *v1.Platform
-	if i := strings.LastIndex(role, ":"); ok && i >= 0 {
-		p, e := ParsePlatform(role[:i])
+	if prefix, rest, ok := strings.Cut(source, ":"); ok {
+		p, e := ParsePlatform(prefix)
 		if e != nil {
 			return LayerSpec{}, e
 		}
-		platform, role = &p, role[i+1:]
+		platform, source = &p, rest
 	}
-	if !ok || role != "app" {
-		return LayerSpec{}, fmt.Errorf("layer must be [OS/ARCH[/VARIANT]:]app=SOURCE:/app/PATH")
+	if source == "" {
+		return LayerSpec{}, fmt.Errorf("missing layer source")
 	}
-	i := strings.LastIndex(rest, ":")
-	if i < 1 {
-		return LayerSpec{}, fmt.Errorf("missing layer destination")
-	}
-	dest := rest[i+1:]
 	if !strings.HasPrefix(dest, "/app") {
 		return LayerSpec{}, fail("LayerPathViolation", "destination outside /app")
 	}
 	if _, e := archivePath(strings.TrimPrefix(dest, "/")); e != nil {
 		return LayerSpec{}, e
 	}
-	return LayerSpec{Role: role, Source: rest[:i], Destination: strings.TrimPrefix(dest, "/"), Platform: platform}, nil
+	return LayerSpec{Role: "app", Source: source, Destination: strings.TrimPrefix(dest, "/"), Platform: platform}, nil
 }
 
 type BuiltLayer struct {

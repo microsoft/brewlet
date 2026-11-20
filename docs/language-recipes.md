@@ -63,8 +63,8 @@ Read the [complete Python guide](python.md). For a distroless Python runtime ima
 
 ```sh
 brewlet build registry.example.com/apps/python:v1 --platform linux/arm64 \
-  --launch launch.json --layer app=./dependencies:/app/dependencies \
-  --layer app=./src:/app/src
+  --launch launch.json --layer ./dependencies:/app/dependencies \
+  --layer ./src:/app/src
 brewlet push registry.example.com/apps/python:v1
 ```
 

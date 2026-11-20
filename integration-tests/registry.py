@@ -74,8 +74,8 @@ def main():
         command([executable, "build", reference, "--store", layout,
                  "--platform", "linux/amd64", "--platform", "linux/arm64",
                  "--launch", fixture / "launch.json",
-                 "--layer", f"app={fixture / 'dependencies'}:/app/dependencies",
-                 "--layer", f"app={fixture / 'src'}:/app/src"], env=environment)
+                 "--layer", f"{fixture / 'dependencies'}:/app/dependencies",
+                 "--layer", f"{fixture / 'src'}:/app/src"], env=environment)
         push = [executable, "push", reference, "--store", layout, "--insecure"]
         first = command(push, env=environment)
         second = command(push, env=environment)

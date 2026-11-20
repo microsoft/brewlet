@@ -27,7 +27,7 @@ func TestExplicitProducerInputs(t *testing.T) {
 	}{
 		{[]string{"build", "example.com/app", "--store", filepath.Join(dir, "store"), "--launch", launch}, "explicit platforms required"},
 		{[]string{"build", "example.com/app", "--store", filepath.Join(dir, "store"), "--platform", "linux/amd64"}, "--launch required"},
-		{[]string{"build", "example.com/app", "--store", filepath.Join(dir, "store"), "--launch", launch, "--platform", "linux/amd64", "--layer", "app=source:/etc"}, "LayerPathViolation"},
+		{[]string{"build", "example.com/app", "--store", filepath.Join(dir, "store"), "--launch", launch, "--platform", "linux/amd64", "--layer", "source:/etc"}, "LayerPathViolation"},
 		{[]string{"build", "example.com/app", "--store", filepath.Join(dir, "store"), "--launch", launch, "--platform", "linux/amd64"}, "at least one app layer required"},
 	} {
 		if e = run(context.Background(), tc.args); e == nil || !strings.Contains(e.Error(), tc.want) {
@@ -80,7 +80,7 @@ func TestBuildDefaultsToPerReferenceLayoutAndPushFindsIt(t *testing.T) {
 	}
 	var out, errOut, jsonOut strings.Builder
 	ref := "registry.example.test/apps/demo:v1"
-	if e := dispatch(context.Background(), []string{"build", ref, "--platform", "linux/amd64", "--launch", "launch.json", "--layer", "app=src:/app"}, &out, &errOut); e != nil {
+	if e := dispatch(context.Background(), []string{"build", ref, "--platform", "linux/amd64", "--launch", "launch.json", "--layer", "src:/app"}, &out, &errOut); e != nil {
 		if artifact.Reason(e) == "LayerPathViolation" && strings.Contains(e.Error(), "extended attributes") {
 			t.Skipf("host attaches undeletable source xattrs; full producer cases run on Linux: %v", e)
 		}
@@ -90,7 +90,7 @@ func TestBuildDefaultsToPerReferenceLayoutAndPushFindsIt(t *testing.T) {
 	if !strings.Contains(out.String(), "Built image "+ref) || !strings.Contains(out.String(), want) || strings.HasPrefix(out.String(), "{") {
 		t.Fatalf("unexpected build result: %s", out.String())
 	}
-	if e := dispatch(context.Background(), []string{"build", ref, "--platform", "linux/amd64", "--launch", "launch.json", "--layer", "app=src:/app", "-o", "json"}, &jsonOut, &errOut); e != nil {
+	if e := dispatch(context.Background(), []string{"build", ref, "--platform", "linux/amd64", "--launch", "launch.json", "--layer", "src:/app", "-o", "json"}, &jsonOut, &errOut); e != nil {
 		t.Fatal(e)
 	}
 	var result struct{ Reference, Store, Digest string }

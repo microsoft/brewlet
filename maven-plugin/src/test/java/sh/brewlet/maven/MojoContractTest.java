@@ -112,13 +112,13 @@ class MojoContractTest {
                 argv.get(argv.indexOf("--store") + 1)), argv.subList(push, argv.size()));
         assertEquals(2, argv.stream().filter("--layer"::equals).count());
         String libraryLayer = argv.get(argv.indexOf("--layer") + 1);
-        assertTrue(libraryLayer.startsWith("app=") && libraryLayer.endsWith(":/app/lib"));
-        Path libraries = Path.of(libraryLayer.substring(4, libraryLayer.length() - ":/app/lib".length()));
+        assertTrue(libraryLayer.endsWith(":/app/lib"));
+        Path libraries = Path.of(libraryLayer.substring(0, libraryLayer.length() - ":/app/lib".length()));
         assertEquals("dependency", Files.readString(libraries.resolve("library.jar")));
         assertFalse(Files.exists(libraries.resolve("provided.jar")));
         String appLayer = argv.get(argv.lastIndexOf("--layer") + 1);
-        assertTrue(appLayer.startsWith("app=") && appLayer.endsWith(":/app"));
-        Path application = Path.of(appLayer.substring(4, appLayer.length() - ":/app".length()));
+        assertTrue(appLayer.endsWith(":/app"));
+        Path application = Path.of(appLayer.substring(0, appLayer.length() - ":/app".length()));
         assertTrue(Files.isRegularFile(application.resolve("app.jar")));
     }
 

@@ -136,7 +136,7 @@ kubectl wait --for=condition=Ready \
         <h3>Package, publish + exercise locally</h3>
         <pre>APP=registry.example.com/apps/api:v2
 brewlet build "$APP" --platform linux/amd64 \
-  --launch launch.json --layer app=./src:/app/src
+  --launch launch.json --layer ./src:/app/src
 brewlet inspect "$APP"
 brewlet push "$APP" --push-result push.json
 brewlet run "$APP" --platform linux/amd64 \

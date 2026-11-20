@@ -94,7 +94,7 @@ Usage:
 	}
 	fmt.Fprint(out, `Typical flow:
   brewlet build registry.example.com/apps/api:v1 --platform linux/amd64 --platform linux/arm64 \
-    --launch launch.json --layer app=./deps:/app/lib --layer app=./build:/app
+    --launch launch.json --layer ./deps:/app/lib --layer ./build:/app
   brewlet run   registry.example.com/apps/api:v1 --runtime java-21=eclipse-temurin:21-jre
   brewlet push  registry.example.com/apps/api:v1
 
@@ -235,7 +235,7 @@ func publish(ctx context.Context, stdout io.Writer, reg *registryFlags, store ar
 	return writeResult(stdout, format, "Published "+noun, resultFile, ref, target, "")
 }
 
-const buildSynopsis = `Usage: brewlet build REF --platform OS/ARCH[/VARIANT]... --launch launch.json --layer ROLE=DIR:/app/PATH... [flags]
+const buildSynopsis = `Usage: brewlet build REF --platform OS/ARCH[/VARIANT]... --launch launch.json --layer [OS/ARCH[/VARIANT]:]DIR:/app/PATH... [flags]
 
 Packages explicitly declared directories and an author-written launch.json into
 an OCI image in a local layout. Nothing is inferred: no language detection, no
@@ -245,22 +245,22 @@ Each --platform produces one platform manifest; repeating it builds a
 multi-platform image (an OCI index) in one step. Layers apply to every platform
 unless prefixed with a platform, which keeps native files per architecture:
 
-  --layer app=./build:/app
-  --layer linux/amd64:app=./native/amd64:/app/native
-  --layer linux/arm64:app=./native/arm64:/app/native
+  --layer ./build:/app
+  --layer linux/amd64:./native/amd64:/app/native
+  --layer linux/arm64:./native/arm64:/app/native
 
 Libraries are ordinary application files. Layers are stacked in the order
 given; the launch layer is always last. The default layout is .brewlet/images/<REF>.
 
 Example:
   brewlet build registry.example.com/apps/api:v1 --platform linux/amd64 --platform linux/arm64 \
-    --launch launch.json --layer app=./venv/site-packages:/app/site-packages --layer app=./src:/app/src`
+    --launch launch.json --layer ./venv/site-packages:/app/site-packages --layer ./src:/app/src`
 
 func runBuild(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	fs := newFlagSet("build", buildSynopsis, stdout)
 	var platforms, layers repeated
 	fs.Var(&platforms, "platform", "target OS/ARCH[/VARIANT] (repeatable; required)")
-	fs.Var(&layers, "layer", "[OS/ARCH:]app=DIR:/app/PATH (repeatable; at least one app layer per platform)")
+	fs.Var(&layers, "layer", "[OS/ARCH[/VARIANT]:]DIR:/app/PATH (repeatable; at least one payload layer per platform)")
 	launchFile := fs.String("launch", "", "author-written launch.json (required)")
 	storeDir := fs.String("store", "", "output OCI layout (default .brewlet/images/<REF>)")
 	resultFile := fs.String("result", "", "also write the JSON result {reference,digest,mediaType,size,store} to FILE")

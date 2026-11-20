@@ -420,7 +420,7 @@ func TestBuildDeterministicAndResolve(t *testing.T) {
 func TestApplicationLibrariesArePayload(t *testing.T) {
 	dir := testDir(t)
 	store := Store{Dir: filepath.Join(dir, "store")}
-	app, libs := filepath.Join(dir, "app"), filepath.Join(dir, "libs")
+	app, libs := filepath.Join(dir, "app"), filepath.Join(dir, "libs=debug build")
 	for _, path := range []string{app, libs} {
 		must(t, os.Mkdir(path, 0755))
 	}
@@ -430,13 +430,24 @@ func TestApplicationLibrariesArePayload(t *testing.T) {
 	cleanSource(t, libs)
 	platform := v1.Platform{OS: "linux", Architecture: "amd64"}
 	launch := []byte(`{"schemaVersion":1,"process":{"entrypoint":["python3","/app/main.py"],"env":[{"name":"PYTHONPATH","value":"/app/lib"}]}}`)
+	var layers []LayerSpec
+	for _, input := range []string{libs + ":/app/lib", app + ":/app"} {
+		layer, err := ParseLayerSpec(input)
+		must(t, err)
+		layers = append(layers, layer)
+	}
 	root, err := Build(context.Background(), store, BuildOptions{Launch: launch, Platforms: []v1.Platform{platform},
-		Layers: []LayerSpec{{Role: "app", Source: libs, Destination: "app/lib"}, {Role: "app", Source: app, Destination: "app"}}})
+		Layers: layers})
 	must(t, err)
 	report, err := InspectApplication(context.Background(), store, root, platform)
 	must(t, err)
 	if !report.Structural || len(report.Layers) != 3 || !bytes.Equal(report.Launch, launch) {
 		t.Fatal("application or explicit launch contract changed")
+	}
+	for i, role := range []string{"app", "app", "launch"} {
+		if report.Layers[i].Annotations["brewlet.sh/layer"] != role {
+			t.Fatalf("layer %d lost its internal role", i)
+		}
 	}
 	resolved, err := Resolve(context.Background(), store.Open, root, platform)
 	must(t, err)
@@ -451,6 +462,16 @@ func TestApplicationLibrariesArePayload(t *testing.T) {
 	must(t, err)
 	if string(main) != "import greeting\n" {
 		t.Fatal("application payload changed")
+	}
+}
+
+func TestParseLayerSpecInvalidInputs(t *testing.T) {
+	for _, input := range []string{"src", ":/app", "linux/arm64::/app", "linux//arm64:src:/app", "src:/app/../etc"} {
+		t.Run(input, func(t *testing.T) {
+			if _, err := ParseLayerSpec(input); err == nil {
+				t.Fatal("invalid source, platform or destination accepted")
+			}
+		})
 	}
 }
 
@@ -469,10 +490,10 @@ func TestBuildPlatformScopedLayers(t *testing.T) {
 		must(t, e)
 		return s
 	}
-	if s := spec("linux/arm64/v8:app=" + arm + ":/app/deps"); s.Platform == nil || s.Platform.Variant != "v8" || s.Role != "app" || s.Source != arm {
+	if s := spec("linux/arm64/v8:" + arm + ":/app/deps"); s.Platform == nil || s.Platform.Variant != "v8" || s.Role != "app" || s.Source != arm {
 		t.Fatalf("platform prefix not parsed: %+v", s)
 	}
-	if s := spec("app=" + app + ":/app"); s.Platform != nil {
+	if s := spec(app + ":/app"); s.Platform != nil {
 		t.Fatal("unprefixed layer became platform-scoped")
 	}
 	s := Store{Dir: filepath.Join(dir, "store")}
@@ -480,9 +501,9 @@ func TestBuildPlatformScopedLayers(t *testing.T) {
 	p2, _ := ParsePlatform("linux/arm64")
 	launch := []byte(`{"schemaVersion":1,"process":{"entrypoint":["/app/file"]}}`)
 	o := BuildOptions{Launch: launch, Platforms: []v1.Platform{p1, p2}, Layers: []LayerSpec{
-		spec("linux/amd64:app=" + amd + ":/app/deps"),
-		spec("linux/arm64:app=" + arm + ":/app/deps"),
-		spec("app=" + app + ":/app/src"),
+		spec("linux/amd64:" + amd + ":/app/deps"),
+		spec("linux/arm64:" + arm + ":/app/deps"),
+		spec(app + ":/app/src"),
 	}}
 	root, e := Build(context.Background(), s, o)
 	must(t, e)
@@ -500,12 +521,12 @@ func TestBuildPlatformScopedLayers(t *testing.T) {
 		t.Fatal("shared app layer not reused byte for byte")
 	}
 	undeclared := o
-	undeclared.Layers = append([]LayerSpec{spec("linux/s390x:app=" + amd + ":/app/deps")}, o.Layers...)
+	undeclared.Layers = append([]LayerSpec{spec("linux/s390x:" + amd + ":/app/deps")}, o.Layers...)
 	if _, e = Build(context.Background(), s, undeclared); Reason(e) != "InvalidPlatform" {
 		t.Fatalf("layer for undeclared platform accepted: %v", e)
 	}
 	appless := o
-	appless.Layers = []LayerSpec{spec("linux/amd64:app=" + app + ":/app/src")}
+	appless.Layers = []LayerSpec{spec("linux/amd64:" + app + ":/app/src")}
 	if _, e = Build(context.Background(), s, appless); e == nil || !strings.Contains(e.Error(), "app layer") {
 		t.Fatalf("platform without app layer accepted: %v", e)
 	}

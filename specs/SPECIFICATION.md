@@ -1292,8 +1292,8 @@ layers; the CLI validates and packages them:
 brewlet build registry.example.com/apps/api \
   --platform linux/amd64 \
   --launch ./launch.json \
-  --layer app=./venv/lib/python3.12/site-packages:/app/site-packages \
-  --layer app=./src:/app/src
+  --layer ./venv/lib/python3.12/site-packages:/app/site-packages \
+  --layer ./src:/app/src
 brewlet push registry.example.com/apps/api
 ```
 
@@ -1304,10 +1304,12 @@ The CLI MUST:
   host-platform or language-based inference. Repeating this flag produces an
   image index with one manifest per platform. An unprefixed `--layer` asserts
   that its bytes work unchanged on every listed platform; a layer written
-  `--layer <os/arch[/variant]>:app=<src>:<dest>` belongs only to that
+  `--layer <os/arch[/variant]>:<src>:<dest>` belongs only to that
   declared platform, and naming an undeclared platform fails with
   `InvalidPlatform`. Each platform receives its applicable `--layer`s in
-  command-line order and MUST end up with an `app` layer. Manifests produced elsewhere MAY be
+  command-line order and MUST end up with an `app` layer. The CLI MUST assign
+  the `app` role to every supplied payload layer automatically; the author
+  supplies only its source, destination, and optional platform. Manifests produced elsewhere MAY be
   combined through an explicitly supplied index descriptor (`brewlet index`);
   no automatic native-file discovery or grouping occurs;
 - enforce the layer content rules of §6.2 at build time (paths under `/app`,

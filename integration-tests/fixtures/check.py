@@ -207,8 +207,8 @@ def main():
                 command = [brewlet, "build", f"fixtures/{language}:v2", "--store", layout,
                            "--platform", "linux/amd64", "--platform", "linux/arm64",
                            "--launch", FIXTURES / language / "launch.json"]
-                for role, source, target in layer_inputs:
-                    command += ["--layer", f"{role}={source}:{target}"]
+                for _, source, target in layer_inputs:
+                    command += ["--layer", f"{source}:{target}"]
                 run(command)
                 digests.append(image_target(layout))
                 run([brewlet, "inspect", f"fixtures/{language}:v2", "--store", layout])

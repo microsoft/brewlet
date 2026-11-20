@@ -111,7 +111,7 @@ Replace the registry and declare your actual platform:
 brewlet build registry.example.com/apps/php-demo:v1 \
   --platform linux/arm64 \
   --launch "$WORK/launch.json" \
-  --layer "app=$WORK/app:/app"
+  --layer "$WORK/app:/app"
 brewlet push registry.example.com/apps/php-demo:v1 --push-result "$WORK/push.json"
 ```
 

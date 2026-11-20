@@ -41,8 +41,8 @@ or redirected, so scripts must request `-o json` explicitly. Files written by
 brewlet build registry.example.com/apps/api:v2 \
   --platform linux/arm64 \
   --launch launch.json \
-  --layer app=./dependencies:/app/lib \
-  --layer app=./src:/app/src
+  --layer ./dependencies:/app/lib \
+  --layer ./src:/app/src
 brewlet push registry.example.com/apps/api:v2 --push-result push.json
 ```
 
@@ -55,7 +55,7 @@ brewlet push registry.example.com/apps/api:v2 --push-result push.json
 | --- | --- |
 | `--launch FILE` | Authoritative version-1 launch descriptor; required. |
 | `--platform OS/ARCH[/VARIANT]` | Required explicit declaration; repeat to build a multi-platform index. |
-| `--layer [OS/ARCH[/VARIANT]:]app=DIRECTORY:/app/PATH` | Explicit application payload. Unprefixed layers are shared by every platform; prefixed layers belong to that declared platform only. |
+| `--layer [OS/ARCH[/VARIANT]:]DIRECTORY:/app/PATH` | Explicit application payload. Every supplied layer is automatically assigned the `app` role. Unprefixed layers are shared by every platform; prefixed layers belong to that declared platform only. |
 | `--store DIRECTORY` | Output layout instead of `.brewlet/images/<REF>`. |
 | `--result FILE` | Also write the JSON result (reference, digest, media type, size, store). |
 

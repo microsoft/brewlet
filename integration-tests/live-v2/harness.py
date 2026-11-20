@@ -716,8 +716,8 @@ class Harness:
             command = [*self.cli_command, "build", tag, "--store", layout,
                        "--platform", "linux/amd64", "--platform", "linux/arm64",
                        "--launch", self.launch_file(language)]
-            for role, source, target in inputs:
-                command += ["--layer", f"{role}={source}:{target}"]
+            for _, source, target in inputs:
+                command += ["--layer", f"{source}:{target}"]
             self.run(command, timeout=180)
             digest, roles = artifact_target(layout)
             self.import_layout(layout)

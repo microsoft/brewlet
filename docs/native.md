@@ -181,7 +181,7 @@ including the macOS guidance.
 brewlet build registry.example.com/apps/rust-demo:v1 \
   --platform linux/arm64 \
   --launch "$WORK/launch.json" \
-  --layer "app=$WORK/rust-app:/app"
+  --layer "$WORK/rust-app:/app"
 brewlet push registry.example.com/apps/rust-demo:v1 \
   --push-result "$WORK/rust-push.json"
 ```

@@ -99,7 +99,7 @@ class WasmHarness(Harness):
             tag = f"registry.brewlet.test/{self.run_id}/wasm-app/{name}:v1"
             self.run([*self.cli_command, "build", tag, "--store", layout,
                       "--platform", "linux/" + self.arch, "--launch", launch,
-                      "--layer", f"app={deps}:/app/dependencies", "--layer", f"app={app}:/app"], timeout=180)
+                      "--layer", f"{deps}:/app/dependencies", "--layer", f"{app}:/app"], timeout=180)
             digest, _ = artifact_target(layout)
             outer = json.loads((layout / "index.json").read_text())["manifests"][0]
             application_manifest(layout)
@@ -116,7 +116,7 @@ class WasmHarness(Harness):
         tag = f"registry.brewlet.test/{self.run_id}/wasm-app/empty:v1"
         self.run([*self.cli_command, "build", tag, "--store", layout,
                   "--platform", "linux/" + self.arch, "--launch", empty_file,
-                  "--layer", f"app={deps}:/app/dependencies", "--layer", f"app={self.work / 'wasmtime-app'}:/app"], timeout=180)
+                  "--layer", f"{deps}:/app/dependencies", "--layer", f"{self.work / 'wasmtime-app'}:/app"], timeout=180)
         root = json.loads((layout / "index.json").read_text())["manifests"][0]
         self.empty_image = self.import_named(layout, root, tag)
         legacy = json.loads((EXAMPLE / "wasmtime-launch.json").read_text())
@@ -125,7 +125,7 @@ class WasmHarness(Harness):
         legacy_file.write_text(json.dumps(legacy))
         rejected = self.run([*self.cli_command, "build", "example.invalid/legacy:v1",
             "--store", self.work / "rejected-legacy", "--platform", "linux/" + self.arch,
-            "--launch", legacy_file, "--layer", f"app={self.work / 'wasmtime-app'}:/app"],
+            "--launch", legacy_file, "--layer", f"{self.work / 'wasmtime-app'}:/app"],
             check=False, timeout=180)
         require(rejected.returncode and "InvalidLaunchConfig" in rejected.stdout + rejected.stderr
                 and not (self.work / "rejected-legacy/index.json").exists(),

@@ -109,9 +109,9 @@ final class JavaProducer {
         command.addAll(List.of("--launch", prepared.launch().toString()));
         if (prepared.dependencies() != null) {
             command.addAll(List.of("--layer",
-                    "app=" + prepared.dependencies() + ":" + prepared.dependencyTarget()));
+                    prepared.dependencies() + ":" + prepared.dependencyTarget()));
         }
-        command.addAll(List.of("--layer", "app=" + prepared.application() + ":/app"));
+        command.addAll(List.of("--layer", prepared.application() + ":/app"));
         return command;
     }
 

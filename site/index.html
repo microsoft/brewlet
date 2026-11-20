@@ -149,7 +149,7 @@ FORM: Adapt the existing main landing structure; no invented performance or prod
             <div class="code-block"><div class="code-heading"><span>Package and publish</span><button type="button" class="copy-button" data-copy="package-code" hidden>Copy</button></div><pre tabindex="0"><code id="package-code" data-lang="shell">brewlet build registry.example.com/apps/api:v2 \
   --platform linux/arm64 \
   --launch launch.json \
-  --layer app=./src:/app/src
+  --layer ./src:/app/src
 brewlet push registry.example.com/apps/api:v2</code></pre><p class="code-caption" id="example-note">This example has no third-party dependencies. Package any libraries your application needs as ordinary files under <code>/app</code>.</p></div>
           </div>
         </div>
