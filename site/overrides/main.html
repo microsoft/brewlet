@@ -30,3 +30,9 @@
   {#- Restore state after the navigation markup, before Material initializes. -#}
   <script src="{{ 'javascripts/brewlet-nav.js' | url }}"></script>
 {% endblock %}
+
+{% block scripts %}
+  {#- Expire cached repository facts before Material reads them. -#}
+  <script src="{{ 'javascripts/brewlet-source.js' | url }}"></script>
+  {{ super() }}
+{% endblock %}

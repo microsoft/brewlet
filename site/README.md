@@ -19,6 +19,9 @@ branch-specific GitHub source links through the documented hook.
 Documentation navigation state lives in `docs/javascripts/brewlet-nav.js`.
 `site/overrides/main.html` loads it synchronously after the navigation markup,
 before Material initializes, to preserve expanded sections between pages.
+`docs/javascripts/brewlet-source.js` loads before Material's bundle and expires
+its session-cached GitHub release, star and fork counts after an hour, so a
+restored tab shows a new release instead of the one cached when it was opened.
 
 The landing page includes responsive desktop/mobile SVG architecture diagrams,
 in main's schematic style but with the current runtime-infrastructure contract.
