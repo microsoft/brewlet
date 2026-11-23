@@ -344,8 +344,11 @@ func (w *Worker) Reconcile(ctx context.Context) error {
 					return fmt.Errorf("runtime installer unavailable")
 				}
 				installStart := time.Now()
+				log.Printf("runtime-install-stage-start id=%s generation=%d digest=%s", r.Name, r.Status.Generation, r.Status.Digest)
 				stage, m, err := w.stage(ctx, r)
 				if err != nil {
+					log.Printf("runtime-install-stage-failed id=%s generation=%d digest=%s duration=%s: %v",
+						r.Name, r.Status.Generation, r.Status.Digest, time.Since(installStart).Round(time.Millisecond), err)
 					if entry.Install == "OnDemand" {
 						w.Metrics.install(entry.ID, "failed", installStart)
 					}
@@ -356,6 +359,8 @@ func (w *Worker) Reconcile(ctx context.Context) error {
 					failures = append(failures, errors.Join(w.installFailed(ctx, auth, err), readinessErr))
 					continue
 				}
+				log.Printf("runtime-install-stage-complete id=%s generation=%d digest=%s duration=%s",
+					r.Name, r.Status.Generation, r.Status.Digest, time.Since(installStart).Round(time.Millisecond))
 				// No deletion of staged data after losing authority.
 				if _, err := w.check(ctx); err != nil {
 					return err

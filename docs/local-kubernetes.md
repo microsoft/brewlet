@@ -80,7 +80,7 @@ docker run -d --name brewlet-registry --network kind \
   --platform "linux/$ARCH" --publish 127.0.0.1::5000 \
   registry@sha256:ddf754342cfc8acc51a56d5d0ab6af06826461864460636d8bd5c546dab2a7b8
 REGISTRY="$(docker port brewlet-registry 5000/tcp)"
-curl -fsS --retry 10 --retry-connrefused --retry-delay 1 "http://$REGISTRY/v2/"
+curl -fsS --max-time 5 --retry 10 --retry-connrefused --retry-delay 1 "http://$REGISTRY/v2/"
 
 for NODE in $(kind get nodes --name brewlet); do
   docker exec "$NODE" mkdir -p "/etc/containerd/certs.d/$REGISTRY"
@@ -161,7 +161,7 @@ application: Python itself will come from the node.
 # tutorial-step: build
 mkdir "$WORK/app"
 cat > "$WORK/app/server.py" <<'EOF'
-import json, os, sys
+import json, os, signal, sys, threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 class Hello(BaseHTTPRequestHandler):
@@ -171,7 +171,13 @@ class Hello(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body.encode() + b"\n")
 
-HTTPServer(("", 8000), Hello).serve_forever()
+server = HTTPServer(("", 8000), Hello)
+signal.signal(signal.SIGTERM,
+              lambda *_: threading.Thread(target=server.shutdown, daemon=True).start())
+try:
+    server.serve_forever()
+finally:
+    server.server_close()
 EOF
 cat > "$WORK/launch.json" <<'EOF'
 {"schemaVersion": 1, "process": {"entrypoint": ["/usr/bin/python3"],
@@ -237,7 +243,7 @@ EOF
 kubectl expose deployment hello --port=8000
 kubectl rollout status deployment/hello --timeout=5m
 SERVICE_IP="$(kubectl get service hello -o jsonpath='{.spec.clusterIP}')"
-docker exec brewlet-control-plane curl -s --retry 5 --retry-connrefused "http://$SERVICE_IP:8000/"
+docker exec brewlet-control-plane curl -fsS --max-time 5 --retry 5 --retry-connrefused "http://$SERVICE_IP:8000/"
 ```
 
 The response shows Python 3.11.2, supplied by the node, and the runtime's UID,
@@ -249,12 +255,27 @@ Point the RuntimeImage at Python 3.13.5, then wait for Brewlet to roll it out:
 
 ```sh
 # tutorial-step: rotation
-kubectl patch runtimeimage python --type=merge -p '{"spec":{"source":{"image":"gcr.io/distroless/python3-debian13@sha256:f47f5807043391605425f2bd162b25f50cebdc90640bacc804e0177608fe5c65"}}}'
-kubectl wait runtimeimage/python --for=jsonpath='{.status.generation}'=2 --timeout=2m
-kubectl wait runtimeimage/python --for=condition=RotationComplete --timeout=5m
-kubectl wait runtimeimage/python --for=condition=OldGenerationTasks=true --timeout=2m
-brewlet k8s runtime status python
+rotate_runtime() {
+  kubectl patch runtimeimage python --type=merge -p '{"spec":{"source":{"image":"gcr.io/distroless/python3-debian13@sha256:f47f5807043391605425f2bd162b25f50cebdc90640bacc804e0177608fe5c65"}}}' &&
+  kubectl wait runtimeimage/python --for=jsonpath='{.status.generation}'=2 --timeout=2m &&
+  kubectl wait runtimeimage/python --for=condition=RotationComplete --timeout=5m &&
+  test -z "$(kubectl get runtimeimage python -o jsonpath='{.status.rotation.excludedNodes[*].name}')" &&
+  kubectl wait runtimeimage/python --for=condition=OldGenerationTasks=true --timeout=2m
+}
+if rotate_runtime; then
+  brewlet k8s runtime status python
+else
+  echo "Runtime rotation did not complete; do not restart the Deployment. Current status:" >&2
+  brewlet k8s runtime status python
+  false
+fi
 ```
+
+The provisioner retries failed pulls and cancels a registry response that makes
+no download progress for 30 seconds. A healthy rotation usually finishes much
+sooner; if a wait fails, this block prints the runtime status and stops before
+the replacement step. Do not restart the Deployment until `RotationComplete`
+is true and no nodes are excluded.
 
 The RuntimeImage is now at generation 2, but the running Pod still answers with
 Python 3.11.2:
@@ -270,10 +291,17 @@ has stopped before you call the Service:
 
 ```sh
 # tutorial-step: replacement
-kubectl rollout restart deployment/hello
-kubectl rollout status deployment/hello --timeout=5m
-kubectl wait runtimeimage/python --for=condition=OldGenerationTasks=false --timeout=2m
-docker exec brewlet-control-plane curl -s --retry 5 --retry-connrefused "http://$SERVICE_IP:8000/"
+if kubectl wait runtimeimage/python --for=condition=RotationComplete --timeout=1s &&
+  test -z "$(kubectl get runtimeimage python -o jsonpath='{.status.rotation.excludedNodes[*].name}')"; then
+  kubectl rollout restart deployment/hello &&
+  kubectl rollout status deployment/hello --timeout=5m &&
+  kubectl wait runtimeimage/python --for=condition=OldGenerationTasks=false --timeout=2m &&
+  docker exec brewlet-control-plane curl -fsS --max-time 5 --retry 5 --retry-connrefused "http://$SERVICE_IP:8000/"
+else
+  echo "Runtime rotation is incomplete or has excluded nodes; refusing to restart. Current status:" >&2
+  brewlet k8s runtime status python
+  false
+fi
 ```
 
 The replacement Pod answers with Python 3.13.5. No Pod uses generation 1

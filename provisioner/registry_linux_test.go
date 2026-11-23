@@ -5,16 +5,21 @@ package provisioner
 import (
 	"context"
 	"encoding/pem"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	digest "github.com/opencontainers/go-digest"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
 type registryTestTransport func(*http.Request) (*http.Response, error)
@@ -157,6 +162,59 @@ func TestRegistryResolverPrivateCARelativeHostMappingAndAuth(t *testing.T) {
 	}
 	if _, _, err := resolver.Resolve(context.Background(), host+"/runtime@"+target.String()); err == nil {
 		t.Fatal("registry allowed untrusted TLS")
+	}
+}
+
+func TestRegistryResolverCancelsStalledResponseBody(t *testing.T) {
+	payload := []byte("registry-layer")
+	target := digest.FromBytes(payload)
+	started := make(chan struct{})
+	var startedOnce sync.Once
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", fmt.Sprint(len(payload)))
+		w.WriteHeader(http.StatusOK)
+		if r.Method == http.MethodHead {
+			return
+		}
+		if _, err := w.Write(payload[:1]); err != nil {
+			return
+		}
+		w.(http.Flusher).Flush()
+		startedOnce.Do(func() { close(started) })
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+
+	resolver, err := registryResolverWithTimeout(context.Background(), t.TempDir(), 50*time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	host := strings.TrimPrefix(server.URL, "http://")
+	fetcher, err := resolver.Fetcher(context.Background(), host+"/runtime@"+target.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader, err := fetcher.Fetch(context.Background(), ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageLayer,
+		Digest:    target,
+		Size:      int64(len(payload)),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+
+	_, err = io.ReadAll(reader)
+	if err == nil || !strings.Contains(err.Error(), "registry response made no progress") {
+		t.Fatalf("stalled response error = %v", err)
+	}
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("registry response body was never read")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("stalled response was not cancelled: %v", err)
 	}
 }
 
