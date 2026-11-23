@@ -88,6 +88,10 @@ class InfrastructureWorkflowTests(unittest.TestCase):
         self.assertNotIn("actions/checkout", deploy)
         for action in ("download-artifact", "configure-pages", "upload-pages-artifact", "deploy-pages"):
             self.assertIn("actions/" + action + "@", deploy)
+        upload = deploy.split("actions/upload-pages-artifact@", 1)[1].split("\n      - ", 1)[0]
+        deployment = deploy.split("actions/deploy-pages@", 1)[1].split("\n      - ", 1)[0]
+        self.assertIn("name: github-pages-${{ github.run_attempt }}", upload)
+        self.assertIn("artifact_name: github-pages-${{ github.run_attempt }}", deployment)
         for unsafe in ("deploy-pages", "pages: write", "id-token: write"):
             self.assertNotIn(unsafe, preview)
         self.assertIn("group: site-preview-${{ github.workflow }}-${{ github.ref }}", preview)
