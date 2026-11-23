@@ -160,10 +160,10 @@ mkdir -p brewlet/application
 install -m 0644 target/app.jar brewlet/application/app.jar   # Gradle: build/libs/app.jar
 ```
 
-For the example below, ask the platform team to confirm that the selected
-runtime provides Java 21 at `/usr/bin/java`. Set `runtimeImages` to the runtime
-IDs you tested; this list is an allowlist, not the setting that selects the
-runtime for a Pod.
+Save the following as `brewlet/launch.json`. Ask the platform team to confirm
+that the selected runtime provides Java 21 at `/usr/bin/java`. Set
+`runtimeImages` to the runtime IDs you tested; this list is an allowlist, not
+the setting that selects the runtime for a Pod.
 
 ```json
 {
@@ -189,12 +189,13 @@ The fields describe a process invocation, not shell text:
   its `runtime-image.brewlet.sh/app` annotation (see
   [Java versions](#java-versions-and-runtimeimages)).
 - `entrypoint` is the absolute Java executable path in the runtime image. Brewlet
-  runs it directly; it does not start a shell or search `PATH`.
+  runs it directly, without starting a shell or needing a `PATH` lookup.
 - `args` is an ordered array of separate arguments. `-XX:MaxRAMPercentage=75`
-  is an example JVM option that caps the Java heap at 75% of the container
-  memory limit. It is not a Brewlet default; tune it for the application's
-  non-heap memory needs and container limit. `-jar /app/app.jar` then tells
-  Java to run the Spring Boot executable JAR.
+  is an example JVM option used to size the maximum heap as a percentage of
+  available memory. With a container-aware JVM and a memory limit, that limit
+  informs the calculation. It is not a Brewlet default; tune it for the
+  application's non-heap memory needs. `-jar /app/app.jar` then tells Java to
+  run the Spring Boot executable JAR.
 - `workingDir` sets the process working directory. `/app` is also the default
   when it is omitted.
 
@@ -311,15 +312,9 @@ unchanged.
     # build/quarkus-app/  (same layout as Maven)
     ```
 
-The simplest packaging uses one layer:
-
-```sh
-chmod -R a+rX target/quarkus-app        # Gradle: build/quarkus-app
-brewlet build registry.example.com/apps/inventory:2.0.0 \
-  --platform linux/amd64 --platform linux/arm64 \
-  --launch brewlet/launch.json \
-  --layer target/quarkus-app:/app
-```
+Create `brewlet/` if needed and save this Quarkus-specific descriptor as
+`brewlet/launch.json`. It uses the same [descriptor fields](#executable-jar)
+as the Spring Boot example, but starts the Quarkus bootstrap JAR:
 
 ```json
 {
@@ -338,8 +333,28 @@ brewlet build registry.example.com/apps/inventory:2.0.0 \
 }
 ```
 
-The `java.util.logging.manager` option is the one Quarkus' own container
-templates set; keep it so early JDK logging goes through Quarkus.
+`schemaVersion` identifies the descriptor format, and the optional
+`runtimeImages` allowlist restricts which runtime IDs may run the artifact;
+the Pod annotation still selects the runtime. Replace `/usr/bin/java` and
+`java-21` with values supplied by your platform team.
+
+The `args` array puts JVM options before `-jar`. `MaxRAMPercentage` is an
+example, not a Brewlet default. The `java.util.logging.manager` property is
+used by Quarkus' container templates so early JDK logging goes through
+Quarkus. `/app/quarkus-run.jar` is the bootstrap JAR in the staged
+`quarkus-app` directory, not a standalone application: it needs the
+neighboring `app/`, `lib/` and `quarkus/` directories. `workingDir` sets
+the process's working directory; `/app` is also the default.
+
+The simplest packaging maps that entire directory to `/app`:
+
+```sh
+chmod -R a+rX target/quarkus-app        # Gradle: build/quarkus-app
+brewlet build registry.example.com/apps/inventory:2.0.0 \
+  --platform linux/amd64 --platform linux/arm64 \
+  --launch brewlet/launch.json \
+  --layer target/quarkus-app:/app
+```
 
 To publish dependencies as a separate layer, split `lib/` from the rest:
 
@@ -385,8 +400,10 @@ layers better, so prefer it unless your tooling needs one file.
 
 ## Plain Java applications and the Maven plugin
 
-For an application that is a thin JAR plus ordinary dependency JARs, the
-descriptor names the classpath and main class explicitly:
+For an application that is a thin JAR plus ordinary dependency JARs, create
+`brewlet/` if needed and save a descriptor such as this as
+`brewlet/launch.json`. Unlike the framework examples, it names the classpath
+and main class explicitly:
 
 ```json
 {
@@ -403,7 +420,20 @@ descriptor names the classpath and main class explicitly:
 }
 ```
 
-`/app/lib/*` is a Java classpath wildcard, not a shell glob: no shell runs.
+`schemaVersion`, `entrypoint` and `workingDir` have the same meanings as in
+the [Spring Boot descriptor](#executable-jar). Change `/usr/bin/java` to the
+executable path in your chosen runtime. This example omits `runtimeImages`,
+so it adds no runtime-ID restriction; the Pod must still select an approved,
+compatible runtime. Add the optional allowlist if you want to limit the
+artifact to tested runtime IDs.
+
+`--class-path` tells Java where to find classes: `/app/app.jar` is the
+application JAR, and `/app/lib/*` includes JARs directly inside `/app/lib`.
+The colon separates classpath entries on Linux. `com.example.Main` is the
+application's fully qualified main class; replace it with your own. The
+wildcard is expanded by Java, not a shell. Package the application JAR and
+its required dependency JARs at those paths, or adjust the descriptor to
+match your layout.
 
 The optional [Maven producer](applications.md#optional-maven-producer)
 automates exactly this case. It copies the project JAR to `/app/app.jar`,
@@ -519,9 +549,10 @@ them:
 - **Linked modules** need no launch changes for class-path applications. A
   modular application adds `requires com.example.telemetry;` (the module name
   the platform documents) to its `module-info.java`.
-- **A JAR directory** must be on the class path. `java -jar` ignores
-  `--class-path`, so start the application with an explicit class path and
-  main class instead:
+- **A JAR directory** must be on the class path. For a thin-JAR application,
+  replace the descriptor's `process.args` array with the following fragment;
+  it is not a complete `launch.json`. `java -jar` ignores `--class-path`, so
+  this example starts an explicit main class instead:
 
     ```json
     "args": [
@@ -531,10 +562,13 @@ them:
     ]
     ```
 
-    This works for thin JARs and Spring Boot's extracted `app.jar`, whose
-    manifest still adds `lib/`. It does not work for a Spring Boot executable
-    JAR or a Quarkus fast-jar, which use their own class loaders; prefer linked
-    modules for those, or keep the library in the application.
+    `/app/app.jar` and `/app/lib/*` refer to application-owned files;
+    `/opt/platform/lib/*` refers to JARs supplied by the selected runtime.
+    Replace the paths and `com.example.Application` with your own. The
+    wildcards are Java classpath wildcards, not shell expansions. This
+    thin-JAR invocation is not a substitute for the launchers used by Spring
+    Boot executable JARs or Quarkus fast-jars; use a framework-supported
+    approach and test runtime-provided libraries with your application.
 
 If the runtime directory lies outside `/app`, it is part of the runtime image,
 not a volume, so it needs no `volumeMountPaths` approval.
@@ -555,9 +589,10 @@ libraries you compiled against.
 
 ### JVM options versus application arguments
 
-Everything in `process.args` before `-jar` (or before the main class) is a JVM
-option; everything after the JAR or main class is passed to your `main`
-method:
+Arguments in `process.args` before `-jar` (or the main class) are Java
+launcher options and their values; everything after the JAR or main class is
+passed to your `main` method. This fragment replaces the `args` array inside a
+descriptor's `process`; it is not a complete `launch.json`:
 
 ```json
 "args": [
@@ -569,6 +604,11 @@ method:
 ]
 ```
 
+Here `-XX:MaxRAMPercentage=75` and `-Dfile.encoding=UTF-8` configure the JVM;
+`-jar /app/app.jar` selects the application; and
+`--spring.profiles.active=prod` is an application argument interpreted by
+Spring Boot. All are examples to adapt to your application.
+
 Brewlet injects no JVM options. Put options that define how the application
 must run (module flags, `--enable-preview`, agents you ship in `/app`) in the
 descriptor. Put environment-specific tuning in the Deployment instead, using
@@ -579,6 +619,11 @@ env:
   - name: JDK_JAVA_OPTIONS
     value: "-XX:MaxRAMPercentage=70 -Xss512k"
 ```
+
+`JDK_JAVA_OPTIONS` is prepended to the Java command line. Avoid setting the
+same option here and in the descriptor: for example, the descriptor's
+`-XX:MaxRAMPercentage=75` can override the `70` shown above. Remove it from
+the descriptor if the Deployment should control that setting.
 
 Do not replace the descriptor arguments with Kubernetes `args` just to add an
 option. Kubernetes `args` **replaces** the descriptor's whole argument list;
