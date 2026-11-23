@@ -1,7 +1,6 @@
 import { EventEmitter } from "node:events";
 import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { createReadStream } from "node:fs";
 import { appendFile, copyFile, mkdir, open, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
@@ -16,14 +15,23 @@ export const NODE_IMAGE = "kindest/node@sha256:4613778f3cfcd10e615029370f5786704
 export const FENCE = "startup-taint.cluster-autoscaler.kubernetes.io/brewlet";
 export const POOL_KEY = "brewlet.example.com/pool";
 export const APP = "showmyjvm";
-export const APP_REPOSITORY = "example.invalid/brewlet-demo/showmyjvm";
-export const APP_REF = `${APP_REPOSITORY}:demo`;
+// Repository paths inside the session-owned local registry; names() supplies the registry authority.
+export const APP_REPOSITORY = "brewlet-demo/showmyjvm";
 export const PROFILE = "brewlet-demo";
 export const RUNTIME_USER = 65532;
 export const RUNTIME_ANNOTATION = "runtime-image.brewlet.sh/app";
 export const BASE_RUNTIME = "temurin-25";
 export const UPDATED_BUILD = "temurin-25-updated";
-export const UPDATED_RUNTIME_REPOSITORY = "example.invalid/brewlet-demo/temurin-25-updated";
+export const UPDATED_RUNTIME_REPOSITORY = "brewlet-demo/temurin-25-updated";
+export // kind's containerd ignores certs.d/hosts.toml unless config_path is set.
+const KIND_CONFIG = `kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+containerdConfigPatches:
+- |-
+  [plugins."io.containerd.grpc.v1.cri".registry]
+    config_path = "/etc/containerd/certs.d"
+`;
+const REGISTRY_IMAGE = "registry@sha256:ddf754342cfc8acc51a56d5d0ab6af06826461864460636d8bd5c546dab2a7b8";
 export const EMSIGN_ROOTS = ["emSign Root CA - G1", "emSign ECC Root CA - G3", "emSign Root CA - C1", "emSign ECC Root CA - C3"];
 export const BREWLET_REPOSITORY = "microsoft/brewlet";
 export const BREWLET_CHART = "oci://ghcr.io/microsoft/charts/brewlet";
@@ -37,7 +45,7 @@ const DIGEST = /^sha256:[a-f0-9]{64}$/;
 export const STEPS = {
     preflight: { title: "Check prerequisites", detail: "Read-only checks: Docker (Linux engine) with Buildx, kind v0.33.0, kubectl, Helm, Maven, Git and a local JDK 25; resolves the latest Brewlet release (or Go when building from this checkout)." },
     golden: { title: "Platform team: build the golden JDK image", detail: "Verify the official JDK 25.0.5+8 archive, replace the base image's Java installation, and check the full JDK and its bundled CA roots during the build. Export the platform team's golden runtime by immutable digest, separately from the app." },
-    setup: { title: "Prepare private cluster", detail: "Import the platform team's verified golden runtime, create a session-owned kind cluster, install Brewlet with opted-in rotation restarts, and approve Temurin 25.0.4.1+1 as temurin-25." },
+    setup: { title: "Prepare private cluster", detail: "Create a session-owned kind cluster and local OCI registry, push the platform team's verified golden runtime, install Brewlet with opted-in rotation restarts, and approve Temurin 25.0.4.1+1 as temurin-25." },
     local: { title: "1. Build & run locally", detail: "Build ShowMyJVM's Spring Boot module with your local JDK 25 and serve it on loopback." },
     package: { title: "2. Package app-only OCI image", detail: "Extract Spring Boot's layers and run brewlet build (released CLI, or built from this checkout) in a Linux producer: dependency layer, app layer and launch.json. No JDK inside." },
     artifact: { title: "3. Inspect the OCI artifact", detail: "Verify the manifest, config and layer digests, then list every archive entry. Read-only: no extraction or rebuild." },
@@ -45,7 +53,7 @@ export const STEPS = {
     upgrade: { title: "5. Rotate temurin-25 to Temurin 25.0.5+8", detail: "Update spec.source.image on the existing temurin-25 RuntimeImage. Brewlet installs a new generation and restarts the opted-in Deployment; verify G3, C1 and C3 are absent while G1 remains." },
     rollback: { title: "6. Rotate temurin-25 back to Temurin 25.0.4.1+1", detail: "Restore the old digest on the same RuntimeImage. Brewlet installs another generation and rolls the opted-in Deployment back. Demonstration only: rollback restores the old trust store too." },
     inspect: { title: "Inspect deployment", detail: "Show workload, RuntimeImage and NodeProfile state, recent logs, and re-verify the live runtime binding." },
-    cleanup: { title: "Remove private cluster", detail: "Explicit opt-in: remove the workload, NodeProfile, RuntimeImages and Helm release normally, then delete this session's kind cluster (and any component images built from this checkout)." },
+    cleanup: { title: "Remove private cluster", detail: "Explicit opt-in: remove the workload, NodeProfile, RuntimeImages and Helm release normally, then delete this session's kind cluster and local registry (and any component images built from this checkout)." },
 };
 // Switching the Brewlet source invalidates everything that used the previous CLI or components.
 const SOURCE_DEPENDENT = ["preflight", "setup", "package", "artifact", "deploy", "upgrade", "rollback", "inspect"];
@@ -93,7 +101,7 @@ export async function loadRuntimes() {
 
 export function runtimeSource(runtimes, id, arch) {
     const source = runtimes[id]?.[arch];
-    if (!/^[a-z0-9.-]+(?:\/[a-z0-9._-]+)+@sha256:[a-f0-9]{64}$/.test(source ?? "")) throw new Error(`No pinned ${id} platform manifest for ${arch}.`);
+    if (!/^[a-z0-9.-]+(?::\d+)?(?:\/[a-z0-9._-]+)+@sha256:[a-f0-9]{64}$/.test(source ?? "")) throw new Error(`No pinned ${id} platform manifest for ${arch}.`);
     return source;
 }
 
@@ -257,17 +265,23 @@ export function names(sessionId) {
     const id = sessionId.toLowerCase().replaceAll(/[^a-z0-9]/g, "").slice(0, 12);
     if (!id) throw new Error("Session ID is required.");
     const cluster = `brewlet-demo-${id}`;
+    // Nodes and Pods reach the registry by its container name on the kind network; the host pushes through a loopback port.
+    const registryHost = `${cluster}-registry:5000`;
     return { id, cluster, context: `kind-${cluster}`, node: `${cluster}-control-plane`, namespace: `brewlet-demo-${id}`,
-        control: `brewlet-demo-control:${id}`, worker: `brewlet-demo-node:${id}` };
+        control: `brewlet-demo-control:${id}`, worker: `brewlet-demo-node:${id}`, registry: `${cluster}-registry`, registryHost,
+        appRef: `${registryHost}/${APP_REPOSITORY}:demo` };
 }
 
 export function commandPreviews(state, runtimes = {}) {
     const dir = state.workspace ?? "<session-workspace>/brewlet-demo";
-    const n = state.names ?? { cluster: "<cluster>", context: "<context>", node: "<node>", namespace: "<namespace>", control: "<control-image>", worker: "<node-image>", id: "<id>" };
+    const n = state.names ?? { cluster: "<cluster>", context: "<context>", node: "<node>", namespace: "<namespace>", control: "<control-image>", worker: "<node-image>", id: "<id>",
+        registry: "<registry>", registryHost: "<registry>:5000", appRef: `<registry>:5000/${APP_REPOSITORY}:demo` };
     const arch = state.arch ?? "<arch>";
     const kubeconfig = path.join(dir, "kubeconfig");
     const k = (...args) => ["kubectl", "--kubeconfig", kubeconfig, "--context", n.context, ...args].map(quote).join(" ");
-    const image = state.image ?? `${APP_REPOSITORY}@<sha256:digest>`;
+    const image = state.image ?? `${n.registryHost}/${APP_REPOSITORY}@<sha256:digest>`;
+    const hostsDir = `/etc/containerd/certs.d/${n.registryHost}`;
+    const push = (layout, repository) => `PUT http://127.0.0.1:<port>/v2/${repository}/blobs/uploads/ and /manifests/<digest>  # OCI distribution push of ${layout} by digest`;
     const jar = state.jar ?? path.join(dir, "showmyjvm/spring-boot/target/showmyjvm-springboot-1.0.0-SNAPSHOT.jar");
     const source = (id) => state.privateRuntime && id === UPDATED_BUILD ? state.privateRuntime.source : runtimes[id]?.[arch] ?? `<${id} private platform manifest>`;
     const checkout = state.brewlet?.source === "checkout";
@@ -299,7 +313,7 @@ export function commandPreviews(state, runtimes = {}) {
             commands: [
                 `curl -fSL ${runtimes[UPDATED_BUILD]?.archives?.[arch]?.url ?? "<official Temurin JDK 25.0.5+8 musl archive>"} -o runtime-build/runtime.tar.gz`,
                 `shasum -a 256 runtime-build/runtime.tar.gz  # runner rejects a mismatch with the pinned SHA-256`,
-                `docker buildx build --platform linux/${arch} --provenance=false --target runtime --build-arg BASE_RUNTIME=${source(BASE_RUNTIME)} -f runtime-build/Dockerfile --tag ${UPDATED_RUNTIME_REPOSITORY}:demo --output type=oci,dest=runtime-updated.tar runtime-build`,
+                `docker buildx build --platform linux/${arch} --provenance=false --target runtime --build-arg BASE_RUNTIME=${source(BASE_RUNTIME)} -f runtime-build/Dockerfile --tag ${n.registryHost}/${UPDATED_RUNTIME_REPOSITORY}:demo --output type=oci,dest=runtime-updated.tar runtime-build`,
                 `docker buildx build --platform linux/${arch} --target evidence --build-arg BASE_RUNTIME=${source(BASE_RUNTIME)} -f runtime-build/Dockerfile --output type=local,dest=runtime-verification runtime-build`,
                 "cat runtime-verification/golden-runtime-verification.json",
             ],
@@ -307,7 +321,7 @@ export function commandPreviews(state, runtimes = {}) {
                 version: runtimes[UPDATED_BUILD]?.version, expectedPresent: runtimes[UPDATED_BUILD]?.emSignRoots,
                 expectedAbsent: EMSIGN_ROOTS.filter((name) => !runtimes[UPDATED_BUILD]?.emSignRoots?.includes(name)),
                 output: source(UPDATED_BUILD) },
-            note: "The platform team builds the infrastructure runtime independently of the application. This full JDK already omits the distrusted G3/C1/C3 roots; no manual certificate deletion. Build-time checks fail if they return or G1 is missing. The demo exports locally; a real team would publish and rotate the existing temurin-25 RuntimeImage to this digest.",
+            note: "The platform team builds the infrastructure runtime independently of the application. This full JDK already omits the distrusted G3/C1/C3 roots; no manual certificate deletion. Build-time checks fail if they return or G1 is missing. The demo exports an OCI layout and pushes it to the cluster's local registry during preparation; a real team would publish to its own registry and rotate the existing temurin-25 RuntimeImage to this digest.",
         },
         setup: {
             commands: [
@@ -315,19 +329,20 @@ export function commandPreviews(state, runtimes = {}) {
                     `git -C ${quote(REPO)} archive HEAD go.mod go.sum pkg kubernetes cmd provisioner shim scripts LICENSE.txt | tar -x -C ${quote(path.join(dir, "context"))}`,
                     `docker build --platform linux/${arch} -f context/kubernetes/Dockerfile -t ${n.control} context`,
                     `docker build --platform linux/${arch} -f context/provisioner/Dockerfile -t ${n.worker} context`,
-                    `go run ./integration-tests/live-v2/runtimeimage --source ${source(BASE_RUNTIME)} --output ${quote(path.join(dir, `runtime-${BASE_RUNTIME}`))}`,
                 ] : []),
-                `kind create cluster --name ${n.cluster} --kubeconfig ${quote(kubeconfig)} --image ${NODE_IMAGE} --wait 180s`,
-                `tar -C runtime-updated -cf - oci-layout index.json blobs | docker exec -i ${n.node} ctr -n k8s.io images import --all-platforms -`,
-                `docker exec ${n.node} ctr -n k8s.io images tag --force ${UPDATED_RUNTIME_REPOSITORY}:demo ${source(UPDATED_BUILD)}`,
+                `kind create cluster --name ${n.cluster} --kubeconfig ${quote(kubeconfig)} --image ${NODE_IMAGE} --config - --wait 180s  # containerd config_path = "/etc/containerd/certs.d"`,
+                `docker run --detach --name ${n.registry} --network kind --label brewlet-demo-owner=${n.namespace} --publish 127.0.0.1::5000 ${REGISTRY_IMAGE}`,
+                `docker port ${n.registry} 5000/tcp  # host push endpoint 127.0.0.1:<port>`,
+                `docker exec -i ${n.node} sh -c 'mkdir -p ${hostsDir} && cat > ${hostsDir}/hosts.toml'  # [host."http://${n.registryHost}"] capabilities = ["pull", "resolve"]`,
+                push("runtime-updated", UPDATED_RUNTIME_REPOSITORY),
                 ...(checkout ? [
-                    `kind load docker-image --name ${n.cluster} ${n.control} ${n.worker}`,
-                    `tar -C runtime-<id> -cf - oci-layout index.json blobs | docker exec -i ${n.node} ctr -n k8s.io images import --all-platforms -`,
+                    `docker tag ${n.control} 127.0.0.1:<port>/brewlet-demo/control:${n.id} && docker push 127.0.0.1:<port>/brewlet-demo/control:${n.id}`,
+                    `docker tag ${n.worker} 127.0.0.1:<port>/brewlet-demo/node:${n.id} && docker push 127.0.0.1:<port>/brewlet-demo/node:${n.id}`,
                 ] : []),
                 k("label", "node", n.node, `${POOL_KEY}=${n.id}`, "--overwrite"),
                 ...(checkout ? [
                     k("apply", "-f", path.join(REPO, "kubernetes/deploy/crds/")),
-                    `${helm} upgrade --install brewlet ${quote(path.join(REPO, "kubernetes/charts/brewlet"))} --namespace brewlet --create-namespace --set-string operator.image=${n.control} --set-string admission.image=${n.control} --set-string provisioner.image=${n.worker} --set operator.rotationRestarts.enabled=true --wait --timeout 5m`,
+                    `${helm} upgrade --install brewlet ${quote(path.join(REPO, "kubernetes/charts/brewlet"))} --namespace brewlet --create-namespace --set-string operator.image=${n.registryHost}/brewlet-demo/control@<digest> --set-string admission.image=${n.registryHost}/brewlet-demo/control@<digest> --set-string provisioner.image=${n.registryHost}/brewlet-demo/node@<digest> --set operator.rotationRestarts.enabled=true --wait --timeout 5m`,
                 ] : [`${helm} upgrade --install brewlet ${BREWLET_CHART} --version ${version} --namespace brewlet --create-namespace --set operator.rotationRestarts.enabled=true --wait --timeout 10m`]),
                 k("apply", "-f", path.join(dir, "runtimeimages.yaml")),
                 k("wait", "--for=condition=Approved", `runtimeimage/${BASE_RUNTIME}`, "--timeout=120s"),
@@ -336,14 +351,15 @@ export function commandPreviews(state, runtimes = {}) {
             ],
             input: {
                 brewlet: checkout ? { source: "this checkout's HEAD", images: [n.control, n.worker] } : { chart: BREWLET_CHART, version },
+                registry: { container: n.registry, image: REGISTRY_IMAGE, authority: n.registryHost, hostsToml: `${hostsDir}/hosts.toml` },
                 runtimeImage: { id: BASE_RUNTIME, initial: { source: source(BASE_RUNTIME), version: runtimes[BASE_RUNTIME]?.version,
                     emSignRoots: runtimes[BASE_RUNTIME]?.emSignRoots, user: { uid: RUNTIME_USER, gid: RUNTIME_USER }, volumeMountPaths: ["/tmp"] },
                     rotation: { source: source(UPDATED_BUILD), version: runtimes[UPDATED_BUILD]?.version, emSignRoots: runtimes[UPDATED_BUILD]?.emSignRoots,
                         archive: runtimes[UPDATED_BUILD]?.archives?.[arch] } },
             },
             note: checkout
-                ? "Consumes the platform team's already-built golden image without rebuilding it. Components are built from this checkout's HEAD. Both runtime layouts are preimported into one disposable node; only temurin-25 is approved initially."
-                : "Consumes the platform team's already-built golden image without rebuilding it. Installs the released Helm chart with rotation restarts enabled. The node pulls the initial Temurin digest; the updated golden digest is preimported for rotation on the same ID.",
+                ? "Consumes the platform team's already-built golden image without rebuilding it. Components are built from this checkout's HEAD and pushed, with the golden runtime, to a session-owned local registry that the node pulls by digest. Only temurin-25 is approved initially."
+                : "Consumes the platform team's already-built golden image without rebuilding it. Installs the released Helm chart with rotation restarts enabled. The node pulls the initial Temurin digest; the updated golden digest is pushed to a session-owned local registry for rotation on the same ID.",
         },
         local: {
             commands: [
@@ -359,30 +375,29 @@ export function commandPreviews(state, runtimes = {}) {
             commands: [
                 `java -Djarmode=tools -jar ${quote(jar)} extract --destination ${quote(path.join(dir, "layers"))}`,
                 ...(checkout ? [] : [`curl -fsSLO https://github.com/${BREWLET_REPOSITORY}/releases/download/v${version}/brewlet_${version}_linux_${arch}.tar.gz  # SHA-256 checked against checksums.txt`]),
-                `docker build --platform linux/${arch} -f ${quote(fileURLToPath(new URL("producer.Dockerfile", import.meta.url)))} --build-arg BREWLET_CLI=${checkout ? "source" : "release"} --target artifact --output type=local,dest=${quote(path.join(dir, "application"))} ${quote(path.join(dir, "producer"))}`,
-                `brewlet build ${APP_REF} --platform linux/${arch} --launch launch.json --layer lib:/app/lib --layer app:/app --store oci --result push.json`,
+                `docker build --platform linux/${arch} -f ${quote(fileURLToPath(new URL("producer.Dockerfile", import.meta.url)))} --build-arg BREWLET_CLI=${checkout ? "source" : "release"} --build-arg APP_REF=${n.appRef} --target artifact --output type=local,dest=${quote(path.join(dir, "application"))} ${quote(path.join(dir, "producer"))}`,
+                `brewlet build ${n.appRef} --platform linux/${arch} --launch launch.json --layer lib:/app/lib --layer app:/app --store oci --result push.json`,
             ],
             input: { brewlet: checkout ? "built from this checkout's HEAD" : `release ${version} (linux/${arch})`, launch: launchDescriptor() },
             note: checkout
-                ? "The producer builds the matching brewlet CLI from this checkout and runs it in Linux, avoiding macOS extended attributes. No registry upload; no JDK in the image."
-                : "Downloads the released Linux brewlet CLI, verifies it against the release checksums.txt and runs it in a Linux producer, avoiding macOS extended attributes. No registry upload; no JDK in the image.",
+                ? "The producer builds the matching brewlet CLI from this checkout and runs it in Linux, avoiding macOS extended attributes. Writes a local OCI layout (the deploy step pushes it); no JDK in the image."
+                : "Downloads the released Linux brewlet CLI, verifies it against the release checksums.txt and runs it in a Linux producer, avoiding macOS extended attributes. Writes a local OCI layout (the deploy step pushes it); no JDK in the image.",
         },
         artifact: {
-            commands: [`brewlet inspect ${APP_REF} --store oci`, `tar -tvf ${quote(path.join(dir, "application/oci/blobs/sha256/<layer>"))}`],
+            commands: [`brewlet inspect ${n.appRef} --store oci`, `tar -tvf ${quote(path.join(dir, "application/oci/blobs/sha256/<layer>"))}`],
             input: { image, store: path.join(dir, "application/oci") },
             note: "Hashes every manifest, config and layer blob, then lists archive entries. Nothing is extracted.",
         },
         deploy: {
             commands: [
-                `tar -C application/oci -cf - oci-layout index.json blobs | docker exec -i ${n.node} ctr -n k8s.io images import --all-platforms -`,
-                `docker exec ${n.node} ctr -n k8s.io images tag --force ${APP_REF} ${image}`,
+                push("application/oci", APP_REPOSITORY),
                 k("apply", "-f", path.join(dir, "deployment.yaml")),
                 k("-n", n.namespace, "rollout", "status", `deployment/${APP}`, "--timeout=5m"),
                 k("proxy", "--address=127.0.0.1", "--port=0", `--accept-paths=^/api/v1/namespaces/${n.namespace}/services/http:${APP}:http/proxy/`),
                 k("get", "node", n.node, "-o", "jsonpath={.metadata.annotations.brewlet\\.sh/runtime-bindings}"),
             ],
             input: { file: path.join(dir, "deployment.yaml"), template: ".github/extensions/brewlet-demo/deployment.yaml", image, [RUNTIME_ANNOTATION]: BASE_RUNTIME },
-            note: "Preimports the verified OCI layout into the node's containerd (no registry), then applies an ordinary Deployment and Service. Use Show Deployment YAML to present the exact file.",
+            note: "Pushes the verified OCI layout to the session-owned local registry by digest, then applies an ordinary Deployment and Service; the node pulls the app like any registry image. Use Show Deployment YAML to present the exact file.",
         },
         upgrade: rotationPreview(BASE_RUNTIME, UPDATED_BUILD),
         rollback: rotationPreview(UPDATED_BUILD, BASE_RUNTIME),
@@ -400,9 +415,10 @@ export function commandPreviews(state, runtimes = {}) {
                 k("delete", "runtimeimage", BASE_RUNTIME, "--wait=true", "--timeout=120s", "--ignore-not-found"),
                 `helm --kubeconfig ${quote(kubeconfig)} --kube-context ${n.context} uninstall brewlet --namespace brewlet --timeout 10m`,
                 `kind delete cluster --name ${n.cluster} --kubeconfig ${quote(kubeconfig)}`,
+                `docker rm --force ${n.registry}`,
                 ...(checkout ? [`docker image rm ${n.control} ${n.worker}`] : []),
             ],
-            input: { cluster: n.cluster, retained: [path.join(dir, "application"), path.join(dir, "terminal.log")] },
+            input: { cluster: n.cluster, registry: n.registry, retained: [path.join(dir, "application"), path.join(dir, "terminal.log")] },
             note: "Removes Brewlet the normal way before deleting this session's cluster. Never touches other clusters, contexts or Docker resources.",
         },
     };
@@ -579,7 +595,7 @@ export class DemoManager extends EventEmitter {
             deploymentYaml: {
                 file: ".github/extensions/brewlet-demo/deployment.yaml", template: this.deploymentTemplate,
                 rendered: deployed && deployed.image === this.state.image ? deployed.yaml : renderDeploymentYaml(this.deploymentTemplate,
-                    { namespace: this.namespace, image: this.state.image ?? `${APP_REPOSITORY}@<package-stage-2-digest>`, runtime: BASE_RUNTIME, arch: this.state.arch ?? "<arch>" }),
+                    { namespace: this.namespace, image: this.state.image ?? `${this.names.registryHost}/${APP_REPOSITORY}@<package-stage-2-digest>`, runtime: BASE_RUNTIME, arch: this.state.arch ?? "<arch>" }),
                 applied: Boolean(deployed && deployed.image === this.state.image), path: path.join(this.dir, "deployment.yaml"), ready: Boolean(this.state.image),
             },
             comparison: comparison(this.state.evidence, this.state.image), services: [...this.children.keys()],
@@ -702,11 +718,85 @@ export class DemoManager extends EventEmitter {
         return node;
     }
 
-    async nodeImport(layout, archive) {
-        await this.run("tar", ["-C", layout, "-cf", archive, "oci-layout", "index.json", "blobs"], { env: { ...process.env, COPYFILE_DISABLE: "1" }, quiet: true });
+    // Returns this session's registry container's loopback endpoint, refusing a container it does not own.
+    async registryEndpoint() {
+        const n = this.names;
+        const [owner, port] = (await this.run("docker", ["inspect", "--format",
+            '{{index .Config.Labels "brewlet-demo-owner"}} {{(index (index .NetworkSettings.Ports "5000/tcp") 0).HostPort}}', n.registry], { quiet: true })).trim().split(" ");
+        if (owner !== this.namespace) throw new Error(`Container ${n.registry} is not this demo's registry; refusing to use it.`);
+        if (!/^\d+$/.test(port ?? "")) throw new Error(`Registry ${n.registry} does not publish port 5000.`);
+        return `127.0.0.1:${port}`;
+    }
+
+    async registryContainers() {
+        return (await this.run("docker", ["ps", "--all", "--filter", `name=^/${this.names.registry}$`, "--format", "{{.Names}}"], { quiet: true }))
+            .split(/\r?\n/).map((item) => item.trim()).filter(Boolean);
+    }
+
+    // Starts the session-owned registry on the kind network and maps its container-name authority in the node's containerd.
+    async ensureRegistry() {
+        const n = this.names;
+        if (!(await this.registryContainers()).includes(n.registry)) {
+            await this.run("docker", ["run", "--detach", "--name", n.registry, "--network", "kind", "--label", `brewlet-demo-owner=${this.namespace}`,
+                "--publish", "127.0.0.1::5000", REGISTRY_IMAGE], { timeout: 300000 });
+        }
+        const endpoint = await this.registryEndpoint();
+        await this.until(async () => {
+            try {
+                return (await this.fetcher(`http://${endpoint}/v2/`, { signal: AbortSignal.timeout(2000) })).ok;
+            } catch {
+                return false;
+            }
+        }, 60000, `Waiting for registry ${n.registry}`);
         await this.ownedNode();
-        await this.run("docker", ["exec", "-i", this.state.cluster.nodeContainer, "ctr", "-n", "k8s.io", "images", "import", "--all-platforms", "-"],
-            { input: this.command ? archive : createReadStream(archive), timeout: 600000 });
+        const hostsDir = `/etc/containerd/certs.d/${n.registryHost}`;
+        await this.run("docker", ["exec", "-i", this.state.cluster.nodeContainer, "sh", "-c", `mkdir -p '${hostsDir}' && cat > '${hostsDir}/hosts.toml'`],
+            { input: `[host."http://${n.registryHost}"]\n  capabilities = ["pull", "resolve"]\n` });
+        this.log(`\nLocal registry ${n.registry}: host pushes to ${endpoint}; the node pulls ${n.registryHost} over HTTP.\n`);
+        return endpoint;
+    }
+
+    // Pushes one OCI layout root (manifest or index) to the local registry by digest using the OCI distribution API.
+    async pushLayout(store, reference) {
+        const [name, digest] = reference.slice(this.names.registryHost.length + 1).split("@");
+        if (!reference.startsWith(`${this.names.registryHost}/`) || !DIGEST.test(digest ?? "")) throw new Error(`Refusing to push ${reference} outside this demo's registry.`);
+        const base = `http://${await this.registryEndpoint()}/v2/${name}`;
+        const request = async (url, options, expected) => {
+            const response = await this.fetcher(url, { signal: AbortSignal.timeout(600000), ...options });
+            if (!expected.includes(response.status)) throw new Error(`Registry ${options.method} ${new URL(url).pathname} returned HTTP ${response.status}.`);
+            return response;
+        };
+        const pushBlob = async (descriptor) => {
+            if ((await request(`${base}/blobs/${descriptor.digest}`, { method: "HEAD" }, [200, 404])).status === 200) return;
+            const upload = await request(`${base}/blobs/uploads/`, { method: "POST" }, [202]);
+            const location = new URL(upload.headers.get("location"), base);
+            location.searchParams.set("digest", descriptor.digest);
+            const { bytes } = await readBlob(store, descriptor);
+            await request(location.href, { method: "PUT", headers: { "content-type": "application/octet-stream" }, body: bytes }, [201]);
+        };
+        const pushManifest = async (descriptor) => {
+            const { bytes } = await readBlob(store, descriptor);
+            const manifest = JSON.parse(bytes);
+            for (const child of manifest.manifests ?? []) await pushManifest(child);
+            for (const blob of manifest.manifests ? [] : [manifest.config, ...(manifest.layers ?? [])]) await pushBlob(blob);
+            const response = await request(`${base}/manifests/${descriptor.digest}`,
+                { method: "PUT", headers: { "content-type": descriptor.mediaType ?? manifest.mediaType }, body: bytes }, [201]);
+            if (response.headers.get("docker-content-digest") !== descriptor.digest) throw new Error(`Registry stored ${descriptor.digest} under a different digest.`);
+        };
+        const root = JSON.parse(await readFile(path.join(store, "index.json"), "utf8")).manifests?.find((item) => item.digest === digest);
+        if (!root) throw new Error(`OCI layout ${store} does not contain ${digest}.`);
+        await pushManifest(root);
+        this.log(`Pushed ${reference}\n`);
+    }
+
+    // Pushes a locally built component image and returns its registry reference by digest.
+    async pushComponent(image, repository) {
+        const local = `${await this.registryEndpoint()}/${repository}:${this.names.id}`;
+        await this.run("docker", ["tag", image, local]);
+        const output = await this.run("docker", ["push", local], { timeout: 600000 });
+        const digest = output.match(/digest: (sha256:[a-f0-9]{64})/)?.[1];
+        if (!digest) throw new Error(`docker push ${local} did not report a digest.`);
+        return `${this.names.registryHost}/${repository}@${digest}`;
     }
 
     async until(check, timeout, label) {
@@ -777,7 +867,7 @@ export class DemoManager extends EventEmitter {
         return { arch, javaHome: this.state.javaHome, brewlet, cluster: this.names.cluster, clusterExists: exists };
     }
 
-    // Builds the control-plane and node images and imports the Temurin roots from this checkout.
+    // Builds the control-plane and node images from this checkout.
     async buildComponents(arch) {
         const n = this.names;
         const env = { ...process.env, DOCKER_DEFAULT_PLATFORM: `linux/${arch}`, COPYFILE_DISABLE: "1" };
@@ -789,21 +879,6 @@ export class DemoManager extends EventEmitter {
         await this.run("tar", ["-x", "-f", sourceArchive, "-C", context]);
         await this.run("docker", ["build", "--platform", `linux/${arch}`, "-f", path.join(context, "kubernetes/Dockerfile"), "-t", n.control, context], { env, timeout: 1800000 });
         await this.run("docker", ["build", "--platform", `linux/${arch}`, "-f", path.join(context, "provisioner/Dockerfile"), "-t", n.worker, context], { env, timeout: 1800000 });
-        for (const id of [BASE_RUNTIME]) {
-            const source = runtimeSource(this.runtimes, id, arch);
-            const layout = path.join(this.dir, `runtime-${id}`);
-            let current = false;
-            try {
-                current = JSON.parse(await readFile(path.join(layout, "index.json"), "utf8")).manifests?.some((item) => item.digest === source.split("@")[1]);
-            } catch {
-                // Not imported yet.
-            }
-            if (!current) {
-                await rm(layout, { recursive: true, force: true });
-                await this.run("go", ["run", "./integration-tests/live-v2/runtimeimage", "--source", source, "--output", layout], { cwd: REPO, timeout: 900000, quiet: true });
-            }
-            this.log(`\n${id}: ${source} (unchanged upstream platform manifest)\n`);
-        }
     }
 
     async buildUpdatedRuntime(arch) {
@@ -824,7 +899,7 @@ export class DemoManager extends EventEmitter {
         const base = runtimeSource(this.runtimes, BASE_RUNTIME, arch);
         await this.run("docker", ["buildx", "build", "--platform", `linux/${arch}`, "--provenance=false", "--target", "runtime",
             "--build-arg", `BASE_RUNTIME=${base}`, "-f", dockerfile,
-            "--tag", `${UPDATED_RUNTIME_REPOSITORY}:demo`, "--output", `type=oci,dest=${tar}`, context], { timeout: 900000 });
+            "--tag", `${this.names.registryHost}/${UPDATED_RUNTIME_REPOSITORY}:demo`, "--output", `type=oci,dest=${tar}`, context], { timeout: 900000 });
         const layout = path.join(this.dir, "runtime-updated");
         await rm(layout, { recursive: true, force: true });
         await mkdir(layout, { recursive: true });
@@ -833,7 +908,7 @@ export class DemoManager extends EventEmitter {
         if (index.manifests?.length !== 1 || index.manifests[0].mediaType !== "application/vnd.oci.image.manifest.v1+json") {
             throw new Error("Private runtime must export exactly one OCI platform manifest.");
         }
-        const source = `${UPDATED_RUNTIME_REPOSITORY}@${index.manifests[0].digest}`;
+        const source = `${this.names.registryHost}/${UPDATED_RUNTIME_REPOSITORY}@${index.manifests[0].digest}`;
         await artifactIdentity(layout, source, "linux", arch);
         const verificationDir = path.join(this.dir, "runtime-verification");
         await rm(verificationDir, { recursive: true, force: true });
@@ -845,7 +920,7 @@ export class DemoManager extends EventEmitter {
         this.state.privateRuntime = { source, arch, archive: { ...archive }, version: upstream.version, base,
             dockerfile: this.runtimeDockerfile, verifier: this.runtimeVerifier, verification, verifiedAt: new Date().toISOString() };
         await this.save();
-        this.log(`\nPlatform team's golden runtime: ${source}\nOfficial full JDK archive: ${archive.url}\nVerified SHA-256: ${archive.sha256}\nBuild-time verification: ${JSON.stringify(verification)}\nNo registry upload; the JDK and its cacerts are copied unchanged.\n`);
+        this.log(`\nPlatform team's golden runtime: ${source}\nOfficial full JDK archive: ${archive.url}\nVerified SHA-256: ${archive.sha256}\nBuild-time verification: ${JSON.stringify(verification)}\nThe JDK and its cacerts are copied unchanged; preparation pushes this digest to the cluster's local registry.\n`);
         return { source, layout };
     }
 
@@ -869,6 +944,7 @@ export class DemoManager extends EventEmitter {
         const version = this.checkout ? null : await this.release();
         const golden = this.state.privateRuntime;
         if (!golden?.verification || golden.arch !== arch) throw new Error("Build the platform team's golden JDK image for this Docker architecture first.");
+        if (!golden.source.startsWith(`${n.registryHost}/`)) throw new Error("The golden runtime predates the local registry; rebuild it.");
         const updated = { source: golden.source, layout: path.join(this.dir, "runtime-updated") };
         await artifactIdentity(updated.layout, updated.source, "linux", arch);
         if (this.checkout) await this.buildComponents(arch);
@@ -879,7 +955,7 @@ export class DemoManager extends EventEmitter {
         if (!clusters.includes(n.cluster)) {
             this.state.cluster = { created: true, name: n.cluster };
             await this.save();
-            await this.run("kind", ["create", "cluster", "--name", n.cluster, "--kubeconfig", this.kubeconfig, "--image", NODE_IMAGE, "--wait", "180s"], { timeout: 600000 });
+            await this.run("kind", ["create", "cluster", "--name", n.cluster, "--kubeconfig", this.kubeconfig, "--image", NODE_IMAGE, "--config", "-", "--wait", "180s"], { input: KIND_CONFIG, timeout: 600000 });
         }
         const [container, label] = (await this.run("docker", ["inspect", "--format", '{{.Id}} {{index .Config.Labels "io.x-k8s.kind.cluster"}}', n.node], { quiet: true })).trim().split(" ");
         if (label !== n.cluster) throw new Error("kind node container is not labeled for this demo cluster.");
@@ -888,16 +964,15 @@ export class DemoManager extends EventEmitter {
         this.state.cluster = { created: true, name: n.cluster, nodeContainer: container, nodeUID: node.metadata.uid, rotationModel: "same-id" };
         await this.save();
         if (node.status.nodeInfo.architecture !== arch) throw new Error(`Node architecture ${node.status.nodeInfo.architecture} differs from Docker ${arch}.`);
-        await this.nodeImport(updated.layout, path.join(this.dir, "runtime-updated-import.tar"));
-        await this.run("docker", ["exec", this.state.cluster.nodeContainer, "ctr", "-n", "k8s.io", "images", "tag", "--force",
-            `${UPDATED_RUNTIME_REPOSITORY}:demo`, updated.source]);
+        await this.ensureRegistry();
+        await this.pushLayout(updated.layout, updated.source);
         await this.kube(["label", "node", n.node, `${POOL_KEY}=${n.id}`, "--overwrite"]);
         if (this.checkout) {
-            await this.run("kind", ["load", "docker-image", "--name", n.cluster, n.control, n.worker], { timeout: 600000 });
-            await this.nodeImport(path.join(this.dir, `runtime-${BASE_RUNTIME}`), path.join(this.dir, `runtime-${BASE_RUNTIME}.tar`));
+            const control = await this.pushComponent(n.control, "brewlet-demo/control");
+            const worker = await this.pushComponent(n.worker, "brewlet-demo/node");
             await this.kube(["apply", "-f", path.join(REPO, "kubernetes/deploy/crds/")]);
             await this.helm(["upgrade", "--install", "brewlet", path.join(REPO, "kubernetes/charts/brewlet"), "--namespace", "brewlet", "--create-namespace",
-                "--set-string", `operator.image=${n.control}`, "--set-string", `admission.image=${n.control}`, "--set-string", `provisioner.image=${n.worker}`,
+                "--set-string", `operator.image=${control}`, "--set-string", `admission.image=${control}`, "--set-string", `provisioner.image=${worker}`,
                 "--set", "operator.rotationRestarts.enabled=true",
                 "--wait", "--timeout", "5m"], { timeout: 360000 });
         } else {
@@ -1017,12 +1092,12 @@ export class DemoManager extends EventEmitter {
         const output = path.join(this.dir, "application");
         await rm(output, { recursive: true, force: true });
         await this.run("docker", ["build", "--platform", `linux/${arch}`, "-f", fileURLToPath(new URL("producer.Dockerfile", import.meta.url)),
-            "--build-arg", `BREWLET_CLI=${this.checkout ? "source" : "release"}`, "--target", "artifact", "--output", `type=local,dest=${output}`, producer],
+            "--build-arg", `BREWLET_CLI=${this.checkout ? "source" : "release"}`, "--build-arg", `APP_REF=${this.names.appRef}`, "--target", "artifact", "--output", `type=local,dest=${output}`, producer],
         { env: { ...process.env, DOCKER_DEFAULT_PLATFORM: `linux/${arch}`, COPYFILE_DISABLE: "1" }, timeout: 1800000 });
         const result = JSON.parse(await readFile(path.join(output, "push.json"), "utf8"));
-        if (!DIGEST.test(result.digest ?? "") || result.reference !== APP_REF) throw new Error("brewlet build returned an unexpected result.");
-        this.state.image = `${APP_REPOSITORY}@${result.digest}`;
-        this.state.ref = APP_REF;
+        if (!DIGEST.test(result.digest ?? "") || result.reference !== this.names.appRef) throw new Error("brewlet build returned an unexpected result.");
+        this.state.image = `${this.names.registryHost}/${APP_REPOSITORY}@${result.digest}`;
+        this.state.ref = this.names.appRef;
         this.state.store = path.join(output, "oci");
         this.state.packaged = { dependencies: libraries.length, launch, mediaType: result.mediaType, platform: `linux/${arch}`, brewlet: { ...this.state.brewlet } };
         const cli = this.checkout ? "brewlet CLI built from this checkout" : `brewlet CLI ${version}`;
@@ -1104,8 +1179,8 @@ export class DemoManager extends EventEmitter {
     async deploy() {
         const node = await this.owned();
         await this.kube(["get", "runtimeclass", "brewlet"]);
-        await this.nodeImport(this.state.store, path.join(this.dir, "application.tar"));
-        await this.run("docker", ["exec", this.state.cluster.nodeContainer, "ctr", "-n", "k8s.io", "images", "tag", "--force", APP_REF, this.state.image]);
+        if (!this.state.image?.startsWith(`${this.names.registryHost}/`)) throw new Error("The packaged app predates the local registry; package it again.");
+        await this.pushLayout(this.state.store, this.state.image);
         await this.ownNamespace();
         this.deploymentTemplate = await readFile(new URL("deployment.yaml", import.meta.url), "utf8");
         const rendered = renderDeploymentYaml(this.deploymentTemplate, { namespace: this.namespace, image: this.state.image, runtime: BASE_RUNTIME, arch: node.status.nodeInfo.architecture });
@@ -1281,6 +1356,10 @@ export class DemoManager extends EventEmitter {
             }
             await this.run("kind", ["delete", "cluster", "--name", n.cluster, "--kubeconfig", this.kubeconfig], { timeout: 300000 });
         }
+        if ((await this.registryContainers()).includes(n.registry)) {
+            await this.registryEndpoint();
+            await this.run("docker", ["rm", "--force", n.registry]);
+        }
         for (const image of this.checkout ? [n.control, n.worker] : []) {
             try {
                 await this.run("docker", ["image", "rm", image]);
@@ -1290,7 +1369,7 @@ export class DemoManager extends EventEmitter {
         }
         this.state.cluster = null;
         this.state.appliedDeployment = null;
-        this.log(`\nRemoved ${n.cluster}. Application artifacts and logs remain in ${this.dir}.\n`);
+        this.log(`\nRemoved ${n.cluster} and ${n.registry}. Application artifacts and logs remain in ${this.dir}.\n`);
         return { removed: n.cluster };
     }
 

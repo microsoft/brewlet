@@ -44,9 +44,9 @@ performed. Buildx exports the measured evidence from the same runtime stage.
 The runner validates it before recording a successful golden build.
 
 Buildx exports an OCI layout; the runner verifies its manifest/config hashes
-and platform, then imports the golden digest into the private node for rotation.
-Nothing is uploaded to a registry. Do not compare the two builds by major
-version alone: both are Java 25. In a real platform pipeline, the team would
+and platform, then pushes the golden digest to the session-owned local registry
+(a `registry` container on the kind network) for rotation. Do not compare the
+two builds by major version alone: both are Java 25. In a real platform pipeline, the team would
 publish, sign, qualify and approve its runtime digest in its registry. This demo
 does not perform those production steps or claim that the image is hardened.
 Cluster preparation requires the golden build and consumes its exact digest

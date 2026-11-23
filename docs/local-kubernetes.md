@@ -1,7 +1,7 @@
 # Your first local Kubernetes deployment
 
-Run a real HTTP application, rotate its runtime without rebuilding it, and
-remove the installation normally.
+Push an application to a local registry, run it as a real HTTP service, rotate
+its runtime without rebuilding it, and remove the installation normally.
 
 In this tutorial, you'll install Brewlet in a local kind cluster, deploy a
 Python application, and update its node-supplied runtime. You'll see how a
@@ -47,14 +47,22 @@ ARCH="$(docker info --format '{{.Architecture}}' | sed 's/x86_64/amd64/; s/aarch
 export KUBECONFIG="$WORK/kubeconfig"
 ```
 
-## 3. Create the cluster
+## 3. Create the cluster and local registry
 
 Create a one-node kind cluster. kind's default node image runs containerd 2.x,
-which Brewlet requires:
+which Brewlet requires. The configuration tells containerd to read per-registry
+host settings, which the local registry below needs:
 
 ```sh
 # tutorial-step: create cluster
-DOCKER_DEFAULT_PLATFORM="linux/$ARCH" kind create cluster --name brewlet
+cat <<EOF | DOCKER_DEFAULT_PLATFORM="linux/$ARCH" kind create cluster --name brewlet --config -
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+containerdConfigPatches:
+- |-
+  [plugins."io.containerd.grpc.v1.cri".registry]
+    config_path = "/etc/containerd/certs.d"
+EOF
 ```
 
 Setting `DOCKER_DEFAULT_PLATFORM` for this command runs the node with the same
@@ -62,6 +70,36 @@ architecture as the application image, even if your shell already sets the
 variable. A node on another architecture, such as `linux/amd64` on an Apple
 silicon Mac, runs under emulation and never starts its control plane, so kind
 fails with `unable to create ClusterRoleBinding: context deadline exceeded`.
+
+Start a disposable OCI registry on the cluster's Docker network. Docker assigns
+an available host port, bound only to loopback:
+
+```sh
+# tutorial-step: registry
+docker run -d --name brewlet-registry --network kind \
+  --platform "linux/$ARCH" --publish 127.0.0.1::5000 \
+  registry@sha256:ddf754342cfc8acc51a56d5d0ab6af06826461864460636d8bd5c546dab2a7b8
+REGISTRY="$(docker port brewlet-registry 5000/tcp)"
+curl -fsS --max-time 5 --retry 10 --retry-connrefused --retry-delay 1 "http://$REGISTRY/v2/"
+
+for NODE in $(kind get nodes --name brewlet); do
+  docker exec "$NODE" mkdir -p "/etc/containerd/certs.d/$REGISTRY"
+  cat <<EOF | docker exec -i "$NODE" cp /dev/stdin "/etc/containerd/certs.d/$REGISTRY/hosts.toml"
+[host."http://brewlet-registry:5000"]
+  capabilities = ["pull", "resolve"]
+EOF
+done
+```
+
+The CLI reaches the registry through `$REGISTRY` on your machine. Inside each
+node, containerd maps that same image authority to `brewlet-registry:5000` on
+the Docker network; a node's loopback address is not your machine's loopback
+address. This follows [kind's local registry setup](https://kind.sigs.k8s.io/docs/user/local-registry/).
+Configure every new or recreated node the same way.
+
+This registry has no authentication or TLS. Use it only on a trusted local
+Docker network for this disposable tutorial, not for production. The public
+runtime images below still come directly from their registries.
 
 ## 4. Install Brewlet on the cluster
 
@@ -114,7 +152,7 @@ pinned by digest. The `local` profile tells Brewlet to install it on the cluster
 `includeControlPlane` allows that on this one-node cluster; leave it disabled
 for control-plane nodes in a shared cluster.
 
-## 6. Build the application image
+## 6. Build and push the application image
 
 The application is a small Python HTTP server. Its image contains only the
 application: Python itself will come from the node.
@@ -123,7 +161,7 @@ application: Python itself will come from the node.
 # tutorial-step: build
 mkdir "$WORK/app"
 cat > "$WORK/app/server.py" <<'EOF'
-import json, os, sys
+import json, os, signal, sys, threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 class Hello(BaseHTTPRequestHandler):
@@ -133,35 +171,45 @@ class Hello(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body.encode() + b"\n")
 
-HTTPServer(("", 8000), Hello).serve_forever()
+server = HTTPServer(("", 8000), Hello)
+signal.signal(signal.SIGTERM,
+              lambda *_: threading.Thread(target=server.shutdown, daemon=True).start())
+try:
+    server.serve_forever()
+finally:
+    server.server_close()
 EOF
 cat > "$WORK/launch.json" <<'EOF'
 {"schemaVersion": 1, "process": {"entrypoint": ["/usr/bin/python3"],
  "args": ["/app/server.py"], "workingDir": "/app"}}
 EOF
 
-brewlet build example.invalid/brewlet/hello:v1 --platform "linux/$ARCH" \
+brewlet build "$REGISTRY/brewlet/hello:v1" --platform "linux/$ARCH" \
   --launch "$WORK/launch.json" --layer "$WORK/app:/app" --store "$WORK/image"
-APP="example.invalid/brewlet/hello@$(grep -o 'sha256:[0-9a-f]*' "$WORK/image/index.json")"
-echo "$APP"
 ```
 
 `launch.json` tells Brewlet how to start the application with the
 node-supplied Python. `ARCH` is your Docker engine's architecture, which is
 also the architecture of the kind node in step 3. `brewlet build` writes the
-image to `$WORK/image`, and `APP` refers to it by digest.
+image to `$WORK/image`.
 
-Load the application image into the local node:
+Push the OCI image to the local registry, then use the pushed digest for
+deployment:
 
 ```sh
-# tutorial-step: load app
-tar -C "$WORK/image" -cf - oci-layout index.json blobs \
-  | docker exec -i brewlet-control-plane ctr -n k8s.io images import -
-docker exec brewlet-control-plane ctr -n k8s.io images tag example.invalid/brewlet/hello:v1 "$APP"
+# tutorial-step: push app
+brewlet push "$REGISTRY/brewlet/hello:v1" --store "$WORK/image" \
+  --insecure --push-result "$WORK/push.json"
+APP="$REGISTRY/brewlet/hello@$(grep -o 'sha256:[0-9a-f]*' "$WORK/push.json")"
+echo "$APP"
 ```
 
-Loading the image directly keeps this example local. To publish images through
-a registry instead, see [registry and trust configuration](registry-trust.md).
+`--insecure` explicitly selects HTTP for this local registry; it does not
+disable certificate verification. The result file records the pushed digest,
+so `APP` names immutable content rather than a mutable tag. Kubernetes pulls
+the application normally, without importing or retagging it on individual
+nodes. For authenticated registries and TLS, see
+[registry and trust configuration](registry-trust.md).
 
 ## 7. Deploy and call the application
 
@@ -187,7 +235,7 @@ spec:
       containers:
         - name: app
           image: $APP
-          imagePullPolicy: Never
+          imagePullPolicy: IfNotPresent
           securityContext: {readOnlyRootFilesystem: true}
           readinessProbe:
             httpGet: {path: /, port: 8000}
@@ -195,7 +243,7 @@ EOF
 kubectl expose deployment hello --port=8000
 kubectl rollout status deployment/hello --timeout=5m
 SERVICE_IP="$(kubectl get service hello -o jsonpath='{.spec.clusterIP}')"
-docker exec brewlet-control-plane curl -s --retry 5 --retry-connrefused "http://$SERVICE_IP:8000/"
+docker exec brewlet-control-plane curl -fsS --max-time 5 --retry 5 --retry-connrefused "http://$SERVICE_IP:8000/"
 ```
 
 The response shows Python 3.11.2, supplied by the node, and the runtime's UID,
@@ -207,12 +255,27 @@ Point the RuntimeImage at Python 3.13.5, then wait for Brewlet to roll it out:
 
 ```sh
 # tutorial-step: rotation
-kubectl patch runtimeimage python --type=merge -p '{"spec":{"source":{"image":"gcr.io/distroless/python3-debian13@sha256:f47f5807043391605425f2bd162b25f50cebdc90640bacc804e0177608fe5c65"}}}'
-kubectl wait runtimeimage/python --for=jsonpath='{.status.generation}'=2 --timeout=2m
-kubectl wait runtimeimage/python --for=condition=RotationComplete --timeout=5m
-kubectl wait runtimeimage/python --for=condition=OldGenerationTasks=true --timeout=2m
-brewlet k8s runtime status python
+rotate_runtime() {
+  kubectl patch runtimeimage python --type=merge -p '{"spec":{"source":{"image":"gcr.io/distroless/python3-debian13@sha256:f47f5807043391605425f2bd162b25f50cebdc90640bacc804e0177608fe5c65"}}}' &&
+  kubectl wait runtimeimage/python --for=jsonpath='{.status.generation}'=2 --timeout=2m &&
+  kubectl wait runtimeimage/python --for=condition=RotationComplete --timeout=5m &&
+  test -z "$(kubectl get runtimeimage python -o jsonpath='{.status.rotation.excludedNodes[*].name}')" &&
+  kubectl wait runtimeimage/python --for=condition=OldGenerationTasks=true --timeout=2m
+}
+if rotate_runtime; then
+  brewlet k8s runtime status python
+else
+  echo "Runtime rotation did not complete; do not restart the Deployment. Current status:" >&2
+  brewlet k8s runtime status python
+  false
+fi
 ```
+
+The provisioner retries failed pulls and cancels a registry response that makes
+no download progress for 30 seconds. A healthy rotation usually finishes much
+sooner; if a wait fails, this block prints the runtime status and stops before
+the replacement step. Do not restart the Deployment until `RotationComplete`
+is true and no nodes are excluded.
 
 The RuntimeImage is now at generation 2, but the running Pod still answers with
 Python 3.11.2:
@@ -228,10 +291,17 @@ has stopped before you call the Service:
 
 ```sh
 # tutorial-step: replacement
-kubectl rollout restart deployment/hello
-kubectl rollout status deployment/hello --timeout=5m
-kubectl wait runtimeimage/python --for=condition=OldGenerationTasks=false --timeout=2m
-docker exec brewlet-control-plane curl -s --retry 5 --retry-connrefused "http://$SERVICE_IP:8000/"
+if kubectl wait runtimeimage/python --for=condition=RotationComplete --timeout=1s &&
+  test -z "$(kubectl get runtimeimage python -o jsonpath='{.status.rotation.excludedNodes[*].name}')"; then
+  kubectl rollout restart deployment/hello &&
+  kubectl rollout status deployment/hello --timeout=5m &&
+  kubectl wait runtimeimage/python --for=condition=OldGenerationTasks=false --timeout=2m &&
+  docker exec brewlet-control-plane curl -fsS --max-time 5 --retry 5 --retry-connrefused "http://$SERVICE_IP:8000/"
+else
+  echo "Runtime rotation is incomplete or has excluded nodes; refusing to restart. Current status:" >&2
+  brewlet k8s runtime status python
+  false
+fi
 ```
 
 The replacement Pod answers with Python 3.13.5. No Pod uses generation 1
@@ -249,6 +319,7 @@ kubectl delete nodeprofile local --timeout=10m
 kubectl delete runtimeimage python
 helm uninstall brewlet --namespace brewlet
 kind delete cluster --name brewlet
+docker rm -f brewlet-registry
 rm -rf "$WORK"
 ```
 
@@ -258,4 +329,4 @@ If a cleanup command fails, see [troubleshooting](troubleshooting.md) and
 [safe removal](uninstallation.md).
 
 Explore [runtime images and pools](runtime-images.md), or
-[publish through a registry](applications.md).
+[package and publish applications](applications.md).

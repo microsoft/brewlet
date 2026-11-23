@@ -29,10 +29,16 @@ integration. A Secret usable by the application namespace is not automatically
 available to a privileged runtime-source pull. Prefer digest-pinned application
 references and verify actual pull failures/events separately from root installation.
 
-The [local tutorial](local-kubernetes.md) preimports the application image into
-its private node and uses `Never`; the node pulls the public runtime images
-itself. It intentionally does not qualify production registry authentication or
-TLS.
+The [local tutorial](local-kubernetes.md#3-create-the-cluster-and-local-registry)
+runs a disposable OCI registry on the kind Docker network, exposing an
+available port only on the host's loopback address. The CLI pushes with
+`--insecure`; each node's containerd `hosts.toml` maps that loopback image
+authority to the registry container's HTTP endpoint. Pods pull application
+images by digest with `IfNotPresent`, and nodes pull public runtime images
+directly. Reapply the host mapping on new or recreated nodes.
+
+This unauthenticated HTTP setup is only for a trusted local Docker network.
+It intentionally does not qualify production registry authentication or TLS.
 
 ## Runtime sources and mirrors
 

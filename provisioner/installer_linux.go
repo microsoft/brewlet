@@ -86,7 +86,16 @@ func (i *ContainerdInstaller) Stage(ctx context.Context, r *api.RuntimeImage, ba
 		image, err = i.Client.GetImage(ctx, r.Spec.Source.Image)
 	}
 	if errdefs.IsNotFound(err) {
+		pullStarted := time.Now()
+		log.Printf("runtime-image-pull-start id=%s generation=%d digest=%s", r.Name, r.Status.Generation, r.Status.Digest)
 		image, err = i.Client.Pull(ctx, ref, options...)
+		if err != nil {
+			log.Printf("runtime-image-pull-failed id=%s generation=%d digest=%s duration=%s: %v",
+				r.Name, r.Status.Generation, r.Status.Digest, time.Since(pullStarted).Round(time.Millisecond), err)
+		} else {
+			log.Printf("runtime-image-pull-complete id=%s generation=%d digest=%s duration=%s",
+				r.Name, r.Status.Generation, r.Status.Digest, time.Since(pullStarted).Round(time.Millisecond))
+		}
 	}
 	if err != nil {
 		return "", m, err

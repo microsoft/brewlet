@@ -108,18 +108,21 @@ evidence, not a new application image.*
 
 This is a **private demo golden image**, not an official Temurin container or
 a claim of production hardening. A real platform pipeline would additionally
-qualify, publish, sign and approve its runtime image. This stage does not upload
-anything to a registry.
+qualify, publish, sign and approve its runtime image. This stage only exports an
+OCI layout to the session workspace; nothing is pushed yet.
 
 ### Prepare the private cluster
 
 Choose **Prepare private cluster** (`setup`) and confirm the operation. The
 canvas creates a session-owned kind cluster with a private kubeconfig, installs
-Brewlet with rotation restarts enabled, and approves the initial Temurin
+Brewlet with rotation restarts enabled, starts a session-owned local OCI
+registry on the kind network, and approves the initial Temurin
 25.0.4.1+1 source as **`temurin-25`**. A NodeProfile offers that ID on the node.
 
-Preparation also imports the golden runtime's exact digest for the later
-rotation. It does **not** rebuild it or create a second RuntimeImage ID.
+The node trusts that registry over plain HTTP through containerd's
+`hosts.toml`, so the cluster pulls images normally instead of having them
+side-loaded. Preparation also pushes the golden runtime's exact digest to the
+local registry for the later rotation. It does **not** rebuild it or create a second RuntimeImage ID.
 Wait for preparation to pass before deploying the application.
 
 [![Private cluster preparation has passed after the golden runtime was built, with the session-owned node shown in the preparation status.](assets/demo/cluster-ready.png){ width=995 height=442 loading=lazy }](assets/demo/cluster-ready.png)
@@ -203,8 +206,8 @@ Pod template; the restart-on-rotation opt-in belongs to the Deployment.*
 
 The important fields are `runtimeClassName: brewlet`,
 `runtime-image.brewlet.sh/app: temurin-25`, and
-`brewlet.sh/restart-on-rotation: "true"`. Deployment imports the app artifact
-directly into the private node's containerd; it does not push it to a registry.
+`brewlet.sh/restart-on-rotation: "true"`. Deployment pushes the app artifact by digest
+to the session-owned local registry, and the node pulls it from there.
 
 After the stage passes, choose **Open live app**. This opens the
 Service-backed ShowMyJVM dashboard with automatic refresh. It is a different
@@ -279,7 +282,7 @@ Service proxy, **Reconnect app** uses this inspection to restore access.
 Choose **Remove private cluster** (`cleanup`) in **Before the spotlight** and
 confirm. The extension removes the workload namespace, waits for NodeProfile
 host cleanup, removes the RuntimeImage and Helm release, then deletes its
-owned kind cluster.
+owned kind cluster and local registry container.
 
 Use **Stop processes** (`stop`) to stop the local Java process as well.
 Stopping processes alone does **not** delete the cluster or its Deployment.
@@ -296,8 +299,8 @@ an application-only image. One runtime ID can move between approved source
 digests, with opted-in workload replacement and evidence tying the live JVM
 back to the unchanged application artifact.
 
-This local demonstration does not prove registry authentication, image
-signing, production hardening, fleet-wide compatibility or performance.
+This local demonstration uses an unauthenticated plain-HTTP registry, so it
+does not prove registry authentication, TLS, image signing, production hardening, fleet-wide compatibility or performance.
 The root-store comparison is not a TLS exploit test, does not claim that all
 emSign roots were removed, and does not establish a fix for a specific CVE.
 For a broader evaluation, see [verification and limitations](verification.md).

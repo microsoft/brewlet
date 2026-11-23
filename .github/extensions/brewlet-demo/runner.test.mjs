@@ -47,7 +47,8 @@ test("pinned runtime builds resolve to immutable manifests but inventory offers 
         assert.match(runtimes[UPDATED_BUILD].archives[arch].url, /jdk-25\.0\.5%2B8\/OpenJDK25U-jdk_.*_alpine-linux_hotspot_25\.0\.5_8\.tar\.gz$/);
         assert.match(runtimes[UPDATED_BUILD].archives[arch].sha256, /^[a-f0-9]{64}$/);
     }
-    const resolved = { ...runtimes, [UPDATED_BUILD]: { ...runtimes[UPDATED_BUILD], arm64: `${UPDATED_RUNTIME_REPOSITORY}@sha256:${"a".repeat(64)}` } };
+    const resolved = { ...runtimes, [UPDATED_BUILD]: { ...runtimes[UPDATED_BUILD], arm64: `brewlet-demo-s-registry:5000/${UPDATED_RUNTIME_REPOSITORY}@sha256:${"a".repeat(64)}` } };
+    assert.equal(runtimeSource(resolved, UPDATED_BUILD, "arm64"), resolved[UPDATED_BUILD].arm64);
     assert.throws(() => runtimeSource(runtimes, BASE_RUNTIME, "s390x"), /No pinned/);
     assert.throws(() => runtimeSource({ x: { arm64: "eclipse-temurin:25" } }, "x", "arm64"), /No pinned/);
     const inventory = renderInventory(resolved, [BASE_RUNTIME], "arm64", "abc", "owner");
@@ -216,11 +217,15 @@ test("release previews install the OCI chart; checkout previews build from sourc
     assert.match(setup, /operator\.rotationRestarts\.enabled=true/);
     assert.match(release.golden.commands.join("\n"), /docker buildx build[\s\S]*--target runtime[\s\S]*type=oci/);
     assert.match(release.golden.commands.join("\n"), /--target evidence/);
-    assert.doesNotMatch(setup, /go run|kind load/);
+    assert.doesNotMatch(setup, /go run|kind load|ctr /);
+    assert.match(setup, /docker run --detach --name brewlet-demo-s-registry --network kind[\s\S]*hosts\.toml/);
+    assert.match(release.deploy.commands.join("\n"), /v2\/brewlet-demo\/showmyjvm\//);
+    assert.match(release.cleanup.commands.join("\n"), /docker rm --force brewlet-demo-s-registry/);
     assert.doesNotMatch(release.preflight.commands.join("\n"), /go version/);
     assert.match(release.package.commands.join("\n"), /brewlet_0\.8\.1_linux_amd64\.tar\.gz[\s\S]*BREWLET_CLI=release/);
     const checkout = commandPreviews({ ...base, brewlet: { source: "checkout", version: null } }, runtimes);
-    assert.match(checkout.setup.commands.join("\n"), /docker build[\s\S]*kubernetes\/charts\/brewlet/);
+    assert.match(checkout.setup.commands.join("\n"), /docker build[\s\S]*docker push[\s\S]*kubernetes\/charts\/brewlet/);
+    assert.doesNotMatch(checkout.setup.commands.join("\n"), /kind load|ctr |go run/);
     assert.match(checkout.preflight.commands.join("\n"), /go version/);
     assert.match(checkout.package.commands.join("\n"), /BREWLET_CLI=source/);
 });
@@ -254,7 +259,7 @@ test("private runtime verifies the archive, OCI descriptor and architecture befo
         },
     });
     await manager.init();
-    assert.equal((await manager.buildUpdatedRuntime("arm64")).source, `${UPDATED_RUNTIME_REPOSITORY}@${fixture.manifest.digest}`);
+    assert.equal((await manager.buildUpdatedRuntime("arm64")).source, `brewlet-demo-s-registry:5000/${UPDATED_RUNTIME_REPOSITORY}@${fixture.manifest.digest}`);
     assert.equal(manager.state.privateRuntime.archive.sha256, digest(bytes).slice(7));
     assert.equal(manager.state.privateRuntime.verification.trustStore.roots[1].present, false);
     assert.match(manager.snapshot().goldenRecipe.dockerfile, /java \/tmp\/VerifyRuntime.java/);
@@ -312,10 +317,10 @@ test("preflight checks Buildx and archive configuration without requiring a publ
     assert.ok(calls.some((call) => call.join(" ") === "docker buildx version"));
 });
 
-test("setup preimports both builds but approves and offers only the initial temurin-25 ID", async (t) => {
+test("setup pushes the golden build to the local registry but approves and offers only the initial temurin-25 ID", async (t) => {
     const runtimes = await loadRuntimes();
     const fixture = await layout(t);
-    const privateSource = `${UPDATED_RUNTIME_REPOSITORY}@${fixture.manifest.digest}`;
+    const privateSource = `brewlet-demo-s-registry:5000/${UPDATED_RUNTIME_REPOSITORY}@${fixture.manifest.digest}`;
     const calls = [];
     const manager = new DemoManager(await workspace(t), "s", {
         runtimes, env: { BREWLET_DEMO_VERSION: "0.8.1" },
@@ -329,7 +334,8 @@ test("setup preimports both builds but approves and offers only the initial temu
     await manager.init();
     await cp(fixture.store, path.join(manager.dir, "runtime-updated"), { recursive: true });
     manager.state.privateRuntime = { source: privateSource, arch: "arm64", verification: trustStoreEvidence(inspection(runtimes[UPDATED_BUILD]), runtimes[UPDATED_BUILD]) };
-    manager.nodeImport = async (layout) => calls.push(["import", layout]);
+    manager.ensureRegistry = async () => calls.push(["registry"]);
+    manager.pushLayout = async (store, reference) => calls.push(["push", store, reference]);
     manager.helm = async (...args) => calls.push(["helm", ...args[0]]);
     manager.kube = async (args) => { calls.push(["kubectl", ...args]); return ""; };
     manager.waitForWebhook = async () => {};
@@ -348,9 +354,37 @@ test("setup preimports both builds but approves and offers only the initial temu
     assert.equal(inventory[0].metadata.name, BASE_RUNTIME);
     assert.equal(inventory[0].spec.source.image, runtimes[BASE_RUNTIME].arm64);
     assert.deepEqual(JSON.parse(await readFile(path.join(manager.dir, "nodeprofile.yaml"), "utf8")).spec.runtimeImages.map((item) => item.id), [BASE_RUNTIME]);
-    assert.ok(calls.findIndex((call) => call[0] === "import") < calls.findIndex((call) => call.includes("--for=condition=Approved")));
-    assert.ok(calls.some((call) => call.includes("tag") && call.at(-1) === privateSource));
+    const pushed = calls.findIndex((call) => call[0] === "push" && call[2] === privateSource);
+    assert.ok(calls.findIndex((call) => call[0] === "registry") < pushed);
+    assert.ok(pushed > 0 && pushed < calls.findIndex((call) => call.includes("--for=condition=Approved")));
     assert.ok(calls.some((call) => call.includes("operator.rotationRestarts.enabled=true")));
+});
+
+test("pushLayout uploads blobs before the manifest by digest to the session-owned registry only", async (t) => {
+    const fixture = await layout(t);
+    const requests = [];
+    const stored = new Map();
+    const manager = new DemoManager(await workspace(t), "s", {
+        command: async (file, args) => (file === "docker" && args[0] === "inspect" ? "brewlet-demo-s 49152" : ""),
+        fetcher: async (url, { method, headers, body }) => {
+            const { pathname, searchParams } = new URL(url);
+            requests.push(`${method} ${pathname}`);
+            if (method === "HEAD") return { status: stored.has(pathname.split("/").at(-1)) ? 200 : 404 };
+            if (method === "POST") return { status: 202, headers: new Headers({ location: "/v2/brewlet-demo/showmyjvm/blobs/uploads/u1?state=x" }) };
+            const id = searchParams.get("digest") ?? pathname.split("/").at(-1);
+            assert.equal(digest(body), id);
+            stored.set(id, headers["content-type"]);
+            return { status: 201, headers: new Headers({ "docker-content-digest": id }) };
+        },
+    });
+    await manager.init();
+    await manager.pushLayout(fixture.store, `brewlet-demo-s-registry:5000/brewlet-demo/showmyjvm@${fixture.manifest.digest}`);
+    assert.equal(requests.at(-1), `PUT /v2/brewlet-demo/showmyjvm/manifests/${fixture.manifest.digest}`);
+    assert.ok(requests.includes("PUT /v2/brewlet-demo/showmyjvm/blobs/uploads/u1"));
+    assert.equal(stored.get(fixture.manifest.digest), "application/vnd.oci.image.manifest.v1+json");
+    await assert.rejects(manager.pushLayout(fixture.store, `other:5000/brewlet-demo/showmyjvm@${fixture.manifest.digest}`), /outside this demo's registry/);
+    manager.command = async () => "someone-else 49152";
+    await assert.rejects(manager.pushLayout(fixture.store, `brewlet-demo-s-registry:5000/brewlet-demo/showmyjvm@${fixture.manifest.digest}`), /not this demo's registry/);
 });
 
 test("verified rollouts bind measured trust-store evidence to the unchanged app and the serving Pod", async (t) => {
@@ -605,6 +639,7 @@ test("cleanup refuses to delete a kind cluster this demo did not create", async 
     await manager.cleanup();
     assert.ok(calls.includes(`kind delete cluster --name ${manager.names.cluster} --kubeconfig ${manager.kubeconfig}`));
     assert.equal(manager.state.cluster, null);
+    await manager.pendingIO;
 });
 
 test("run streams real subprocess output and reports failures", async (t) => {
