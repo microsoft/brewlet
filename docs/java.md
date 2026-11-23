@@ -13,8 +13,9 @@ Brewlet splits ownership along a different line:
 
 | Concern | Owner | Where it lives |
 | --- | --- | --- |
-| Java runtime (JDK/JRE, CA certificates, OS libraries) | Platform team | An approved [runtime image](runtime-images.md), selected by ID |
-| Application classes, resources and **all** library JARs | Application team | Application artifact, mounted read-only at `/app` |
+| Java runtime (JDK/JRE or custom `jlink` image, CA certificates, OS libraries) | Platform team | An approved [runtime image](runtime-images.md), selected by ID |
+| Shared libraries the platform chooses to standardize (optional) | Platform team | The same runtime image, as linked modules or JARs |
+| Application classes, resources and every other library JAR | Application team | Application artifact, mounted read-only at `/app` |
 | How the JVM starts (main class, `-jar`, JVM options, arguments) | Application team | `launch.json` in the application artifact |
 | Replicas, resources, probes, config, Secrets, writable volumes | Application team | Kubernetes manifests |
 
@@ -24,9 +25,13 @@ Three consequences shape everything else in this guide:
   files your build produced, plus an explicit launch descriptor. It does not
   resolve dependencies, read `pom.xml`/`build.gradle`, discover a main class or
   unpack nested JARs.
-- **Dependencies belong to you.** Spring, Quarkus, Jackson, Netty and every
-  other library ship in `/app`. A runtime update changes the JDK, not your
-  libraries; a library CVE still means rebuilding and republishing.
+- **Each library lives on one side of the line.** By default the application
+  ships its libraries in `/app`. A platform team can instead move selected
+  libraries into the runtime image, for example as JPMS modules linked into a
+  custom `jlink` runtime. A runtime rotation then updates those libraries with
+  the JDK, without rebuilding applications. Libraries left in `/app` are
+  updated only by rebuilding and republishing the application. See
+  [libraries provided by the runtime image](#libraries-provided-by-the-runtime-image).
 - **Runtime updates start new JVMs.** A runtime rotation never patches a running
   process. New Pods start your unchanged artifact on the newer runtime image,
   so the application must stay compatible with the Java feature release the
@@ -43,6 +48,8 @@ Ask your platform team for:
   Brewlet has no built-in catalog.
 - **Java feature release** the ID guarantees (17, 21, 25, ...). Compile with
   `--release` at or below it.
+- **Libraries the runtime image provides**, if any, with their versions and
+  whether they are linked modules or classpath JARs.
 - **Absolute path of the `java` executable** in that runtime image. Distroless
   images commonly use `/usr/bin/java`; Eclipse Temurin images use
   `/opt/java/openjdk/bin/java`. The examples below use `/usr/bin/java`.
@@ -85,6 +92,9 @@ and nodes reuse them between releases. Start with one layer and split once
 the basic deployment works.
 
 Do not package a JDK, a `jlink` image or a container base image in `/app`.
+A custom Java runtime, including one with linked libraries, belongs in the
+runtime image (see
+[libraries provided by the runtime image](#libraries-provided-by-the-runtime-image)).
 
 ## Spring Boot
 
@@ -390,6 +400,128 @@ There is no Gradle plugin. Gradle builds call the same `brewlet build` and
 `brewlet push` commands, for example from an `Exec` task or a CI step after
 `./gradlew build`.
 
+## Libraries provided by the runtime image
+
+A runtime image does not have to be a stock JDK. A platform team can build a
+custom runtime that already contains libraries it wants to standardize and
+patch centrally, for example a JDBC driver, a security provider, a telemetry
+library or an internal client library. Applications then stop shipping those
+libraries, and a runtime rotation updates them across every application
+without rebuilding any of them.
+
+Brewlet does not inspect or resolve these libraries. To Brewlet they are
+ordinary runtime files. The agreement about which libraries a runtime ID
+provides, in which versions, is a contract between the platform team and
+application teams, just like the Java feature release.
+
+### Platform side: build the runtime
+
+There are two common ways to add libraries to a Java runtime.
+
+**Link JPMS modules with `jlink`.** Modular JARs, that is JARs with a
+`module-info.class`, can be linked into a custom runtime together with the JDK
+modules you need:
+
+```sh
+jlink \
+  --module-path platform-modules \
+  --add-modules java.base,java.logging,java.naming,java.net.http,java.sql,jdk.crypto.ec,com.example.telemetry \
+  --strip-debug --no-header-files --no-man-pages \
+  --output /opt/java
+```
+
+`platform-modules` holds the modular library JARs and their modular
+dependencies; add `$JAVA_HOME/jmods` if your JDK ships it. Linked modules
+become part of the runtime's system image. When an application runs on the
+class path, the JVM resolves system modules that export packages by default,
+so ordinary class-path code and `-jar` applications, including Spring Boot
+executable JARs, can load their classes without extra options. `java
+--list-modules` on the runtime image shows what was linked. `jlink` accepts
+only explicit modules. JARs without `module-info.class`, including automatic
+modules that only declare `Automatic-Module-Name` (many popular libraries and
+JDBC drivers), cannot be linked; use a JAR directory for them.
+
+**Add a directory of JARs.** Non-modular JARs can be placed in a documented
+directory of the runtime image, for example `/opt/platform/lib`. They are not
+loaded automatically; each application adds them to its class path (see
+below).
+
+Either way, publish the result as a [runtime image](runtime-images.md) under a
+runtime ID, and document the provided libraries and their versions. Treat the
+library set as part of that ID's contract: patch versions can roll out by
+rotation, but a change that can break applications (a new major version, a
+removed library, a different module name) needs a new runtime ID that
+applications opt into, as with a new Java feature release.
+
+### Application side: stop shipping those libraries
+
+Compile against the platform library but leave it out of the package:
+
+=== "Maven"
+
+    ```xml
+    <dependency>
+      <groupId>com.example.platform</groupId>
+      <artifactId>telemetry</artifactId>
+      <version>3.2.1</version> <!-- match the runtime's version -->
+      <scope>provided</scope>
+    </dependency>
+    ```
+
+=== "Gradle (Kotlin DSL)"
+
+    ```kotlin
+    dependencies {
+        compileOnly("com.example.platform:telemetry:3.2.1") // match the runtime's version
+        testImplementation("com.example.platform:telemetry:3.2.1")
+    }
+    ```
+
+Spring Boot's repackaged JAR, Quarkus' `lib/` directory and the
+[Brewlet Maven plugin](#plain-java-applications-and-the-maven-plugin) do not
+include `provided`/`compileOnly` dependencies. Check the packaged files with
+`brewlet inspect`, and exclude transitive copies too: two copies of the same
+library on different loaders cause `LinkageError`, split-package errors or
+classes silently loaded from the wrong version.
+
+How the application reaches the libraries depends on how the platform added
+them:
+
+- **Linked modules** need no launch changes for class-path applications. A
+  modular application adds `requires com.example.telemetry;` (the module name
+  the platform documents) to its `module-info.java`.
+- **A JAR directory** must be on the class path. `java -jar` ignores
+  `--class-path`, so start the application with an explicit class path and
+  main class instead:
+
+    ```json
+    "args": [
+      "--class-path",
+      "/app/app.jar:/app/lib/*:/opt/platform/lib/*",
+      "com.example.Application"
+    ]
+    ```
+
+    This works for thin JARs and Spring Boot's extracted `app.jar`, whose
+    manifest still adds `lib/`. It does not work for a Spring Boot executable
+    JAR or a Quarkus fast-jar, which use their own class loaders; prefer linked
+    modules for those, or keep the library in the application.
+
+If the runtime directory lies outside `/app`, it is part of the runtime image,
+not a volume, so it needs no `volumeMountPaths` approval.
+
+### What to move, and what to keep
+
+Good candidates are libraries with a stable API that many applications share
+and that the platform wants to patch quickly: JDBC drivers, cryptography and
+security providers, observability libraries and agents, and internal platform
+clients. Framework libraries usually stay in the application. Spring Boot
+manages a large, tightly versioned dependency set, and Quarkus resolves and
+augments its extensions at build time, so pulling individual framework JARs
+into the runtime tends to break version alignment. Pin the runtime IDs you
+tested in `runtimeImages` so a Deployment cannot select a runtime without the
+libraries you compiled against.
+
 ## Configure the application
 
 ### JVM options versus application arguments
@@ -611,10 +743,13 @@ slower start rather than a failure. The Maven plugin's
 
 ### Java agents
 
-Ship agents in `/app` (for example `/app/agents/opentelemetry-javaagent.jar`)
-and add `-javaagent:/app/agents/opentelemetry-javaagent.jar` before `-jar`. The
-agent is your dependency: update it by republishing. See
-[instrumentation](instrumentation.md).
+Either side can own an agent. An application ships its own agent in `/app`
+(for example `/app/agents/opentelemetry-javaagent.jar`) and adds
+`-javaagent:/app/agents/opentelemetry-javaagent.jar` before `-jar`; it updates
+the agent by republishing. A platform team can instead put a standard agent in
+the runtime image, so a runtime rotation updates it; the application still
+names it explicitly with `-javaagent:` at the path the platform documents,
+because Brewlet adds no JVM options. See [instrumentation](instrumentation.md).
 
 ### Native libraries and other platform-specific files
 
@@ -640,6 +775,8 @@ Package them as [native workloads](native.md), not with this guide.
 | Deployment rejected before start | Runtime ID missing from `runtimeImages`, or not approved | Align the annotation, `runtimeImages` and the platform's inventory |
 | Pod restarts during startup | Liveness probe fires before the framework is ready | Add a `startupProbe` |
 | `OOMKilled` with a small heap | Non-heap memory exceeds the limit | Lower `MaxRAMPercentage` or raise the limit |
+| `NoClassDefFoundError` for a library the platform provides | Selected runtime ID lacks it, or a JAR directory is missing from the class path | Check `java --list-modules` or the documented directory, and pin tested IDs in `runtimeImages` |
+| `LinkageError` or split-package error | The library is both in the runtime and in `/app` | Use `provided`/`compileOnly` and remove transitive copies |
 | Override has no effect on Quarkus | Property is fixed at build time | Rebuild with the new value |
 | Extra Kubernetes `args` dropped `-jar` | `args` replaces descriptor arguments | Repeat the complete argument list |
 
