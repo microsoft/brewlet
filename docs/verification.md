@@ -75,7 +75,13 @@ the [cleanup contract](operations.md#cleanup-and-revocation).
 | --- | --- | --- |
 | `PR validation` (`pr.yml`) | Pull requests | Only the checks, CodeQL languages, website build and real E2E impacted by the changed files. Native checks and E2E run on amd64; E2E uses the Python fixture; Node.js, .NET and PHP fixture changes are left to the weekly language workflow. Unknown paths and workflow changes select everything. |
 | `Release Gate Tests` (`release-gate-tests.yml`) | Weekly on `main`, manual dispatch, and every release | Every check, every CodeQL language and the Python real E2E on native amd64 and arm64. |
+| [`Kubernetes E2E`](https://github.com/microsoft/brewlet/actions/workflows/e2e.yml) (`e2e.yml`) | Wednesdays at 04:17 UTC on `main`, or manual dispatch | All nine native Kubernetes suites on both amd64 and arm64. PR validation and Release Gate Tests call the shorter `pr` scenario; those jobs appear under the caller's run. |
 | `Language Example E2E` (`language-e2e.yml`) | Weekly on `main`, manual dispatch for any branch, architecture and language (or all) | One matrix job per fixture (Python, Java, Node.js, .NET, PHP, WebAssembly) running its real-node runtime contract and rotation; Java also runs the Maven producer and WebAssembly runs the Wasmtime and Spin examples. Non-gating. |
+
+To run the same full suite on demand, select **Kubernetes E2E → Run workflow**,
+choose the branch, and enter its current 40-character commit SHA as `expected_sha`.
+Leave `scenario` at `complete` and `architecture` at `both`. If the branch
+has moved, the workflow fails before checkout rather than testing different code.
 
 The [release workflow](supported-release.md#maintainers-cutting-a-release)
 runs Release Gate Tests, including the Python real E2E on both architectures, for
