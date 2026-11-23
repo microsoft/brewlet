@@ -28,7 +28,7 @@ spec:
       containers:
         - name: app
           image: __IMAGE__
-          imagePullPolicy: Never
+          imagePullPolicy: IfNotPresent
           ports:
             - name: http
               containerPort: 8080

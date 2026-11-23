@@ -1,7 +1,7 @@
 # Your first local Kubernetes deployment
 
-Run a real HTTP application, rotate its runtime without rebuilding it, and
-remove the installation normally.
+Push an application to a local registry, run it as a real HTTP service, rotate
+its runtime without rebuilding it, and remove the installation normally.
 
 In this tutorial, you'll install Brewlet in a local kind cluster, deploy a
 Python application, and update its node-supplied runtime. You'll see how a
@@ -47,14 +47,22 @@ ARCH="$(docker info --format '{{.Architecture}}' | sed 's/x86_64/amd64/; s/aarch
 export KUBECONFIG="$WORK/kubeconfig"
 ```
 
-## 3. Create the cluster
+## 3. Create the cluster and local registry
 
 Create a one-node kind cluster. kind's default node image runs containerd 2.x,
-which Brewlet requires:
+which Brewlet requires. The configuration tells containerd to read per-registry
+host settings, which the local registry below needs:
 
 ```sh
 # tutorial-step: create cluster
-DOCKER_DEFAULT_PLATFORM="linux/$ARCH" kind create cluster --name brewlet
+cat <<EOF | DOCKER_DEFAULT_PLATFORM="linux/$ARCH" kind create cluster --name brewlet --config -
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+containerdConfigPatches:
+- |-
+  [plugins."io.containerd.grpc.v1.cri".registry]
+    config_path = "/etc/containerd/certs.d"
+EOF
 ```
 
 Setting `DOCKER_DEFAULT_PLATFORM` for this command runs the node with the same
@@ -62,6 +70,36 @@ architecture as the application image, even if your shell already sets the
 variable. A node on another architecture, such as `linux/amd64` on an Apple
 silicon Mac, runs under emulation and never starts its control plane, so kind
 fails with `unable to create ClusterRoleBinding: context deadline exceeded`.
+
+Start a disposable OCI registry on the cluster's Docker network. Docker assigns
+an available host port, bound only to loopback:
+
+```sh
+# tutorial-step: registry
+docker run -d --name brewlet-registry --network kind \
+  --platform "linux/$ARCH" --publish 127.0.0.1::5000 \
+  registry@sha256:ddf754342cfc8acc51a56d5d0ab6af06826461864460636d8bd5c546dab2a7b8
+REGISTRY="$(docker port brewlet-registry 5000/tcp)"
+curl -fsS --retry 10 --retry-connrefused --retry-delay 1 "http://$REGISTRY/v2/"
+
+for NODE in $(kind get nodes --name brewlet); do
+  docker exec "$NODE" mkdir -p "/etc/containerd/certs.d/$REGISTRY"
+  cat <<EOF | docker exec -i "$NODE" cp /dev/stdin "/etc/containerd/certs.d/$REGISTRY/hosts.toml"
+[host."http://brewlet-registry:5000"]
+  capabilities = ["pull", "resolve"]
+EOF
+done
+```
+
+The CLI reaches the registry through `$REGISTRY` on your machine. Inside each
+node, containerd maps that same image authority to `brewlet-registry:5000` on
+the Docker network; a node's loopback address is not your machine's loopback
+address. This follows [kind's local registry setup](https://kind.sigs.k8s.io/docs/user/local-registry/).
+Configure every new or recreated node the same way.
+
+This registry has no authentication or TLS. Use it only on a trusted local
+Docker network for this disposable tutorial, not for production. The public
+runtime images below still come directly from their registries.
 
 ## 4. Install Brewlet on the cluster
 
@@ -114,7 +152,7 @@ pinned by digest. The `local` profile tells Brewlet to install it on the cluster
 `includeControlPlane` allows that on this one-node cluster; leave it disabled
 for control-plane nodes in a shared cluster.
 
-## 6. Build the application image
+## 6. Build and push the application image
 
 The application is a small Python HTTP server. Its image contains only the
 application: Python itself will come from the node.
@@ -140,28 +178,32 @@ cat > "$WORK/launch.json" <<'EOF'
  "args": ["/app/server.py"], "workingDir": "/app"}}
 EOF
 
-brewlet build example.invalid/brewlet/hello:v1 --platform "linux/$ARCH" \
+brewlet build "$REGISTRY/brewlet/hello:v1" --platform "linux/$ARCH" \
   --launch "$WORK/launch.json" --layer "$WORK/app:/app" --store "$WORK/image"
-APP="example.invalid/brewlet/hello@$(grep -o 'sha256:[0-9a-f]*' "$WORK/image/index.json")"
-echo "$APP"
 ```
 
 `launch.json` tells Brewlet how to start the application with the
 node-supplied Python. `ARCH` is your Docker engine's architecture, which is
 also the architecture of the kind node in step 3. `brewlet build` writes the
-image to `$WORK/image`, and `APP` refers to it by digest.
+image to `$WORK/image`.
 
-Load the application image into the local node:
+Push the OCI image to the local registry, then use the pushed digest for
+deployment:
 
 ```sh
-# tutorial-step: load app
-tar -C "$WORK/image" -cf - oci-layout index.json blobs \
-  | docker exec -i brewlet-control-plane ctr -n k8s.io images import -
-docker exec brewlet-control-plane ctr -n k8s.io images tag example.invalid/brewlet/hello:v1 "$APP"
+# tutorial-step: push app
+brewlet push "$REGISTRY/brewlet/hello:v1" --store "$WORK/image" \
+  --insecure --push-result "$WORK/push.json"
+APP="$REGISTRY/brewlet/hello@$(grep -o 'sha256:[0-9a-f]*' "$WORK/push.json")"
+echo "$APP"
 ```
 
-Loading the image directly keeps this example local. To publish images through
-a registry instead, see [registry and trust configuration](registry-trust.md).
+`--insecure` explicitly selects HTTP for this local registry; it does not
+disable certificate verification. The result file records the pushed digest,
+so `APP` names immutable content rather than a mutable tag. Kubernetes pulls
+the application normally, without importing or retagging it on individual
+nodes. For authenticated registries and TLS, see
+[registry and trust configuration](registry-trust.md).
 
 ## 7. Deploy and call the application
 
@@ -187,7 +229,7 @@ spec:
       containers:
         - name: app
           image: $APP
-          imagePullPolicy: Never
+          imagePullPolicy: IfNotPresent
           securityContext: {readOnlyRootFilesystem: true}
           readinessProbe:
             httpGet: {path: /, port: 8000}
@@ -249,6 +291,7 @@ kubectl delete nodeprofile local --timeout=10m
 kubectl delete runtimeimage python
 helm uninstall brewlet --namespace brewlet
 kind delete cluster --name brewlet
+docker rm -f brewlet-registry
 rm -rf "$WORK"
 ```
 
@@ -258,4 +301,4 @@ If a cleanup command fails, see [troubleshooting](troubleshooting.md) and
 [safe removal](uninstallation.md).
 
 Explore [runtime images and pools](runtime-images.md), or
-[publish through a registry](applications.md).
+[package and publish applications](applications.md).

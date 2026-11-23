@@ -48,7 +48,7 @@
             <div class="buttons"><a id="local-link" hidden target="_blank" rel="noreferrer">Open local app &nearr;</a><a id="cluster-link" hidden target="_blank" rel="noreferrer">Open Kubernetes app &nearr;</a><button data-step="inspect">Inspect deployment</button></div>
             <div id="inspect-preview"></div>
         </section>
-        <footer><code id="target"></code><p>No registry upload; the application image is imported into the private node's containerd. Stop terminates only this demo's local JVM and Service proxy; the Deployment keeps running until you remove the private cluster.</p></footer>
+        <footer><code id="target"></code><p>Images are pushed to a session-owned local registry that the private node pulls from. Stop terminates only this demo's local JVM and Service proxy; the Deployment keeps running until you remove the private cluster.</p></footer>
     </main>
     </div>
         <section class="terminal-panel" aria-label="Live demo terminal">

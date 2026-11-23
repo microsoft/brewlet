@@ -296,7 +296,7 @@ function goldenRuntimeRecipe() {
             element("p", `Verified full JDK ${build.verification.version} / linux/${build.arch} / ${build.verifiedAt}`));
         for (const root of build.verification.trustStore.roots) panel.append(element("p",
             `${root.present ? "PRESENT" : "ABSENT"}: ${root.name}${root.present ? ` / SHA-256 ${root.fingerprints.join(", ")}` : ""}`));
-        panel.append(element("p", "Next: Prepare private cluster imports this exact runtime digest. The initial temurin-25 RuntimeImage is approved first; the upgrade stage rotates that same ID to this digest. The demo does not push to a registry; a real platform team would publish and approve this digest in its own registry."));
+        panel.append(element("p", "Next: Prepare private cluster pushes this exact runtime digest to the session-owned local registry. The initial temurin-25 RuntimeImage is approved first; the upgrade stage rotates that same ID to this digest. This local registry is unauthenticated plain HTTP; a real platform team would publish and approve this digest in its own registry."));
     } else panel.append(element("p", "Not built yet. Run this stage to produce real JDK/trust-store evidence and an image digest before cluster preparation."));
     return panel;
 }
@@ -367,7 +367,7 @@ function renderArtifactProof() {
     const trustScroll = element("div", null, "artifact-table-scroll");
     trustScroll.append(trustTable);
     panel.append(trustScroll, element("p", "Presence is measured from ${java.home}/lib/security/cacerts, not from the OS store or version labels. This demonstrates root-store contents, not a live TLS vulnerability test."));
-    if (state.privateRuntime) panel.append(element("p", `Platform team's golden runtime built from the official full Temurin JDK musl archive (no registry upload). Verified archive SHA-256: ${state.privateRuntime.archive.sha256}`));
+    if (state.privateRuntime) panel.append(element("p", `Platform team's golden runtime built from the official full Temurin JDK musl archive (exported as a local OCI layout). Verified archive SHA-256: ${state.privateRuntime.archive.sha256}`));
     if (state.evidence.inspect?.artifact) panel.append(element("p",
         `Latest inspection (not historical rollout evidence): ${state.evidence.inspect.vendor} ${state.evidence.inspect.version} | Pod ${state.evidence.inspect.pod} | ${state.evidence.inspect.runtime}`));
     const diff = element("details");
