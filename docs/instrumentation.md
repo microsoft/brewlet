@@ -28,7 +28,7 @@ Add the agent to the launch descriptor yourself. For example, a hand-written
 deliberately use a compatible platform runtime with its own documented agent
 path. Verify compatibility and overhead.
 
-With the [Maven plugin](https://github.com/microsoft/brewlet/blob/main/maven-plugin/README.md),
+With the [Maven plugin](maven-plugin.md),
 put `-javaagent:/app/agents/otel.jar` in the `javaArgs` configuration list; the
 generated argv places `javaArgs` before the class path and main class. Brewlet
 itself never adds `-javaagent`. A Pod `args` override replaces the descriptor's

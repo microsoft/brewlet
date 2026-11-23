@@ -84,6 +84,7 @@ nav:
       - Contracts and glossary: reference.md
       - Cheat sheet: cheat-sheet.md
       - CLI reference: cli-reference.md
+      - Maven plugin reference: maven-plugin.md
       - Third-party notices: third-party-notices.md
       - Specification: specification.md
       - Source code: source-code.md

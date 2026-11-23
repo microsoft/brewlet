@@ -441,14 +441,15 @@ resolved dependencies to `/app/lib`, and generates classpath (or JPMS module)
 arguments:
 
 ```sh
-mvn package sh.brewlet:brewlet-maven-plugin:0.8.1:push \
+mvn package sh.brewlet:brewlet-maven-plugin:0.11.0:push \
   -Dbrewlet.image=registry.example.com/apps/orders:v2 \
   -Dbrewlet.platforms=linux/amd64,linux/arm64 \
   -Dbrewlet.mainClass=com.example.Main
 ```
 
-Use the plugin version matching your `brewlet` CLI. The plugin does not
-understand framework packaging formats:
+Use the plugin version matching your `brewlet` CLI; see the
+[Maven plugin reference](maven-plugin.md) for all goals and options. The
+plugin does not understand framework packaging formats:
 
 - For **Quarkus**, the project JAR is not runnable on its own; use the
   fast-jar recipe above.
