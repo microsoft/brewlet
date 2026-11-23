@@ -155,7 +155,7 @@ Replace the example plugin version with the release reported by
 `brewlet version`.
 
 ```sh
-mvn package sh.brewlet:brewlet-maven-plugin:0.8.1:push \
+mvn package sh.brewlet:brewlet-maven-plugin:0.11.0:push \
   -Dbrewlet.image=registry.example.com/apps/orders:v2 \
   -Dbrewlet.platforms=linux/amd64,linux/arm64 \
   -Dbrewlet.mainClass=example.Main
@@ -165,4 +165,4 @@ The plugin requires Java 17 or later and a matching `brewlet` CLI on the
 `PATH` (or set `-Dbrewlet.executable`). It does not generate Kubernetes
 manifests, choose Pod runtime annotations or apply workloads. See
 [Java applications](java.md) and the
-[Maven plugin reference](https://github.com/microsoft/brewlet/blob/main/maven-plugin/README.md).
+[Maven plugin reference](maven-plugin.md).
