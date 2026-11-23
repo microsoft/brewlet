@@ -151,12 +151,19 @@ change with each version.
     # build/libs/app.jar
     ```
 
-Stage the JAR in its own directory and write the descriptor:
+Stage the JAR in a directory that will become `/app`. The launch descriptor
+is a separate file: it tells Brewlet exactly which executable and arguments
+to run when a Pod starts.
 
 ```sh
 mkdir -p brewlet/application
 install -m 0644 target/app.jar brewlet/application/app.jar   # Gradle: build/libs/app.jar
 ```
+
+For the example below, ask the platform team to confirm that the selected
+runtime provides Java 21 at `/usr/bin/java`. Set `runtimeImages` to the runtime
+IDs you tested; this list is an allowlist, not the setting that selects the
+runtime for a Pod.
 
 ```json
 {
@@ -174,9 +181,31 @@ install -m 0644 target/app.jar brewlet/application/app.jar   # Gradle: build/lib
 }
 ```
 
-Change `/usr/bin/java`, `java-21` and the JVM options to suit your platform
-and application. `runtimeImages` is optional; it rejects deployments that
-select a runtime ID outside the list (see [Java versions](#java-versions-and-runtimeimages)).
+The fields describe a process invocation, not shell text:
+
+- `schemaVersion` selects Brewlet's version-1 launch descriptor format.
+- `runtimeImages` is optional. When present, it limits which approved runtime
+  IDs are allowed to run this artifact. The Pod still selects its runtime with
+  its `runtime-image.brewlet.sh/app` annotation (see
+  [Java versions](#java-versions-and-runtimeimages)).
+- `entrypoint` is the absolute Java executable path in the runtime image. Brewlet
+  runs it directly; it does not start a shell or search `PATH`.
+- `args` is an ordered array of separate arguments. `-XX:MaxRAMPercentage=75`
+  is an example JVM option that caps the Java heap at 75% of the container
+  memory limit. It is not a Brewlet default; tune it for the application's
+  non-heap memory needs and container limit. `-jar /app/app.jar` then tells
+  Java to run the Spring Boot executable JAR.
+- `workingDir` sets the process working directory. `/app` is also the default
+  when it is omitted.
+
+Change the executable path, runtime IDs, JVM options and JAR path to match
+your platform and build output. See the
+[launch descriptor contract](reference.md#launch-descriptor) for all
+supported fields and validation rules.
+
+Build the artifact by mapping the staged application directory to `/app`.
+The explicit platform flags declare which architectures this artifact
+supports; they do not choose where Kubernetes schedules a Pod.
 
 ```sh
 brewlet build registry.example.com/apps/orders:1.4.0 \
