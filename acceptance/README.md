@@ -6,6 +6,7 @@
 | --- | --- | --- | --- |
 | `PR validation` | `pr.yml`, pull requests only | Only the checks, CodeQL languages, real E2E and website build impacted by the PR's changed files; native checks and E2E on amd64 | Fast required PR validation |
 | `Release Gate Tests` | `release-gate-tests.yml`, weekly on `main`, manual dispatch, and called by every release | Every check, every CodeQL language, native producer/kernel checks and Python real E2E on both amd64 and arm64 | Complete end-to-end validation of one immutable commit; the release gate, not promotion qualification |
+| `Kubernetes E2E` | `e2e.yml`, weekly on `main` and manual dispatch | All nine native suites (`complete`) on both amd64 and arm64 by default | Scheduled runs check for regressions; only reviewed manual runs can supply native promotion evidence |
 | `Language Example E2E` | `language-e2e.yml`, weekly on `main` and manual dispatch | A matrix job per fixture (Python, Java, Node.js, .NET, PHP, WebAssembly) running its real-node runtime contract and rotation (Java adds the Maven producer; WebAssembly runs the `wasm.py` Wasmtime/Spin examples) | Non-gating weekly coverage; never qualification evidence |
 | `Promotion qualification` | Local `make acceptance` after `evidence_index.py fetch` (no workflow) | All current indexed receipts, all 112 baseline obligations, all 18 native suites | Optional full immutable-candidate qualification before promotion |
 
@@ -96,8 +97,9 @@ After the baseline is stable and inputs are frozen, the full requirement remains
 `core`, `cold`, `tutorial`, `wasm`, `upstream`, `native`, `uninstall`,
 `retirement`, `activation`.
 
-Two manual native scopes supply the 18 receipts: `complete` on each
-architecture. `complete` expands into all nine suites.
+A manual `complete` dispatch with `architecture=both` produces the 18 receipts in
+one run. Alternatively, dispatch `complete` separately on each architecture.
+Scheduled runs execute the same suites but are not eligible for the evidence index.
 Use the already completed CI run for ten distinct non-live filenames, plus a
 manual `site-pages.yml` run at the same immutable source for the two website
 receipts. These runs do not need repeating before every live debugging attempt.
@@ -113,10 +115,10 @@ checkout with an empty receipt cache and a read-only `GITHUB_TOKEN`:
 
 ```sh
 python3 acceptance/evidence_index.py record-candidate \
-  --run CI_RUN_ID --run WEBSITE_RUN_ID --run AMD64_COMPLETE --run ARM64_COMPLETE
+  --run CI_RUN_ID --run WEBSITE_RUN_ID --run BOTH_ARCHITECTURES_COMPLETE
 ```
 
-Supply the CI run, standalone website run and both native scope runs. The
+Supply the CI run, standalone website run and the manual run(s) covering both architectures. The
 command fetches only the
 expected public artifact groups from this repository, checks successful run
 event/workflow/source and artifact ownership/expiry, rejects unsafe ZIP paths,

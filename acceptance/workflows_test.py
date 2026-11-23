@@ -261,14 +261,15 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('--verify-pr "acceptance-export/pr-e2e-${ARCHITECTURE}.json"', text)
         export = text.split("      - name: Export only public PR outcomes", 1)[1].split(
             "      - name:", 1)[0]
-        self.assertIn("steps.guard.outcome == 'success'", export)
+        self.assertIn("needs: context", text.split("\n  execution:", 1)[1])
+        self.assertIn("if: always() && env.SCENARIO == 'pr'", export)
         self.assertNotIn("${{ inputs.", export.split("        run: |", 1)[1])
         self.assertIn("persist-credentials: false", text)
         for name in ("Restore PR E2E host Go caches", "Restore PR E2E image Go build cache",
                      "Seed BuildKit Go build cache mount", "Extract BuildKit Go build cache mount"):
             step = text.split("      - name: " + name, 1)[1].split("      - ", 1)[0]
-            self.assertIn("inputs.scenario == 'pr'", step, name)
-        self.assertIn("cache: ${{ inputs.scenario != 'pr' }}", text)
+            self.assertIn("env.SCENARIO == 'pr'", step, name)
+        self.assertIn("cache: ${{ env.SCENARIO != 'pr' }}", text)
         self.assertLess(text.index("Seed BuildKit"), text.index("harness.py --scenario pr"))
         self.assertLess(text.index("harness.py --scenario pr"), text.index("Extract BuildKit"))
         program = block(text, "Refuse unsupported execution contexts")
@@ -288,10 +289,40 @@ class WorkflowTests(unittest.TestCase):
                 ("workflow_dispatch", "refs/tags/untrusted", "microsoft/brewlet", "pr", False)):
             environment = {"EVENT": event, "REF": ref, "HEAD_REPOSITORY": head, "SCENARIO": scenario,
                 "REPOSITORY": "microsoft/brewlet", "SOURCE": "a" * 40, "EXPECTED_SOURCE": "a" * 40,
-                "ARCHITECTURE": "amd64"}
+                "ARCHITECTURE": "amd64", "GITHUB_OUTPUT": os.devnull}
             result = subprocess.run(["bash", "-eu", "-c", program], env=environment, capture_output=True)
             self.assertEqual(success, result.returncode == 0, (event, ref, head, scenario))
         self.assertLess(text.index('test "$SOURCE" = "$EXPECTED_SOURCE"'), text.index("- uses: actions/checkout"))
+
+    def test_standalone_e2e_resolves_full_weekly_and_manual_runs_without_widening_callers(self):
+        text = (ROOT / ".github/workflows/e2e.yml").read_text()
+        self.assertIn("  schedule:", triggers(text))
+        self.assertRegex(text, r'cron: "\d+ \d+ \* \* [0-6]"')
+        dispatch = text.split("  workflow_dispatch:", 1)[1].split("\npermissions:", 1)[0]
+        self.assertIn("default: complete", dispatch)
+        self.assertIn("default: both", dispatch)
+        program = block(text, "Refuse unsupported execution contexts")
+        sha = "a" * 40
+        for event, expected, scenario, arch, ref, plan in (
+                ("schedule", "", "", "", "main", ("complete", ["amd64", "arm64"])),
+                ("schedule", "", "", "", "topic", None),
+                ("schedule", "", "pr", "amd64", "main", None),
+                ("schedule", sha, "pr", "arm64", "main", ("pr", ["arm64"])),
+                ("workflow_dispatch", sha, "complete", "both", "topic", ("complete", ["amd64", "arm64"])),
+                ("workflow_dispatch", sha, "control", "arm64", "topic", ("control", ["arm64"])),
+                ("workflow_dispatch", "", "", "", "main", None)):
+            with self.subTest(event=event, expected=expected, scenario=scenario, arch=arch, ref=ref), \
+                    tempfile.TemporaryDirectory() as temporary:
+                output = Path(temporary) / "output"
+                env = {"EVENT": event, "SOURCE": sha, "EXPECTED_SOURCE": expected, "SCENARIO": scenario,
+                       "ARCHITECTURE": arch, "REF": "refs/heads/" + ref, "REPOSITORY": "microsoft/brewlet",
+                       "GITHUB_OUTPUT": str(output)}
+                result = subprocess.run(["bash", "-eu", "-c", program], env=env, capture_output=True)
+                self.assertEqual(plan is not None, result.returncode == 0)
+                if plan:
+                    values = dict(line.split("=", 1) for line in output.read_text().splitlines())
+                    self.assertEqual((sha, *plan), (values["source"], values["scenario"],
+                                                    json.loads(values["architectures"])))
 
     def test_dispatch_moved_head_bad_architecture_and_unknown_scope_fail_closed(self):
         text = (ROOT / ".github/workflows/e2e.yml").read_text()
@@ -304,7 +335,7 @@ class WorkflowTests(unittest.TestCase):
                 environment = {"EVENT": "workflow_dispatch", "REF": "refs/heads/candidate",
                     "HEAD_REPOSITORY": "microsoft/brewlet", "REPOSITORY": "microsoft/brewlet",
                     "SOURCE": "a" * 40, "EXPECTED_SOURCE": "a" * 40, "SCENARIO": "pr",
-                    "ARCHITECTURE": "amd64"}
+                    "ARCHITECTURE": "amd64", "GITHUB_OUTPUT": os.devnull}
                 environment[field] = value
                 result = subprocess.run(["bash", "-eu", "-c", program], env=environment, capture_output=True)
                 self.assertNotEqual(0, result.returncode, (field, value))

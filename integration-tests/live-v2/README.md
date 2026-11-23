@@ -35,9 +35,10 @@ Admission denials, foreign destinations and TLS certificate-identity failures
 fail immediately; application assertions and installation deadlines are not
 relaxed by this readiness check.
 
-The branch's `.github/workflows/e2e.yml` is reused by PR Check and Release Gate Tests and can
-also be dispatched manually at an exact `expected_sha`. Its default `pr` scenario
-is the real Python baseline (`harness.py --scenario pr`, verified with
+The standalone `Kubernetes E2E` workflow runs `complete` weekly on `main`.
+Manual dispatch at an exact `expected_sha` also defaults to `complete` on both
+architectures. PR validation and Release Gate Tests reuse `.github/workflows/e2e.yml`
+with `pr`, the real Python baseline (`harness.py --scenario pr`, verified with
 `qualify.py --verify-pr`): admission/startup, the `brewlet k8s profile` CLI
 (list, status, create, add-runtime, remove-runtime and delete against the live
 operator and admission webhook), execution, rotations,

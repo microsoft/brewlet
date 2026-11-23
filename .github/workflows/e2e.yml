@@ -1,6 +1,8 @@
 name: Kubernetes E2E
 
 on:
+  schedule:
+    - cron: "17 4 * * 3" # Wednesday, UTC
   workflow_call:
     inputs:
       expected_sha:
@@ -19,29 +21,28 @@ on:
         type: string
         required: true
       scenario:
-        description: PR/debug execution or full promotion scopes
+        description: All nine suites (complete), PR baseline, or focused control checks
         type: choice
         required: true
-        default: pr
+        default: complete
         options: [pr, complete, control]
       architecture:
         description: Execute on the actual native architecture, not emulation
         type: choice
         required: true
-        default: amd64
-        options: [amd64, arm64]
+        default: both
+        options: [both, amd64, arm64]
 
 permissions:
   contents: read
 
 jobs:
-  execution:
-    runs-on: ${{ inputs.architecture == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
-    timeout-minutes: 180
-    env:
-      PYTHONDONTWRITEBYTECODE: "1"
-      SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-      ARCHITECTURE: ${{ inputs.architecture }}
+  context:
+    runs-on: ubuntu-24.04
+    outputs:
+      architectures: ${{ steps.guard.outputs.architectures }}
+      scenario: ${{ steps.guard.outputs.scenario }}
+      source: ${{ steps.guard.outputs.source }}
     steps:
       - name: Refuse unsupported execution contexts instead of skipping
         id: guard
@@ -50,16 +51,12 @@ jobs:
           REPOSITORY: ${{ github.repository }}
           HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
           REF: ${{ github.ref }}
-          SOURCE: ${{ env.SOURCE_SHA }}
+          SOURCE: ${{ github.event.pull_request.head.sha || github.sha }}
           EXPECTED_SOURCE: ${{ inputs.expected_sha }}
           SCENARIO: ${{ inputs.scenario }}
           ARCHITECTURE: ${{ inputs.architecture }}
         run: |
           test "$REPOSITORY" = microsoft/brewlet
-          case "$SCENARIO" in pr|complete|control) ;; *) exit 1 ;; esac
-          case "$ARCHITECTURE" in amd64|arm64) ;; *) exit 1 ;; esac
-          [[ "$EXPECTED_SOURCE" =~ ^[0-9a-f]{40}$ ]]
-          test "$SOURCE" = "$EXPECTED_SOURCE"
           case "$EVENT" in
             pull_request)
               test "$SCENARIO" = pr
@@ -67,8 +64,16 @@ jobs:
               case "$REF" in refs/pull/*/merge) ;; *) exit 1 ;; esac
               ;;
             schedule)
-              test "$SCENARIO" = pr
               test "$REF" = refs/heads/main
+              # The standalone cron has no inputs. The scheduled Release Gate
+              # Tests caller instead supplies its exact SHA and PR baseline.
+              if test -z "$EXPECTED_SOURCE" && test -z "$SCENARIO" && test -z "$ARCHITECTURE"; then
+                EXPECTED_SOURCE=$SOURCE
+                SCENARIO=complete
+                ARCHITECTURE=both
+              else
+                test "$SCENARIO" = pr
+              fi
               ;;
             push)
               # Release Gate Tests, called by the release workflow for a version tag.
@@ -80,6 +85,35 @@ jobs:
               ;;
             *) exit 1 ;;
           esac
+          [[ "$EXPECTED_SOURCE" =~ ^[0-9a-f]{40}$ ]]
+          test "$SOURCE" = "$EXPECTED_SOURCE"
+          case "$SCENARIO" in pr|complete|control) ;; *) exit 1 ;; esac
+          case "$ARCHITECTURE" in
+            amd64|arm64) architectures="[\"$ARCHITECTURE\"]" ;;
+            both) architectures='["amd64","arm64"]' ;;
+            *) exit 1 ;;
+          esac
+          {
+            echo "architectures=$architectures"
+            echo "scenario=$SCENARIO"
+            echo "source=$SOURCE"
+          } >> "$GITHUB_OUTPUT"
+
+  execution:
+    name: ${{ needs.context.outputs.scenario }} (${{ matrix.architecture }})
+    needs: context
+    strategy:
+      fail-fast: false
+      matrix:
+        architecture: ${{ fromJSON(needs.context.outputs.architectures) }}
+    runs-on: ${{ matrix.architecture == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    timeout-minutes: 180
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      SOURCE_SHA: ${{ needs.context.outputs.source }}
+      SCENARIO: ${{ needs.context.outputs.scenario }}
+      ARCHITECTURE: ${{ matrix.architecture }}
+    steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ env.SOURCE_SHA }}
@@ -88,24 +122,24 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
         with:
           go-version-file: go.mod
-          cache: ${{ inputs.scenario != 'pr' }}
+          cache: ${{ env.SCENARIO != 'pr' }}
       - name: Restore PR E2E host Go caches
-        if: inputs.scenario == 'pr'
+        if: env.SCENARIO == 'pr'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
         with:
           path: |
             ~/.cache/go-build
             ~/go/pkg/mod
-          key: e2e-host-go-${{ inputs.architecture }}-${{ hashFiles('go.sum') }}
-          restore-keys: e2e-host-go-${{ inputs.architecture }}-
+          key: e2e-host-go-${{ matrix.architecture }}-${{ hashFiles('go.sum') }}
+          restore-keys: e2e-host-go-${{ matrix.architecture }}-
       - name: Restore PR E2E image Go build cache
         id: image-go-cache
-        if: inputs.scenario == 'pr'
+        if: env.SCENARIO == 'pr'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
         with:
           path: ${{ runner.temp }}/image-go-build
-          key: e2e-image-go-build-${{ inputs.architecture }}-${{ hashFiles('go.sum', 'kubernetes/Dockerfile', 'provisioner/Dockerfile') }}
-          restore-keys: e2e-image-go-build-${{ inputs.architecture }}-
+          key: e2e-image-go-build-${{ matrix.architecture }}-${{ hashFiles('go.sum', 'kubernetes/Dockerfile', 'provisioner/Dockerfile') }}
+          restore-keys: e2e-image-go-build-${{ matrix.architecture }}-
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
         with:
           python-version: "3.12"
@@ -120,10 +154,10 @@ jobs:
           go install sigs.k8s.io/kind@v0.33.0
           command -v htpasswd
       - name: Install pinned WebAssembly toolchain for promotion companions
-        if: inputs.scenario == 'complete'
+        if: env.SCENARIO == 'complete'
         run: rustup toolchain install 1.97.1 --profile minimal --target wasm32-wasip2
       - name: Seed BuildKit Go build cache mount for PR E2E
-        if: inputs.scenario == 'pr'
+        if: env.SCENARIO == 'pr'
         run: |
           cache="$RUNNER_TEMP/image-go-build"
           mkdir -p "$cache"
@@ -136,12 +170,12 @@ jobs:
             echo "::warning::Image Go build cache was not seeded; image builds compile cold"
           fi
       - name: Execute real PR E2E including protected identity and cleanup
-        if: inputs.scenario == 'pr'
+        if: env.SCENARIO == 'pr'
         run: |
           python3 integration-tests/live-v2/harness.py --scenario pr \
             --work "integration-tests/live-v2/run-pr-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${ARCHITECTURE}"
       - name: Extract BuildKit Go build cache mount after successful PR E2E
-        if: success() && inputs.scenario == 'pr' && steps.image-go-cache.outputs.cache-hit != 'true'
+        if: success() && env.SCENARIO == 'pr' && steps.image-go-cache.outputs.cache-hit != 'true'
         run: |
           cache="$RUNNER_TEMP/image-go-build"
           image="$(sed -n 's/^FROM --platform=\$BUILDPLATFORM \(golang:[^ ]*\) AS build$/\1/p' kubernetes/Dockerfile)"
@@ -153,7 +187,7 @@ jobs:
             echo "::warning::Image Go build cache was not extracted; it will not be saved"
           fi
       - name: Export only public PR outcomes
-        if: always() && steps.guard.outcome == 'success' && inputs.scenario == 'pr'
+        if: always() && env.SCENARIO == 'pr'
         run: |
           mkdir -p acceptance-export
           python3 acceptance/export_result.py \
@@ -163,16 +197,13 @@ jobs:
             --verify-pr "acceptance-export/pr-e2e-${ARCHITECTURE}.json" \
             --architecture "$ARCHITECTURE"
       - name: Execute immutable native candidate qualification
-        if: inputs.scenario != 'pr'
-        env:
-          SCENARIO: ${{ inputs.scenario }}
-          ARCHITECTURE: ${{ inputs.architecture }}
+        if: env.SCENARIO != 'pr'
         run: python3 acceptance/qualify.py --run --scenario "$SCENARIO" --architecture "$ARCHITECTURE"
       - name: Retain public identities/outcomes only, never private work files
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
-          name: e2e-${{ inputs.architecture }}-${{ inputs.scenario }}-${{ env.SOURCE_SHA }}
+          name: e2e-${{ matrix.architecture }}-${{ env.SCENARIO }}-${{ env.SOURCE_SHA }}
           path: acceptance-export/*.json
           if-no-files-found: error
           retention-days: 14
