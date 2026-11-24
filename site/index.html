@@ -153,7 +153,6 @@ FORM: Adapt the existing main landing structure; no invented performance or prod
 brewlet push registry.example.com/apps/api:v2</code></pre><p class="code-caption" id="example-note">This example has no third-party dependencies. Package any libraries your application needs as ordinary files under <code>/app</code>.</p></div>
           </div>
         </div>
-        <p class="fine-print">Examples are templates, not a live terminal. Use your registry and actual supported platforms. Java project intelligence is available in the optional <a href="docs/applications/#optional-maven-producer">Maven producer</a>; it does not select a pod runtime or generate workloads.</p>
         <div class="deployment-example">
           <div class="deployment-intro"><h3>Your workload still looks like Kubernetes.</h3><p>Platform teams load approved runtimes into a node pool with a <code>NodeProfile</code>. Application teams select a runtime per managed container and keep Services, probes, resources, volumes and normal rollout strategies. Unselected sidecars and debug containers keep ordinary OCI behavior.</p><a href="docs/applications/">Read the application contract <span aria-hidden="true">→</span></a></div>
           <div class="code-pair">
