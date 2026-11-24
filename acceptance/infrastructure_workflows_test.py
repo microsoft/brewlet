@@ -72,26 +72,34 @@ class InfrastructureWorkflowTests(unittest.TestCase):
         self.assertIn("branches: [main]", triggers)
         self.assertIn("  workflow_dispatch:", triggers)
         self.assertNotIn("pull_request", triggers)
-        build, deploy = text.split("\n  deploy:\n", 1)
+        build, rest = text.split("\n  package:\n", 1)
+        package, deploy = rest.split("\n  deploy:\n", 1)
         self.assertIn("if: github.repository == 'microsoft/brewlet' && github.ref == 'refs/heads/main'", build)
         self.assertIn("uses: ./.github/workflows/site-pages.yml", build)
         self.assertIn("expected_sha: ${{ github.sha }}", build)
         self.assertNotIn(": write", build)
-        self.assertIn("    needs: build\n", deploy)
+        self.assertIn("    needs: build\n", package)
+        self.assertNotIn(": write", package)
+        artifact = re.search(r"name: (brewlet-website-preview)", preview).group(1)
+        self.assertIn("name: " + artifact, package)
+        self.assertIn("path: site/_site", package)
+        for action in ("download-artifact", "upload-pages-artifact"):
+            self.assertIn("actions/" + action + "@", package)
+        self.assertIn("artifact_name=github-pages-${{ github.run_attempt }}", package)
+        upload = package.split("actions/upload-pages-artifact@", 1)[1].split("\n      - ", 1)[0]
+        self.assertIn("name: ${{ steps.name.outputs.artifact_name }}", upload)
+        # deploy-pages must not run in the job that uploads the artifact.
+        self.assertIn("    needs: package\n", deploy)
         self.assertNotIn("always()", deploy)
         self.assertIn("      name: github-pages", deploy)
         self.assertIn("      pages: write", deploy)
         self.assertIn("      id-token: write", deploy)
-        artifact = re.search(r"name: (brewlet-website-preview)", preview).group(1)
-        self.assertIn("name: " + artifact, deploy)
-        self.assertIn("path: site/_site", deploy)
-        self.assertNotIn("actions/checkout", deploy)
-        for action in ("download-artifact", "configure-pages", "upload-pages-artifact", "deploy-pages"):
+        self.assertNotIn("actions/checkout", package + deploy)
+        self.assertNotIn("upload-pages-artifact", deploy)
+        for action in ("configure-pages", "deploy-pages"):
             self.assertIn("actions/" + action + "@", deploy)
-        upload = deploy.split("actions/upload-pages-artifact@", 1)[1].split("\n      - ", 1)[0]
         deployment = deploy.split("actions/deploy-pages@", 1)[1].split("\n      - ", 1)[0]
-        self.assertIn("name: github-pages-${{ github.run_attempt }}", upload)
-        self.assertIn("artifact_name: github-pages-${{ github.run_attempt }}", deployment)
+        self.assertIn("artifact_name: ${{ needs.package.outputs.artifact_name }}", deployment)
         for unsafe in ("deploy-pages", "pages: write", "id-token: write"):
             self.assertNotIn(unsafe, preview)
         self.assertIn("group: site-preview-${{ github.workflow }}-${{ github.ref }}", preview)
