@@ -43,8 +43,7 @@ The container is assembled the way the Brewlet shim does on a cluster:
   - ARGS after '--' replace launch.json args, like Kubernetes 'args'.
 
 The runtime is never guessed. --runtime IMAGE runs on IMAGE; --runtime ID=IMAGE
-also names the runtime image ID, which must appear in launch.json
-runtimeImages when that allow-list is present (the cluster refuses other IDs).
+also names the runtime image ID.
 --runtime ID --from-cluster reads RuntimeImage ID from the current (or
 --kubeconfig/--context) cluster and uses its pinned spec.source.image and
 approved spec.user. No merged application+runtime image is ever produced.
@@ -184,9 +183,6 @@ func runLocal(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 		return fmt.Errorf("run: %s (%s): %w", ref, platformText, err)
 	}
 	launch := resolved.Launch
-	if rt.ID != "" && !launch.Allows(rt.ID) {
-		return fmt.Errorf("run: RuntimeImageIncompatible: runtime image ID %q is not in launch.json runtimeImages %q", rt.ID, launch.RuntimeImages)
-	}
 	if *fromCluster {
 		ri, err := lookupRuntimeImage(ctx, *kubeconfig, *contextName, rt.ID)
 		if err != nil {

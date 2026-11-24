@@ -109,9 +109,6 @@ brewlet run registry.example.com/apps/api:v2 --runtime java-21 --from-cluster --
   runtime is never guessed. `--runtime IMAGE`, `--runtime ID=IMAGE`, or
   `--runtime ID --from-cluster` to use the cluster RuntimeImage's pinned
   `spec.source.image` and approved `spec.user`.
-- If an ID is given and `launch.json` lists `runtimeImages`, the ID must be
-  listed (`RuntimeImageIncompatible`). The list is optional; without it any
-  runtime is accepted.
 - The container is assembled like the shim's: app layers bind-mounted read-only
   at `/app`, read-only root filesystem, no capabilities, no-new-privileges, and
   `launch.json` entrypoint/args/workingDir/env over the runtime image env.

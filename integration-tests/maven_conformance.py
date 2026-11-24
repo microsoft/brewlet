@@ -40,12 +40,6 @@ def publication_case(executable, project, work, case):
     platform = "linux/amd64"
     if kind == "launch":
         descriptor = encode(case["launch"])
-    elif kind == "id":
-        descriptor = json.dumps({
-            "schemaVersion": 1,
-            "process": {"entrypoint": ["runner"]},
-            "runtimeImages": [case["value"]],
-        })
     else:
         platform = case["value"]
         descriptor = '{"schemaVersion":1,"process":{"entrypoint":["runner"]}}'
@@ -94,7 +88,7 @@ def run(executable, project, work, fixture_file, workers=WORKERS):
     assert len(actual) == len(fixture["cases"]) and all(item["passed"] for item in actual)
     print(f"Passed all {len(actual)} shared Maven validator cases")
     cases = [dict(encoded) for encoded in fixture["cases"]]
-    cases = [case for case in cases if case["kind"] in ("launch", "id", "platform")]
+    cases = [case for case in cases if case["kind"] in ("launch", "platform")]
     assert cases, "No shared producer conformance fixtures executed"
     # Each worker packages its own project copy so concurrent builds never share target/.
     projects = queue.Queue()
@@ -112,5 +106,5 @@ def run(executable, project, work, fixture_file, workers=WORKERS):
         for future in [pool.submit(publish, case) for case in cases]:
             future.result()
     count = len(cases)
-    print(f"Passed {count} shared Maven/CLI launch, ID and platform cases")
+    print(f"Passed {count} shared Maven/CLI launch and platform cases")
     return count

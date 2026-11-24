@@ -26,7 +26,7 @@ class ConformanceTest {
     @Test void processIsReportedOnlyForParsedLaunchCases() {
         JsonNode results = Conformance.run("{\"schemaVersion\":1,\"cases\":["
                 + "{\"name\":\"a\",\"kind\":\"launch\",\"launch\":{\"schemaVersion\":1,\"process\":{\"entrypoint\":[\"x\"],\"args\":[]}}},"
-                + "{\"name\":\"b\",\"kind\":\"compatibility\",\"launch\":{\"schemaVersion\":1,\"process\":{\"entrypoint\":[\"x\"]}},\"value\":\"r\"},"
+                + "{\"name\":\"b\",\"kind\":\"id\",\"value\":\"r\"},"
                 + "{\"name\":\"c\",\"kind\":\"launch\",\"launch\":{\"schemaVersion\":1.0,\"process\":{\"entrypoint\":[\"x\"]}},\"reason\":\"Other\"}]}");
         assertEquals("{\"name\":\"a\",\"process\":{\"entrypoint\":[\"x\"],\"workingDir\":\"/app\"},\"passed\":true}",
                 results.get(0).toString());
@@ -40,9 +40,8 @@ class ConformanceTest {
 
     @Test void launchRulesCarryReasonCodes() throws Exception {
         var launch = ArtifactContract.parseLaunch("{\"schemaVersion\":1,\"process\":{\"entrypoint\":[\"java\"],"
-                + "\"env\":[{\"name\":\"B\",\"value\":\"1\"},{\"name\":\"A\",\"value\":\"2\"}]},\"runtimeImages\":[]}");
+                + "\"env\":[{\"name\":\"B\",\"value\":\"1\"},{\"name\":\"A\",\"value\":\"2\"}]}}");
         assertEquals(List.of("B", "A"), launch.process().env().stream().map(ArtifactContract.Env::name).toList());
-        assertFalse(launch.allows("java-21"));
         for (String invalid : List.of("", "{}", "[]", "{\"schemaVersion\":1,\"process\":{\"entrypoint\":[\"a\\u0000\"]}}",
                 "{\"schemaVersion\":1,\"process\":{\"entrypoint\":[\"a\"]}} {}",
                 "{\"schemaVersion\":1,\"process\":{\"entrypoint\":[\"a\"],\"env\":[{\"name\":\"A=B\",\"value\":\"\"}]}}")) {

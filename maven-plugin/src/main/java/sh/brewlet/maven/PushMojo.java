@@ -30,13 +30,6 @@ public final class PushMojo extends AbstractJavaMojo {
     @Parameter
     private List<String> javaArgs = new ArrayList<>();
 
-    @Parameter
-    private List<String> runtimeImages = new ArrayList<>();
-
-    /** Entries such as {@code 21=java-21}: Java feature release to runtime image ID. */
-    @Parameter(property = "brewlet.runtimeImageMappings")
-    private List<String> runtimeImageMappings = new ArrayList<>();
-
     @Parameter(property = "brewlet.appCdsArchive")
     private File appCdsArchive;
 
@@ -52,10 +45,6 @@ public final class PushMojo extends AbstractJavaMojo {
         try {
             for (String platform : platforms) {
                 ArtifactContract.parsePlatform(platform);
-            }
-            List<String> effectiveRuntimeImages = launch == null ? runtimeImages() : List.of();
-            for (String id : effectiveRuntimeImages) {
-                ArtifactContract.validateRuntimeImageID(id);
             }
             if (launch != null && appCdsArchive != null) {
                 getLog().info("brewlet.launch is authoritative; it must reference " + JavaProducer.APP_CDS_PATH
@@ -74,7 +63,7 @@ public final class PushMojo extends AbstractJavaMojo {
             JavaProducer.Prepared prepared = JavaProducer.prepare(new JavaProducer.Inputs(
                     application.getFile().toPath(), dependencies,
                     launch == null ? null : launch.toPath(), mainClass, module,
-                    javaArgs, effectiveRuntimeImages, appCdsArchive == null ? null : appCdsArchive.toPath()), output);
+                    javaArgs, appCdsArchive == null ? null : appCdsArchive.toPath()), output);
             Path layout = store == null ? output.resolve("oci") : store.toPath();
             List<String> command = JavaProducer.command(executable, image, layout, platforms, prepared);
             run(command);
@@ -84,24 +73,5 @@ public final class PushMojo extends AbstractJavaMojo {
         } catch (IOException | IllegalArgumentException failure) {
             throw new MojoExecutionException("Brewlet Java producer failed: " + failure.getMessage(), failure);
         }
-    }
-
-    /** Proposes runtimeImages from maven.compiler.release, or warns when configured IDs are too old. */
-    private List<String> runtimeImages() throws IOException {
-        RuntimeImageMapping mapping = RuntimeImageMapping.parse(runtimeImageMappings);
-        Integer release = RuntimeImageMapping.release(project.getProperties());
-        if (mapping.isEmpty() || release == null) {
-            return runtimeImages;
-        }
-        boolean preview = RuntimeImageMapping.preview(javaArgs);
-        if (runtimeImages.isEmpty()) {
-            List<String> proposed = mapping.propose(release, preview);
-            getLog().info("Proposed runtimeImages for Java " + release + ": " + String.join(", ", proposed));
-            return proposed;
-        }
-        mapping.warnings(runtimeImages, release, preview).forEach(getLog()::warn);
-        runtimeImages.stream().filter(id -> !mapping.maps(id))
-                .forEach(id -> getLog().debug("runtimeImageMappings has no entry for " + id));
-        return runtimeImages;
     }
 }

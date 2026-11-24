@@ -2,7 +2,6 @@ package sh.brewlet.maven;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.lang.reflect.Field;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -122,7 +121,7 @@ class MojoContractTest {
         assertTrue(Files.isRegularFile(application.resolve("app.jar")));
     }
 
-    @Test void pushValidatesPlatformsAndProposesRuntimeImagesBeforeTheCli() throws Exception {
+    @Test void pushValidatesPlatformsBeforeTheCli() throws Exception {
         PushMojo mojo = new PushMojo();
         MavenProject project = project();
         project.getProperties().setProperty("maven.compiler.release", "21");
@@ -130,20 +129,11 @@ class MojoContractTest {
         set(mojo, "image", "app");
         set(mojo, "platforms", List.of("Linux/amd64"));
         set(mojo, "mainClass", "example.Main");
-        set(mojo, "runtimeImageMappings", List.of("25=java-25", "17=java-17", "21=java-21"));
         MojoExecutionException platform = assertThrows(MojoExecutionException.class, mojo::execute);
         assertTrue(platform.getMessage().contains("InvalidPlatform"), platform.getMessage());
         assertFalse(Files.exists(temp.resolve("argv")));
         set(mojo, "platforms", List.of("linux/amd64"));
         mojo.execute();
-        List<String> argv = Files.readAllLines(temp.resolve("argv"));
-        var launch = new ObjectMapper().readTree(Path.of(argv.get(argv.indexOf("--launch") + 1)).toFile());
-        assertEquals("[\"java-21\",\"java-25\"]", launch.path("runtimeImages").toString());
-        Files.delete(temp.resolve("argv"));
-        set(mojo, "runtimeImages", List.of("Java_21"));
-        MojoExecutionException id = assertThrows(MojoExecutionException.class, mojo::execute);
-        assertTrue(id.getMessage().contains("InvalidRuntimeImageID"), id.getMessage());
-        assertFalse(Files.exists(temp.resolve("argv")));
     }
 
     @Test void pushRejectsUnresolvedRuntimeDependenciesBeforeCallingCli() throws Exception {

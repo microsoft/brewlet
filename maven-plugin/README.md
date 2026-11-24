@@ -45,7 +45,7 @@ compile/runtime dependencies byte-for-byte into `/app/lib`, and generates
 ordinary Java classpath argv. Both libraries and the application are ordinary
 app payload, staged in separate app layers to allow independent caching.
 `brewlet.module` selects a JPMS module and uses `/app/mods` for libraries.
-`javaArgs` and `runtimeImages` are optional plugin configuration lists.
+`javaArgs` is an optional plugin configuration list.
 `javaArgs` are explicit application argv, not runtime tuning injected by
 core. No runtime ID is inferred from the Maven JVM. Duplicate library filenames,
 unresolved artifacts and symlink producer inputs are rejected.
@@ -59,17 +59,6 @@ Optional Java conveniences:
   change the JDK build, so the archive is best-effort. A hand-written
   `brewlet.launch` still receives the file but is never rewritten; it must
   reference `/app/app.jsa` itself.
-- `runtimeImageMappings` maps Java feature releases to inventory IDs with
-  entries such as `<runtimeImageMapping>21=java-21</runtimeImageMapping>`. The
-  release is `maven.compiler.release` (or a numeric `maven.compiler.target` /
-  `maven.compiler.source`). When `runtimeImages` is not configured, the plugin
-  proposes every mapped ID whose release is at least the project's, in release
-  order; with `--enable-preview` in `javaArgs` only the exact release
-  qualifies. If none qualifies the build fails instead of publishing an empty
-  allow-list. When `runtimeImages` is configured, the plugin warns about mapped
-  IDs that provide an older (or, with preview, different) release than the
-  generated argv needs.
-
 The plugin does not build Java, install a runtime, generate workload manifests,
 choose pod annotations, access Kubernetes, or apply deployments.
 Applications still declare their runtime image ID in reviewed Kubernetes YAML.
@@ -77,9 +66,8 @@ Applications still declare their runtime image ID in reviewed Kubernetes YAML.
 ## Validation
 
 Build and test with `mvn -B -q -f maven-plugin/pom.xml verify`.
-`JavaProducerTest`, `RuntimeImageMappingTest` and `MojoContractTest` cover
-split app layers, duplicate filenames, descriptor authority, AppCDS,
-runtime ID proposals and goal execution with a recording CLI.
+`JavaProducerTest` and `MojoContractTest` cover split app layers, duplicate
+filenames, descriptor authority, AppCDS and goal execution with a recording CLI.
 `ConformanceTest` requires every case in `../conformance/artifact-v1.json`
 to pass the Java evaluator.
 

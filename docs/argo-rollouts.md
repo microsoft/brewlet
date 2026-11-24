@@ -22,9 +22,7 @@ their automation must update the Rollout's Pod template.
   platform's IDs; the candidate can be a compatible patch or a separately
   tested runtime version. See [runtime images and pools](runtime-images.md).
 - Use an app-only Brewlet image that serves HTTP on port 8000. Replace the
-  image digest below with your own. If its `launch.json` restricts runtime IDs,
-  both IDs must be allowed. An existing image that excludes the candidate must
-  be repackaged first. The app must work with both runtimes. Ensure that the
+  image digest below with your own. The app must work with both runtimes. Ensure that the
   app and runtimes support the target node architectures, or set
   [node affinity](multi-arch.md).
 

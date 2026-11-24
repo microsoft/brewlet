@@ -62,12 +62,6 @@ final class Conformance {
                 case "mirror" -> ArtifactContract.validateMirror(ArtifactContract.parseLaunch(f.launch), f.image);
                 case "id" -> ArtifactContract.validateRuntimeImageID(f.value);
                 case "platform" -> ArtifactContract.parsePlatform(f.value);
-                case "compatibility" -> {
-                    if (!ArtifactContract.parseLaunch(f.launch).allows(f.value)) {
-                        throw new ArtifactContract.Violation("RuntimeImageIncompatible",
-                                "runtime image " + ArtifactContract.quote(f.value) + " excluded by launch allow-list");
-                    }
-                }
                 case "layer" -> LayerContract.validateComposition(List.of(f.entries));
                 case "composition" -> LayerContract.validateComposition(f.layers);
                 default -> throw new IllegalArgumentException("unknown fixture kind " + ArtifactContract.quote(f.kind));

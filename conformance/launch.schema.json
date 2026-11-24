@@ -29,11 +29,6 @@
           }
         }
       }
-    },
-    "runtimeImages": {
-      "type":"array",
-      "uniqueItems":true,
-      "items":{"type":"string","maxLength":55,"pattern":"^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"}
     }
   }
 }

@@ -34,12 +34,7 @@ final class ArtifactContract {
 
     record Env(String name, String value) {}
     record Process(List<String> entrypoint, List<String> args, String workingDir, List<Env> env) {}
-    /** {@code runtimeImages} is null when absent: an explicit empty list denies every runtime image. */
-    record Launch(Process process, List<String> runtimeImages) {
-        boolean allows(String id) {
-            return runtimeImages == null || runtimeImages.contains(id);
-        }
-    }
+    record Launch(Process process) {}
 
     private static final Pattern ID = Pattern.compile(
             "[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*");
@@ -73,15 +68,6 @@ final class ArtifactContract {
         } catch (IllegalArgumentException invalid) {
             throw new Violation(INVALID_LAUNCH, invalid.getMessage());
         }
-        if (launch.runtimeImages() != null) {
-            Set<String> seen = new HashSet<>();
-            for (String id : launch.runtimeImages()) {
-                validateRuntimeImageID(id);
-                if (!seen.add(id)) {
-                    throw new Violation(INVALID_LAUNCH, "duplicate runtime ID");
-                }
-            }
-        }
         return launch;
     }
 
@@ -89,11 +75,10 @@ final class ArtifactContract {
         if (root.containsNull()) {
             throw new IllegalArgumentException("null launch fields are not allowed");
         }
-        exactKeys(root, Set.of("schemaVersion", "process", "runtimeImages"));
+        exactKeys(root, Set.of("schemaVersion", "process"));
         Json process = root.get("process");
         Json schema = root.get("schemaVersion");
         long version = schema == null ? 0 : goLong(schema, 0);
-        List<String> images = root.get("runtimeImages") == null ? null : goStrings(root.get("runtimeImages"));
         List<String> entrypoint = List.of();
         List<String> args = List.of();
         String workingDir = "";
@@ -148,7 +133,7 @@ final class ArtifactContract {
                 throw new IllegalArgumentException("invalid or duplicate env " + quote(e.name()));
             }
         }
-        return new Launch(new Process(entrypoint, args, workingDir, List.copyOf(env)), images);
+        return new Launch(new Process(entrypoint, args, workingDir, List.copyOf(env)));
     }
 
     /** Mutable target mirroring how OCI image config decoding merges case-variant members. */

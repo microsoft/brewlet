@@ -118,22 +118,18 @@ The Wasmtime descriptor,
         "value": "/cache/compiled"
       }
     ]
-  },
-  "runtimeImages": [
-    "wasmtime-wasip1"
-  ]
+  }
 }
 ```
 
-`runtimeImages` is an optional allowlist, not a selector. The Pod still names
-its runtime with `runtime-image.brewlet.sh/app: wasmtime-wasip1`. If your platform
-uses different IDs, list them here or omit `runtimeImages`.
+The Pod names its runtime with `runtime-image.brewlet.sh/app: wasmtime-wasip1`.
+Use the ID supplied by your platform if it differs.
 
 The Spin descriptor,
 [`spin-launch.json`](../examples/wasm/spin-launch.json), runs
 `spin up --from /app/spin.toml` with a listener on `0.0.0.0:8000`, separate
 cache, state and temporary locations, and `--direct-mounts`. Nothing is built
-or fetched from a registry at startup. Its allowlist is `spin-http-sdk7`.
+or fetched from a registry at startup.
 
 ## Build and push
 

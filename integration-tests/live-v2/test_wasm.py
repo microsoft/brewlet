@@ -60,11 +60,9 @@ class WasmFixtureTests(unittest.TestCase):
                     self.assertRegex(source["sha256"], r"^[0-9a-f]{64}$")
                 self.assertNotEqual(pins[name]["before"][arch]["sha256"], pins[name]["after"][arch]["sha256"])
 
-    def test_launches_are_explicit_flat_allowlists_with_no_guest_build_or_remote_resolution(self):
-        for name, rid in (("wasmtime", "wasmtime-wasip1"), ("spin", "spin-http-sdk7")):
+    def test_launches_have_no_guest_build_or_remote_resolution(self):
+        for name in ("wasmtime", "spin"):
             launch = json.loads((EXAMPLE / (name + "-launch.json")).read_text())
-            self.assertEqual(launch["runtimeImages"], [rid])
-            self.assertNotIn("requires", launch)
             self.assertEqual(launch["process"]["entrypoint"], ["/usr/local/bin/" + name])
             self.assertNotIn("--build", launch["process"]["args"])
             self.assertIn({"name": "XDG_CACHE_HOME", "value": "/cache/compiled"}, launch["process"]["env"])

@@ -167,9 +167,8 @@ select a local reference or SHA-256 digest when the layout has several roots.
 `push` verifies blob identities, not Brewlet launch or layer policy; consumers
 still validate the artifact.
 
-The launch schema accepts optional top-level `runtimeImages`; the former
-`requires` wrapper is rejected. See [application packaging](docs/applications.md)
-and the [language recipes](docs/language-recipes.md) for explicit launch examples.
+See [application packaging](docs/applications.md) and the
+[language recipes](docs/language-recipes.md) for explicit launch examples.
 
 Registry clients honor `SSL_CERT_FILE` for an additional trusted CA and
 origin-bound `BREWLET_REGISTRY_USERNAME` / `BREWLET_REGISTRY_PASSWORD` credentials.
