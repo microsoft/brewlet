@@ -32,15 +32,13 @@ class JavaProducerTest {
         Path jar = jar("input.jar", "example.Main");
         Files.setLastModifiedTime(jar, FileTime.fromMillis(1234000));
         var result = JavaProducer.prepare(new JavaProducer.Inputs(jar, List.of(), null,
-                null, null, List.of("-Dmessage=two words"), List.of("java-21")),
+                null, null, List.of("-Dmessage=two words")),
                 Files.createDirectory(temp.resolve("out")));
         var json = new ObjectMapper().readTree(result.launch().toFile());
         assertEquals(1, json.path("schemaVersion").intValue());
         assertEquals("java", json.at("/process/entrypoint/0").textValue());
         assertEquals("-Dmessage=two words", json.at("/process/args/0").textValue());
         assertEquals("example.Main", json.at("/process/args/3").textValue());
-        assertEquals("java-21", json.at("/runtimeImages/0").textValue());
-        assertFalse(json.has("requires"));
         assertEquals(Files.getLastModifiedTime(jar),
                 Files.getLastModifiedTime(result.application().resolve("app.jar")));
         assertEquals(FileTime.fromMillis(0), Files.getLastModifiedTime(result.application()));
@@ -54,7 +52,7 @@ class JavaProducerTest {
         Files.writeString(descriptor, "{\"schemaVersion\":1,\"process\":{\"entrypoint\":[\"java\"]}}");
         byte[] original = Files.readAllBytes(descriptor);
         var result = JavaProducer.prepare(new JavaProducer.Inputs(jar("a.jar", null), List.of(),
-                descriptor, null, null, List.of(), List.of()),
+                descriptor, null, null, List.of()),
                 Files.createDirectory(temp.resolve("out")));
         assertEquals(descriptor, result.launch());
         assertArrayEquals(original, Files.readAllBytes(descriptor));
@@ -62,14 +60,14 @@ class JavaProducerTest {
 
     @Test void requiresExplicitLaunchAuthority() throws Exception {
         var inputs = new JavaProducer.Inputs(jar("a.jar", null), List.of(), null,
-                null, null, List.of(), List.of());
+                null, null, List.of());
         assertThrows(IOException.class, () -> JavaProducer.prepare(inputs,
                 Files.createDirectory(temp.resolve("out"))));
     }
 
     @Test void usesModulePathOnlyInOptionalProducer() throws Exception {
         var prepared = JavaProducer.prepare(new JavaProducer.Inputs(jar("a.jar", null), List.of(),
-                null, "example.Main", "example.app", List.of("--enable-preview"), List.of()),
+                null, "example.Main", "example.app", List.of("--enable-preview")),
                 Files.createDirectory(temp.resolve("out")));
         var json = new ObjectMapper().readTree(prepared.launch().toFile());
         assertEquals("--module-path", json.at("/process/args/1").textValue());
@@ -93,7 +91,7 @@ class JavaProducerTest {
     @Test void librariesUseAppRoleAndModuleTargetAndRejectDuplicateNames() throws Exception {
         Path library = Files.writeString(temp.resolve("library.jar"), "library");
         var prepared = JavaProducer.prepare(new JavaProducer.Inputs(jar("app.jar", "example.Main"),
-                List.of(library), null, null, "example.app", List.of(), List.of()),
+                List.of(library), null, null, "example.app", List.of()),
                 Files.createDirectory(temp.resolve("module")));
         List<String> command = JavaProducer.command("brewlet", "app", null, List.of("linux/amd64"), prepared);
         assertTrue(command.contains(prepared.dependencies() + ":/app/mods"));
@@ -101,18 +99,18 @@ class JavaProducerTest {
         Path other = Files.createDirectory(temp.resolve("other")).resolve("library.jar");
         Files.writeString(other, "different");
         assertThrows(IOException.class, () -> JavaProducer.prepare(new JavaProducer.Inputs(
-                temp.resolve("app.jar"), List.of(library, other), null, null, null, List.of(), List.of()),
+                temp.resolve("app.jar"), List.of(library, other), null, null, null, List.of()),
                 Files.createDirectory(temp.resolve("duplicate"))));
     }
 
     @Test void handWrittenDescriptorOverridesAllGeneratedLaunchOptions() throws Exception {
         Path descriptor = temp.resolve("authoritative.json");
         String json = "{\"schemaVersion\":1,\"process\":{\"entrypoint\":[\"custom java\"],"
-                + "\"args\":[\"hand-written\"]},\"runtimeImages\":[\"chosen\"]}";
+                + "\"args\":[\"hand-written\"]}}";
         Files.writeString(descriptor, json);
         var prepared = JavaProducer.prepare(new JavaProducer.Inputs(jar("app.jar", "manifest.Main"),
                 List.of(), descriptor, "ignored.Main", "ignored.module",
-                List.of("-Dignored=true"), List.of("ignored-runtime")),
+                List.of("-Dignored=true")),
                 Files.createDirectory(temp.resolve("authoritative")));
         assertEquals(descriptor, prepared.launch());
         assertEquals(json, Files.readString(prepared.launch()));
@@ -120,15 +118,11 @@ class JavaProducerTest {
 
     @Test void invalidLaunchDescriptorsFailWithReasonCodeBeforeTheCli() throws Exception {
         Path descriptor = temp.resolve("invalid.json");
-        Files.writeString(descriptor, "{\"schemaVersion\":1,\"process\":{\"entrypoint\":[\"java\"]},\"requires\":{}}");
+        Files.writeString(descriptor, "{\"schemaVersion\":1,\"process\":{\"entrypoint\":[\"java\"]},\"unknown\":{}}");
         IOException failure = assertThrows(IOException.class, () -> JavaProducer.prepare(new JavaProducer.Inputs(
-                jar("a.jar", null), List.of(), descriptor, null, null, List.of(), List.of()),
+                jar("a.jar", null), List.of(), descriptor, null, null, List.of()),
                 Files.createDirectory(temp.resolve("out"))));
         assertTrue(failure.getMessage().startsWith("InvalidLaunchConfig: "), failure.getMessage());
-        IOException id = assertThrows(IOException.class, () -> JavaProducer.prepare(new JavaProducer.Inputs(
-                jar("b.jar", "example.Main"), List.of(), null, null, null, List.of(), List.of("Java_21")),
-                Files.createDirectory(temp.resolve("generated"))));
-        assertTrue(id.getMessage().startsWith("InvalidRuntimeImageID: "), id.getMessage());
     }
 
     @Test void appCdsArchiveIsAnOrdinaryApplicationFileWithMatchingFlags() throws Exception {
@@ -136,7 +130,7 @@ class JavaProducerTest {
         Files.write(archive, new byte[] {1, 2, 3});
         Files.setLastModifiedTime(archive, FileTime.fromMillis(5678000));
         var prepared = JavaProducer.prepare(new JavaProducer.Inputs(jar("a.jar", "example.Main"), List.of(),
-                null, null, null, List.of("-Xmx64m"), List.of(), archive),
+                null, null, null, List.of("-Xmx64m"), archive),
                 Files.createDirectory(temp.resolve("out")));
         Path copied = prepared.application().resolve("app.jsa");
         assertArrayEquals(new byte[] {1, 2, 3}, Files.readAllBytes(copied));
@@ -149,7 +143,7 @@ class JavaProducerTest {
         Path link = temp.resolve("link.jsa");
         Files.createSymbolicLink(link, archive);
         assertThrows(IOException.class, () -> JavaProducer.prepare(new JavaProducer.Inputs(jar("b.jar", "example.Main"),
-                List.of(), null, null, null, List.of(), List.of(), link), Files.createDirectory(temp.resolve("bad"))));
+                List.of(), null, null, null, List.of(), link), Files.createDirectory(temp.resolve("bad"))));
     }
 
     @Test void appCdsArchiveDoesNotRewriteHandWrittenLaunch() throws Exception {
@@ -158,7 +152,7 @@ class JavaProducerTest {
         String json = "{\"schemaVersion\":1,\"process\":{\"entrypoint\":[\"java\"]}}";
         Files.writeString(descriptor, json);
         var prepared = JavaProducer.prepare(new JavaProducer.Inputs(jar("a.jar", null), List.of(), descriptor,
-                null, null, List.of(), List.of(), archive), Files.createDirectory(temp.resolve("out")));
+                null, null, List.of(), archive), Files.createDirectory(temp.resolve("out")));
         assertTrue(Files.isRegularFile(prepared.application().resolve("app.jsa")));
         assertEquals(json, Files.readString(prepared.launch()));
     }

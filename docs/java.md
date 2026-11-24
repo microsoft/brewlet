@@ -161,14 +161,11 @@ install -m 0644 target/app.jar brewlet/application/app.jar   # Gradle: build/lib
 ```
 
 Save the following as `brewlet/launch.json`. Ask the platform team to confirm
-that the selected runtime provides Java 21 at `/usr/bin/java`. Set
-`runtimeImages` to the runtime IDs you tested; this list is an allowlist, not
-the setting that selects the runtime for a Pod.
+that the selected runtime provides Java 21 at `/usr/bin/java`.
 
 ```json
 {
   "schemaVersion": 1,
-  "runtimeImages": ["java-21"],
   "process": {
     "entrypoint": ["/usr/bin/java"],
     "args": [
@@ -184,10 +181,6 @@ the setting that selects the runtime for a Pod.
 The fields describe a process invocation, not shell text:
 
 - `schemaVersion` selects Brewlet's version-1 launch descriptor format.
-- `runtimeImages` is optional. When present, it limits which approved runtime
-  IDs are allowed to run this artifact. The Pod still selects its runtime with
-  its `runtime-image.brewlet.sh/app` annotation (see
-  [Java versions](#java-versions-and-runtimeimages)).
 - `entrypoint` is the absolute Java executable path in the runtime image. Brewlet
   runs it directly, without starting a shell or needing a `PATH` lookup.
 - `args` is an ordered array of separate arguments. `-XX:MaxRAMPercentage=75`
@@ -319,7 +312,6 @@ as the Spring Boot example, but starts the Quarkus bootstrap JAR:
 ```json
 {
   "schemaVersion": 1,
-  "runtimeImages": ["java-21"],
   "process": {
     "entrypoint": ["/usr/bin/java"],
     "args": [
@@ -333,10 +325,8 @@ as the Spring Boot example, but starts the Quarkus bootstrap JAR:
 }
 ```
 
-`schemaVersion` identifies the descriptor format, and the optional
-`runtimeImages` allowlist restricts which runtime IDs may run the artifact;
-the Pod annotation still selects the runtime. Replace `/usr/bin/java` and
-`java-21` with values supplied by your platform team.
+`schemaVersion` identifies the descriptor format. Replace `/usr/bin/java` with
+the executable path supplied by your platform team.
 
 The `args` array puts JVM options before `-jar`. `MaxRAMPercentage` is an
 example, not a Brewlet default. The `java.util.logging.manager` property is
@@ -422,10 +412,8 @@ and main class explicitly:
 
 `schemaVersion`, `entrypoint` and `workingDir` have the same meanings as in
 the [Spring Boot descriptor](#executable-jar). Change `/usr/bin/java` to the
-executable path in your chosen runtime. This example omits `runtimeImages`,
-so it adds no runtime-ID restriction; the Pod must still select an approved,
-compatible runtime. Add the optional allowlist if you want to limit the
-artifact to tested runtime IDs.
+executable path in your chosen runtime. The Pod must select an approved,
+compatible runtime.
 
 `--class-path` tells Java where to find classes: `/app/app.jar` is the
 application JAR, and `/app/lib/*` includes JARs directly inside `/app/lib`.
@@ -582,9 +570,8 @@ security providers, observability libraries and agents, and internal platform
 clients. Framework libraries usually stay in the application. Spring Boot
 manages a large, tightly versioned dependency set, and Quarkus resolves and
 augments its extensions at build time, so pulling individual framework JARs
-into the runtime tends to break version alignment. Pin the runtime IDs you
-tested in `runtimeImages` so a Deployment cannot select a runtime without the
-libraries you compiled against.
+into the runtime tends to break version alignment. Test the runtime selected
+by the Deployment to ensure it supplies the libraries you compiled against.
 
 ## Configure the application
 
@@ -791,18 +778,16 @@ kubectl -n apps rollout status deployment/orders --timeout=5m
 Rollout success does not show which runtime image generation a Pod uses; see
 [actual runtime bindings](observability.md#logs-and-actual-bindings).
 
-## Java versions and `runtimeImages`
+## Java versions and runtime compatibility
 
 Compile for a Java release no newer than the runtime promises: Maven
 `maven.compiler.release` (or Spring Boot's `java.version`), Gradle
 `java.toolchain` or `options.release`. Running newer bytecode on an older
 runtime fails at startup with `UnsupportedClassVersionError`.
 
-List the runtime IDs you have tested in the descriptor's top-level
-`runtimeImages`. A Deployment that selects another ID is rejected instead of
-failing at JVM startup. The list does not choose the runtime; the Pod
-annotation does. When the platform introduces a newer Java release under a new
-ID, test against it, add the ID, republish, and then switch the annotation.
+The Pod annotation selects the runtime. Test the application against the
+selected runtime before deployment, and test again when switching to a new
+Java release.
 
 ## Advanced options
 
@@ -847,10 +832,10 @@ Package them as [native workloads](native.md), not with this guide.
 | `Error: Unable to access jarfile` | Path in `args` does not match the staged file name | Check the layout with `brewlet inspect` |
 | `UnsupportedClassVersionError` | Compiled for a newer Java than the runtime | Lower `--release` or select a newer runtime ID |
 | `Unable to create tempDir` or `Read-only file system` | JVM or framework writes to the read-only root | Mount an `emptyDir` and set `java.io.tmpdir` |
-| Deployment rejected before start | Runtime ID missing from `runtimeImages`, or not approved | Align the annotation, `runtimeImages` and the platform's inventory |
+| Deployment rejected before start | Runtime ID not approved or offered | Align the annotation and the platform's inventory |
 | Pod restarts during startup | Liveness probe fires before the framework is ready | Add a `startupProbe` |
 | `OOMKilled` with a small heap | Non-heap memory exceeds the limit | Lower `MaxRAMPercentage` or raise the limit |
-| `NoClassDefFoundError` for a library the platform provides | Selected runtime ID lacks it, or a JAR directory is missing from the class path | Check `java --list-modules` or the documented directory, and pin tested IDs in `runtimeImages` |
+| `NoClassDefFoundError` for a library the platform provides | Selected runtime ID lacks it, or a JAR directory is missing from the class path | Check `java --list-modules` or the documented directory, and test the selected runtime |
 | `LinkageError` or split-package error | The library is both in the runtime and in `/app` | Use `provided`/`compileOnly` and remove transitive copies |
 | Override has no effect on Quarkus | Property is fixed at build time | Rebuild with the new value |
 | Extra Kubernetes `args` dropped `-jar` | `args` replaces descriptor arguments | Repeat the complete argument list |

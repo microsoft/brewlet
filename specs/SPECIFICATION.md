@@ -274,8 +274,7 @@ store and **never mounts it** into the sandbox.
       { "name": "PYTHONPATH", "value": "/app/src:/app/site-packages" },
       { "name": "PYTHONDONTWRITEBYTECODE", "value": "1" }
     ]
-  },
-  "runtimeImages": ["python-3.12", "python-3.12-fips"]
+  }
 }
 ```
 
@@ -283,24 +282,14 @@ Field contract (unknown fields MUST be rejected at publish and launch time):
 
 | Field | Required | Rules |
 |---|---|---|
-| `schemaVersion` | yes | MUST be `2`. |
+| `schemaVersion` | yes | MUST be `1`. |
 | `process.entrypoint` | yes | Non-empty argv prefix. A non-absolute `entrypoint[0]` requires the runtime image's `PATH` for sandbox resolution (runc semantics); absent PATH fails with `RuntimePATHRequired` (§7.2). |
 | `process.args` | no | Default arguments appended after `entrypoint`. |
 | `process.workingDir` | no | Absolute path; defaults to `/app`. |
 | `process.env` | no | Ordered list of unique names. `PATH` is forbidden (§8.3). |
-| `runtimeImages` | no | Optional top-level allow-list of runtime image IDs the artifact was built and tested against. When present, the shim MUST refuse any other ID with `RuntimeImageIncompatible`; an empty array denies all. When absent, any approved ID is accepted at this gate. Null is invalid. |
 
-The allow-list is deliberately strict and name-based, not a language capability
-matcher. Composed, hold, and variant IDs must be explicitly listed even if they
-provide the same language version. Adding such an ID requires republishing the
-launch layer/config, not rebuilding unchanged application layers.
-Authors wanting inventory-independent artifacts omit the optional allow-list
-and accept responsibility for testing their explicitly selected workload ID.
-The approved schema flattening removes `requires` entirely. The old wrapper,
-including an empty object or a mix of old/new forms, MUST be rejected as an
-unknown field; no compatibility alias or implicit selection is introduced.
-Admission cannot precheck this constraint without registry access; mismatches
-are reported at container creation.
+Workloads select an approved runtime explicitly. Authors are responsible for
+testing applications against the selected runtime.
 
 The launch configuration intentionally contains **no** language-specific fields.
 Everything a 0.x `jvm.config` expressed (`mainJar`, `entry.mode`, `addOpens`,
@@ -348,8 +337,7 @@ permissions, whiteouts, and platform declarations. Acceptance requires all
 three implementations to produce the same normalized process fields and
 reason codes; separate language implementations do not justify contract drift.
 
-`launch.json` remains the authoritative, versioned document: it carries
-the optional top-level `runtimeImages` allowlist and is what tooling inspects.
+`launch.json` remains the authoritative, versioned document inspected by tooling.
 A future baked exporter would need to honor the same launch contract; no such
 delivery mode is implemented by this specification.
 
@@ -914,8 +902,7 @@ spec:
    layer; any other application container image fails with `UnsupportedArtifact`.
 3. **Load and validate** `launch.json` (§6.3) and the image-config mirror (§6.4).
 4. **Resolve the runtime image** by the protected container name from the Pod
-   annotations, carried into the OCI runtime spec by CRI. Fail with `RuntimeImageIncompatible` if
-   `runtimeImages` excludes it. Check live node-local authorization,
+   annotations, carried into the OCI runtime spec by CRI. Check live node-local authorization,
    revocation, and inventory epoch (§7.1); a cached root without current
    authorization cannot be used. If the ID is `available` on this node,
    request installation and wait as described in §7.5 (`RuntimeImageInstalling`
@@ -1128,7 +1115,7 @@ For every `runtimeClassName: brewlet` pod on CREATE, `brewlet-admission`:
   container (SPEC §8.3).
 - **Does not** read the application artifact from the registry, and therefore
   never defaults per-container runtime selections from it. Artifact-side
-  constraints (`runtimeImages`, layer rules, platforms) are enforced by
+  constraints (layer rules and platforms) are enforced by
   the shim and by kubelet's pull, so fail-open admission never weakens them.
 
 The `brewlet.sh/jdk`, `brewlet.sh/jvm-args`, and `brewlet.sh/arch` annotations
@@ -1338,15 +1325,14 @@ executable semantics or invalidating AppCDS metadata to make packaging pass.
 
 The CLI MUST NOT inspect application content to derive any field: it never
 detects a language, guesses an entrypoint, splits dependencies, chooses
-`runtimeImages`, or writes workload manifests. What the author wrote is
+a runtime, or writes workload manifests. What the author wrote is
 what ships. `brewlet inspect <image>` prints the effective `launch.json` and
 layer table so authors and reviewers can check the result.
 
 `brewlet run <ref> --runtime <id>=<image>` is a local test aid. It applies the
 §8.2 assembly to a built application and the runtime image the author names,
 with Docker or Podman, honoring `launch.json` process fields. The mapping is
-explicit (`runtimeImages` is optional, so `run` does not require the ID to be
-listed). It MUST NOT publish or tag the merged result; the production
+explicit. It MUST NOT publish or tag the merged result; the production
 artifact remains the runtime-free application image.
 
 `brewlet k8s` is an administrative convenience for cluster operators, not part
@@ -1367,12 +1353,7 @@ The Maven plugin is the one place where Java knowledge remains. It MAY:
 - package dependencies as ordinary application files (for example under
   `/app/lib` and `/app/mods`);
 - attach a prebuilt AppCDS archive as an ordinary application file and add the matching
-  flags to argv;
-- propose `runtimeImages` from `maven.compiler.release` and a configured
-  mapping to inventory IDs (for example `21 → java-21`), so the
-  allow-list reflects the bytecode level the project actually targets;
-- warn when the generated argv requires a newer runtime than the configured IDs
-  provide.
+  flags to argv.
 
 Its output is an ordinary 1.0.0 artifact that the shim treats exactly like one
 produced by the CLI. A developer can always replace the generated `launch.json`
@@ -1455,7 +1436,7 @@ remains an explicit decision in the reviewed manifest.
 - New reason codes: `InvalidRuntimeImageID`,
   `UnknownRuntimeImage`, `NoCompatibleRuntime`, `RuntimeImageNotInstalled`,
   `RuntimeImageInstalling`, `RuntimeImageInstallFailed`,
-  `RuntimeImageIncompatible`, `UnsupportedArtifact`, `LaunchConfigMismatch`,
+  `UnsupportedArtifact`, `LaunchConfigMismatch`,
   `LayerPathViolation`, `UnsupportedAnnotation`, `RootNotSupported`,
   `RuntimeImageUpdating`, `InvalidRuntimeGeneration`, `RuntimeImageEpochMismatch`,
   `RuntimeImageRevoked`, `RuntimeImageAuthorizationExpired`,

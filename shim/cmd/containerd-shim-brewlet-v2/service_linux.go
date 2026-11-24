@@ -466,9 +466,6 @@ func (s *service) assemble(ctx context.Context, r *taskapi.CreateTaskRequest, sp
 	if err != nil {
 		return err
 	}
-	if !resolved.Launch.Allows(id) {
-		return &node.Error{Reason: "RuntimeImageIncompatible", Detail: id}
-	}
 	barrier, err := node.ParseBarrier(spec.Annotations[workload.RuntimeGenerationAnnotation(id)], id)
 	if err != nil {
 		return err

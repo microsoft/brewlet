@@ -59,8 +59,7 @@ At least a main class, a module or an explicit launch descriptor is required.
 #### Configuration
 
 Set scalar options in the POM or with the listed Maven properties. The list
-options `javaArgs` and `runtimeImages` are POM configuration, not `-D`
-properties.
+option `javaArgs` is POM configuration, not a `-D` property.
 
 | POM configuration | Maven property | Optional | Default | Meaning |
 | --- | --- | --- | --- | --- |
@@ -72,8 +71,6 @@ properties.
 | `mainClass` | `brewlet.mainClass` | Yes | JAR's `Main-Class`, if present | Main class for the generated descriptor. |
 | `module` | `brewlet.module` | Yes | None | JPMS module name; also places dependencies under `/app/mods`. |
 | `javaArgs` | — | Yes | Empty list | Ordered list of JVM arguments placed before the generated classpath or module arguments. |
-| `runtimeImages` | — | Yes | Empty list, or IDs proposed by mappings | Ordered list of allowed runtime image IDs in the generated descriptor. An empty list adds no restriction unless mappings propose IDs. |
-| `runtimeImageMappings` | `brewlet.runtimeImageMappings` | Yes | Empty list | List mapping Java feature releases to runtime IDs, such as `21=java-21`. |
 | `appCdsArchive` | `brewlet.appCdsArchive` | Yes | None | Path to a prebuilt AppCDS archive to package as `/app/app.jsa`. |
 
 For example, configure lists and the compiler target in the project POM:
@@ -92,29 +89,16 @@ For example, configure lists and the compiler target in the project POM:
         <javaArgs>
           <javaArg>-Xmx512m</javaArg>
         </javaArgs>
-        <runtimeImageMappings>
-          <runtimeImageMapping>21=java-21</runtimeImageMapping>
-          <runtimeImageMapping>25=java-25</runtimeImageMapping>
-        </runtimeImageMappings>
       </configuration>
     </plugin>
   </plugins>
 </build>
 ```
 
-With mappings and a numeric `maven.compiler.release` (or, in order,
-`maven.compiler.target` or `maven.compiler.source`), the plugin proposes
-mapped IDs for that release or newer, ordered by release, when
-`runtimeImages` is empty. With `--enable-preview` in `javaArgs`, only an exact
-release matches. If none matches, the build fails. Explicit `runtimeImages`
-take precedence; mapped incompatible IDs produce warnings. Without mappings
-or a numeric target, no IDs are inferred.
-
 An explicit `launch` overrides generated launch configuration, including
-`mainClass`, `javaArgs` and runtime image mappings. The `module` option still
+`mainClass` and `javaArgs`. The `module` option still
 determines the dependency directory; make the descriptor match that layout.
-The Pod must still select an approved runtime ID: an artifact allowlist is
-not a selection.
+The Pod must select an approved, compatible runtime ID.
 
 For AppCDS, the plugin preserves the archive's modification time and adds
 `-XX:SharedArchiveFile=/app/app.jsa -Xshare:auto` after `javaArgs` in the

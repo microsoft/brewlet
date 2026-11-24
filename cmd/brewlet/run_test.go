@@ -101,7 +101,7 @@ func runDry(t *testing.T, args ...string) (string, string, error) {
 }
 
 func TestRunDryRunAssemblesContainer(t *testing.T) {
-	store := buildRunTestImage(t, `{"schemaVersion":1,"process":{"entrypoint":["/bin/sh","-c"],"args":["cat /app/hello.txt"],"workingDir":"/app/bin","env":[{"name":"A","value":"1"},{"name":"B","value":"two words"}]},"runtimeImages":["shell-1"]}`)
+	store := buildRunTestImage(t, `{"schemaVersion":1,"process":{"entrypoint":["/bin/sh","-c"],"args":["cat /app/hello.txt"],"workingDir":"/app/bin","env":[{"name":"A","value":"1"},{"name":"B","value":"two words"}]}}`)
 	out, _, err := runDry(t, runTestRef, "--store", store, "--platform", "linux/amd64", "--engine", "podman",
 		"--runtime", "shell-1=busybox:1.36", "--user", "1000:2000", "-e", "B=override", "--env", "C=3",
 		"-p", "8080:80", "--tmpfs", "/app/cache", "--name", "hello", "--dry-run")
@@ -134,7 +134,6 @@ func TestRunDryRunDefaultsAndExtraArgs(t *testing.T) {
 }
 
 func TestRunRuntimeSelection(t *testing.T) {
-	allowList := buildRunTestImage(t, `{"schemaVersion":1,"process":{"entrypoint":["/bin/true"]},"runtimeImages":["shell-1"]}`)
 	open := buildRunTestImage(t, `{"schemaVersion":1,"process":{"entrypoint":["/bin/true"]}}`)
 	base := []string{runTestRef, "--platform", "linux/amd64", "--dry-run", "--user", "1:1"}
 	for _, tc := range []struct {
@@ -142,9 +141,6 @@ func TestRunRuntimeSelection(t *testing.T) {
 		args  []string
 		want  string
 	}{
-		{allowList, []string{"--runtime", "shell-1=busybox"}, ""},
-		{allowList, []string{"--runtime", "busybox"}, ""},
-		{allowList, []string{"--runtime", "shell-2=busybox"}, "RuntimeImageIncompatible"},
 		{open, []string{"--runtime", "anything=busybox"}, ""},
 		{open, nil, "--runtime required"},
 		{open, []string{"--runtime", "Bad_ID=busybox"}, "InvalidRuntimeImageID"},
@@ -168,7 +164,7 @@ func TestRunRuntimeSelection(t *testing.T) {
 }
 
 func TestRunFromCluster(t *testing.T) {
-	store := buildRunTestImage(t, `{"schemaVersion":1,"process":{"entrypoint":["/bin/true"]},"runtimeImages":["shell-1","shell-root"]}`)
+	store := buildRunTestImage(t, `{"schemaVersion":1,"process":{"entrypoint":["/bin/true"]}}`)
 	images := map[string]api.RuntimeImage{
 		"shell-1": {Spec: api.RuntimeImageSpec{Source: api.Source{Image: "registry.example/busybox@sha256:" + strings.Repeat("a", 64)},
 			User: api.User{UID: 65532, GID: 65533}, VolumeMountPaths: []string{"/var/data"}}},
@@ -203,7 +199,7 @@ func TestRunFromCluster(t *testing.T) {
 		want string
 	}{
 		{[]string{"--runtime", "shell-root"}, "RootNotSupported"},
-		{[]string{"--runtime", "missing"}, "RuntimeImageIncompatible"},
+		{[]string{"--runtime", "missing"}, "not found"},
 		{[]string{"--runtime", "shell-1", "--tmpfs", "/tmp"}, "RuntimeMountNotAllowed"},
 	} {
 		if _, _, err := runDry(t, append(base, tc.args...)...); err == nil || !strings.Contains(err.Error(), tc.want) {

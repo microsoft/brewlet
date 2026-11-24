@@ -54,7 +54,6 @@ class MavenNodeTests(unittest.TestCase):
         for command in pushes:
             self.assertIn("-Dbrewlet.platforms=linux/amd64,linux/arm64", command)
             self.assertIn("-Dbrewlet.executable=" + str(self.work / "maven-brewlet"), command)
-            self.assertFalse(any("runtimeImages" in value for value in command))
         for call in h.run.call_args_list:
             self.assertEqual(call.kwargs["env"], {
                 "MAVEN_OPTS": "-Dmaven.repo.local=" + str(self.work / "m2")})

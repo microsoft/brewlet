@@ -8,10 +8,8 @@ releases work together.
 ## Launch schema
 
 `launch.json` uses `schemaVersion: 1`. Unknown fields, duplicate members and
-`null` values are rejected. The optional top-level `runtimeImages` field is an
-allowlist of runtime IDs the application accepts: omit it to accept any
-approved ID, or set `[]` to deny all. It does not select the Pod's runtime.
-See [the artifact contract](applications.md#the-artifact-contract).
+`null` values are rejected. See
+[the artifact contract](applications.md#the-artifact-contract).
 
 ## Runtime compatibility is a separate promise
 

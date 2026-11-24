@@ -84,7 +84,7 @@ def validate(document, root=ROOT, *, structure_only=False, expected=None):
     if not {f"UP-{number:02}" for number in range(1, 7)} <= seen:
         errors.append("missing approved upstream-runtime amendment obligations")
     if not {"SCHEMA-01", "WASM-01", "WASM-02", "WASM-03"} <= seen:
-        errors.append("missing flat schema or Wasm qualification obligations")
+        errors.append("missing launch schema or Wasm qualification obligations")
     if not {f"FS-{number:02}" for number in range(1, 5)} <= seen:
         errors.append("missing immutable runtime filesystem obligations")
     if structure_only:

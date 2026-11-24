@@ -46,22 +46,8 @@ type Process struct {
 	Env        []Env    `json:"env,omitempty"`
 }
 type Launch struct {
-	SchemaVersion int      `json:"schemaVersion"`
-	Process       Process  `json:"process"`
-	RuntimeImages []string `json:"runtimeImages,omitempty"`
-}
-
-// Preserve an explicit deny-all [] rather than dropping it through omitempty.
-func (l Launch) MarshalJSON() ([]byte, error) {
-	var images *[]string
-	if l.RuntimeImages != nil {
-		images = &l.RuntimeImages
-	}
-	return json.Marshal(struct {
-		SchemaVersion int       `json:"schemaVersion"`
-		Process       Process   `json:"process"`
-		RuntimeImages *[]string `json:"runtimeImages,omitempty"`
-	}{l.SchemaVersion, l.Process, images})
+	SchemaVersion int     `json:"schemaVersion"`
+	Process       Process `json:"process"`
 }
 
 // StrictJSON rejects unknown fields, duplicate object members, and trailing data.
@@ -196,20 +182,7 @@ func ParseLaunch(data []byte) (*Launch, error) {
 		}
 		seen[e.Name] = true
 	}
-	seen = map[string]bool{}
-	for _, id := range l.RuntimeImages {
-		if err := ValidateRuntimeImageID(id); err != nil {
-			return nil, err
-		}
-		if seen[id] {
-			return nil, fail("InvalidLaunchConfig", "duplicate runtime ID")
-		}
-		seen[id] = true
-	}
 	return &l, nil
-}
-func (l *Launch) Allows(id string) bool {
-	return l.RuntimeImages == nil || slices.Contains(l.RuntimeImages, id)
 }
 func (l *Launch) ImageConfig() v1.ImageConfig {
 	env := make([]string, 0, len(l.Process.Env))

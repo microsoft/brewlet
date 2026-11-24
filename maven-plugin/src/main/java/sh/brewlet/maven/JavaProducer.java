@@ -19,10 +19,10 @@ import java.util.jar.JarFile;
 /** Java project knowledge stops at this producer; descriptors are checked with the Java contract before the CLI runs. */
 final class JavaProducer {
     record Inputs(Path jar, List<Path> dependencies, Path launch, String mainClass,
-                  String module, List<String> javaArgs, List<String> runtimeImages, Path appCdsArchive) {
+                  String module, List<String> javaArgs, Path appCdsArchive) {
         Inputs(Path jar, List<Path> dependencies, Path launch, String mainClass,
-               String module, List<String> javaArgs, List<String> runtimeImages) {
-            this(jar, dependencies, launch, mainClass, module, javaArgs, runtimeImages, null);
+               String module, List<String> javaArgs) {
+            this(jar, dependencies, launch, mainClass, module, javaArgs, null);
         }
     }
     static final String APP_CDS_PATH = "/app/app.jsa";
@@ -82,9 +82,6 @@ final class JavaProducer {
             descriptor.put("schemaVersion", 1);
             descriptor.put("process", Map.of("entrypoint", List.of("java"),
                     "args", args, "workingDir", "/app"));
-            if (!inputs.runtimeImages().isEmpty()) {
-                descriptor.put("runtimeImages", inputs.runtimeImages());
-            }
             launch = output.resolve("launch.json");
             new ObjectMapper().enable(SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS)
                     .writerWithDefaultPrettyPrinter().writeValue(launch.toFile(), descriptor);

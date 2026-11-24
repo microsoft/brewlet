@@ -40,17 +40,11 @@ explicit producer assertion, not evidence that a native dependency is portable.
         "value": "1"
       }
     ]
-  },
-  "runtimeImages": [
-    "python-3.13"
-  ]
+  }
 }
 ```
 
-The optional top-level `runtimeImages` is an allowlist, not a selector. The
-workload must still name an approved runtime explicitly.
-Omitting it allows any runtime ID; an explicit empty array denies all IDs.
-`null` is rejected.
+The workload names an approved, compatible runtime explicitly.
 
 ```sh
 brewlet build registry.example.com/apps/api:v2 \
