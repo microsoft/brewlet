@@ -301,6 +301,9 @@ func (m *PodMutator) Mutate(ctx context.Context, p *corev1.Pod) ([]string, error
 				warnings = append(warnings, c.Name+": PATH is runtime-owned; requested override is ignored")
 			}
 		}
+		if len(c.Command) > 0 {
+			warnings = append(warnings, c.Name+": command is ignored; the runtime image ENTRYPOINT always runs first (use args to replace the CMD)")
+		}
 		return nil
 	}
 	for i := range p.Spec.Containers {

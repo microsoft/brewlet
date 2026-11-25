@@ -1037,7 +1037,7 @@ generation; Exec inherits it, rather than constructing a new writable view.
 
 - **argv** is the runtime `Entrypoint` followed by the effective `CMD` (§6.3).
   Kubernetes `args` replace the whole effective `CMD`; Kubernetes `command` is
-  ignored.
+  ignored, and admission emits a warning when a selected container sets it.
 - **Working directory** is taken verbatim from the CRI-provided spec, which
   already reflects Kubernetes `workingDir` over the mirrored image config.
 - **Environment** is merged in increasing precedence: runtime image `Env`, then

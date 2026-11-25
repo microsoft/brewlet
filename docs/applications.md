@@ -131,7 +131,8 @@ argv is the runtime image `ENTRYPOINT` followed by the effective `CMD`.
 | `launch.json` `command` and/or `args` present | `command` followed by `args`. An explicit `[]` clears the runtime `CMD`. |
 | Neither present | The runtime image `CMD`. |
 
-Pod `command` is ignored for Brewlet containers, so a runtime-owned
+Pod `command` is ignored for Brewlet containers (admission returns a
+warning), so a runtime-owned
 `ENTRYPOINT` cannot be replaced. If both the runtime `ENTRYPOINT` and the
 effective `CMD` are empty, the start fails with `LaunchCommandRequired`. When
 the runtime image has an `ENTRYPOINT`, such as a distroless interpreter, omit
