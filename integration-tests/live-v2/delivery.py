@@ -626,6 +626,13 @@ auth:
                 remote = self.publish(golden, selected, f"delivery/runtime-{language}-{revision}")
                 self.fresh(remote)
                 self.h.runtime_images[language][revision] = remote
+        for variant, source_layout in self.h.app_variant_layouts.items():
+            layout = self.work / ("app-" + variant)
+            descriptor = mutate_application(source_layout, layout,
+                                            self.h.run_id + "-" + variant)
+            reference = self.publish(layout, descriptor, "delivery/" + variant)
+            self.fresh(reference)
+            self.h.app_variants[variant] = reference
         for case, fault in (("unauthorized", None), ("untrusted", None), ("corrupt", None),
                             ("unsafe", "unsafe"), ("malformed", "malformed"), ("mirror", "mirror")):
             layout = self.work / ("negative-" + case)
@@ -660,6 +667,7 @@ auth:
             "selectedDigestsNotPreimported": True, "kubeletPullVerified": False,
             "runtimeSourcePullVerified": False, "nativeAlternateCapacityVerified": False}
         self.h.result["applicationImages"] = self.h.app_images
+        self.h.result["applicationVariants"] = self.h.app_variants
         self.h.result["runtimeImages"] = self.h.runtime_images
         self.h.save()
 
@@ -741,7 +749,9 @@ auth:
         lines = (result.stdout + result.stderr).splitlines()
         reads = [line for line in lines if re.search(r'http.request.method="?GET"?', line)
                  and re.search(r'http.response.status="?200"?', line)]
-        for repository in ("delivery/apps-" + language for language in h.languages):
+        repositories = ["delivery/apps-" + language for language in h.languages]
+        repositories.extend("delivery/" + variant for variant in h.app_variants)
+        for repository in repositories:
             require(any("/v2/" + repository + "/blobs/" in line for line in reads),
                     "registry never served selected application blobs over TLS")
         for language in h.languages:

@@ -28,7 +28,7 @@ def encode(value):
 
 def normalized(process):
     return {
-        "command": process["command"],
+        "command": process.get("command"),
         "args": process.get("args") or [],
         "workingDir": process.get("workingDir", "/app"),
         "env": process.get("env") or [],

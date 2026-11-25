@@ -540,8 +540,13 @@ The default run fails on any missing protocol, reason, transition or evidence:
   `kubectl exec` and actual exec readiness probes.
 * Initial and exec JSON reports assert argv, default and overridden cwd,
   environment precedence, runtime-owned PATH, synthesized HOME and UID/GID.
-  Explicit command/args/cwd overrides serve real HTTP. Separate custom-UID pods
-  verify independently defaulted GID and `/tmp` HOME fallback in initial/exec.
+  A Python runtime with a logging, non-overridable ENTRYPOINT proves the
+  application launch command is appended and the ENTRYPOINT still runs under
+  Pod `command`/`args` overrides. A second application artifact omits both
+  launch fields to verify runtime `CMD` inheritance; Pod `args` and `command`
+  independently replace that fallback. Every case serves real HTTP and checks
+  the launcher's observed argv. Separate custom-UID pods verify independently
+  defaulted GID and `/tmp` HOME fallback in initial/exec.
 * One real Pod exercises a completed init container, regular and native init
   sidecars, an ephemeral container, named task leases, exec/readiness probes and
   a real postStart hook through the same generic runtime. Malformed artifacts

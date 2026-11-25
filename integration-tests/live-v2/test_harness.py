@@ -26,6 +26,10 @@ def module(name):
 
 
 h = module("harness")
+maven_conformance = importlib.util.spec_from_file_location(
+    "integration_tests_maven_conformance", HERE.parent / "maven_conformance.py")
+maven_conformance_module = importlib.util.module_from_spec(maven_conformance)
+maven_conformance.loader.exec_module(maven_conformance_module)
 interceptor = module("interceptor")
 RUN = "123456abcdef"
 NODE_UID = "original-node-uid"
@@ -529,11 +533,16 @@ class SafetyTests(ProjectWork):
         for language in h.LANGUAGES:
             for revision in ("before", "after"):
                 dockerfile = (instance.work / (language + "-" + revision) / "Dockerfile").read_text()
-                for field in ('CMD ["overridden-runtime-argument"]',
+                cmd = ('CMD ["python3", "/app/src/main.py", "runtime-cmd-marker"]'
+                       if language == "python" else 'CMD ["overridden-runtime-argument"]')
+                for field in (cmd,
                               "WORKDIR /ignored-runtime-workdir", "USER 0:0",
                               "EXPOSE 65432", 'VOLUME ["/ignored-runtime-volume"]',
                               'HEALTHCHECK CMD ["/ignored-runtime-healthcheck"]'):
                     self.assertIn(field + "\n", dockerfile)
+                if language == "python":
+                    self.assertIn('ENTRYPOINT ["python3", "/opt/brewlet-runtime-entrypoint.py"]\n',
+                                  dockerfile)
                 self.assertIn("ENV BREWLET_RUNTIME_REVISION=" + revision, dockerfile)
         instance.load_image.assert_not_called()
         instance.ctr.assert_not_called()
@@ -833,6 +842,13 @@ class SafetyTests(ProjectWork):
 
 
 class ContractTests(ProjectWork):
+    def test_maven_launch_normalization_preserves_omitted_command(self):
+        omitted = maven_conformance_module.normalized({"args": ["runner"]})
+        self.assertIsNone(omitted["command"])
+        explicit_empty = maven_conformance_module.normalized({"command": [], "args": ["runner"]})
+        self.assertEqual([], explicit_empty["command"])
+        self.assertNotEqual(omitted["command"], explicit_empty["command"])
+
     def test_all_language_pods_keep_ro_root_missing_volume_target_and_real_exec_probe(self):
         instance = self.harness()
         for language in h.LANGUAGES:
@@ -847,6 +863,16 @@ class ContractTests(ProjectWork):
             self.assertEqual(pod["spec"]["nodeSelector"], {"kubernetes.io/arch": "arm64"})
             self.assertNotIn("nodeName", pod["spec"])
             self.assertNotIn("tolerations", pod["spec"])
+
+    def test_pod_command_and_args_are_independent_explicit_overrides(self):
+        instance = self.harness()
+        pod = instance.pod("command-override", "python",
+                           image="runtime-cmd-app", command=["python3", "/app/src/main.py"],
+                           args=["pod-arg"])
+        container = pod["spec"]["containers"][0]
+        self.assertEqual("runtime-cmd-app", container["image"])
+        self.assertEqual(["python3", "/app/src/main.py"], container["command"])
+        self.assertEqual(["pod-arg"], container["args"])
 
     def test_bound_negative_has_explicit_nonroot_independent_of_admission(self):
         instance = self.harness()

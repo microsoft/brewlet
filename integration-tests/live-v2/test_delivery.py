@@ -221,6 +221,8 @@ class CommandTests(unittest.TestCase):
         h.languages = ("java",)
         h.probe_language = "java"
         h.app_images = {}
+        h.app_variants = {}
+        h.app_variant_layouts = {}
         h.runtime_images = {"java": {}}
         h.result = {}
         h.save = Mock()
