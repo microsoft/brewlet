@@ -13,6 +13,8 @@ For a walkthrough and framework-specific alternatives, see
 - A Brewlet CLI matching the plugin version, available on `PATH` or specified
   with `brewlet.executable` for the `push` goal.
 - A packaged project JAR and explicit image reference and platforms for `push`.
+- Registry credentials, when the registry requires them, in the environment
+  (see [Registry access](#registry-access)).
 
 The version in `release.json` is a candidate, not a claim that the plugin
 has been published. Until a qualified prerelease is available, build and
@@ -104,6 +106,46 @@ For AppCDS, the plugin preserves the archive's modification time and adds
 `-XX:SharedArchiveFile=/app/app.jsa -Xshare:auto` after `javaArgs` in the
 generated descriptor. A supplied `launch` must reference the archive itself.
 Runtime rotation can change the JDK build, so archive use is best-effort.
+
+#### Registry access
+
+The plugin has no credential or TLS options. When it pushes, it runs
+`brewlet push` as a child process that inherits Maven's environment, so you
+configure registry access with the same environment variables as the
+[CLI](cli-reference.md#registry-access):
+
+| Variable | Meaning |
+| --- | --- |
+| `BREWLET_REGISTRY_USERNAME` | Username for registry basic or token authentication. |
+| `BREWLET_REGISTRY_PASSWORD` | Password or access token. Set it together with the username. |
+| `SSL_CERT_FILE` | PEM file of additional CA certificates trusted for the registry, added to the system trust store. Use it for a registry with a private or self-signed CA. |
+
+Set them in the shell or CI step that runs Maven:
+
+```sh
+export BREWLET_REGISTRY_USERNAME=ci-bot
+export BREWLET_REGISTRY_PASSWORD="$REGISTRY_TOKEN"
+export SSL_CERT_FILE=/etc/ssl/private-registry-ca.pem   # only for a private CA
+mvn package sh.brewlet:brewlet-maven-plugin:0.11.0:push \
+  -Dbrewlet.image=registry.example.com/apps/orders:v2 \
+  -Dbrewlet.platforms=linux/amd64,linux/arm64 \
+  -Dbrewlet.mainClass=com.example.Main
+```
+
+Credentials are not read from the POM, Maven `settings.xml` server entries or
+Docker credential helpers. Supply them from your CI secret store and keep
+them out of source control; see
+[Registry access and certificate trust](registry-trust.md#producer-access).
+
+Registries on `localhost` or `127.0.0.1` are reached over plain HTTP; all
+other registries use HTTPS. The plugin cannot pass the CLI's `--insecure` or
+`--registry-scheme` flags. To push to a plain-HTTP registry on another host,
+or to a loopback registry over TLS, build with `store` and run
+`brewlet push` with those flags yourself.
+
+A rejected login or an untrusted certificate fails the Maven build, and no
+tag is written. With `store` set, the plugin does not contact a registry and
+needs none of these variables.
 
 ### `conformance`
 
