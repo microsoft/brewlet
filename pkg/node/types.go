@@ -32,19 +32,27 @@ func ValidateID(id string) error {
 }
 
 type Metadata struct {
-	ID               string            `json:"id"`
-	InventoryUID     string            `json:"inventoryUID"`
-	Generation       int64             `json:"generation"`
-	SourceDigest     string            `json:"sourceDigest"`
-	ManifestDigest   string            `json:"manifestDigest"`
-	Platform         ocispec.Platform  `json:"platform"`
-	Env              []string          `json:"env"`
-	UID              uint32            `json:"uid"`
-	GID              uint32            `json:"gid"`
-	VolumeMountPaths []string          `json:"volumeMountPaths,omitempty"`
-	Home             string            `json:"home"`
-	Homes            map[uint32]string `json:"homes"`
-	ValidatedAt      time.Time         `json:"validatedAt"`
+	ID             string           `json:"id"`
+	InventoryUID   string           `json:"inventoryUID"`
+	Generation     int64            `json:"generation"`
+	SourceDigest   string           `json:"sourceDigest"`
+	ManifestDigest string           `json:"manifestDigest"`
+	Platform       ocispec.Platform `json:"platform"`
+	Env            []string         `json:"env"`
+	// Entrypoint and Cmd are the approved runtime image's ENTRYPOINT and CMD.
+	// The application launch request is composed onto them like a Dockerfile
+	// built FROM the runtime image.
+	Entrypoint           []string          `json:"entrypoint,omitempty"`
+	Cmd                  []string          `json:"cmd,omitempty"`
+	// ExecutionConfigKnown distinguishes new metadata with an empty config
+	// from older records that did not capture the runtime's process config.
+	ExecutionConfigKnown bool              `json:"executionConfigKnown,omitempty"`
+	UID                  uint32            `json:"uid"`
+	GID                  uint32            `json:"gid"`
+	VolumeMountPaths     []string          `json:"volumeMountPaths,omitempty"`
+	Home                 string            `json:"home"`
+	Homes                map[uint32]string `json:"homes"`
+	ValidatedAt          time.Time         `json:"validatedAt"`
 }
 
 func (m Metadata) Validate() error {
@@ -58,6 +66,11 @@ func (m Metadata) Validate() error {
 	}
 	if err := ValidateVolumeMountPaths(m.VolumeMountPaths); err != nil {
 		return err
+	}
+	for _, arg := range append(append([]string(nil), m.Entrypoint...), m.Cmd...) {
+		if strings.ContainsRune(arg, 0) {
+			return fmt.Errorf("invalid runtime ENTRYPOINT or CMD")
+		}
 	}
 	_, err := runtimeEnvironment(m.Env)
 	return err

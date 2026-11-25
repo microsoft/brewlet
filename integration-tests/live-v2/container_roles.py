@@ -21,8 +21,7 @@ def sidecar(base, name, port, *, native=False):
 def ephemeral(base, name, image=None):
     allowed = ("image", "imagePullPolicy", "securityContext", "env", "volumeMounts", "workingDir")
     result = {key: copy.deepcopy(base[key]) for key in allowed if key in base}
-    result.update(name=name, targetContainerName="app", command=["python3"],
-                  args=["-c", "import time; time.sleep(600)"])
+    result.update(name=name, targetContainerName="app", args=["python3", "-c", "import time; time.sleep(600)"])
     if image is not None:
         result["image"] = image
     return result
@@ -76,7 +75,7 @@ def execute(h):
     base = pod["spec"]["containers"][0]
     setup = copy.deepcopy(base)
     probe = h.probe("python")
-    setup.update(name="setup", command=probe[:1], args=probe[1:])
+    setup.update(name="setup", args=probe)
     setup.pop("readinessProbe")
     pod["spec"]["initContainers"] = [setup, sidecar(base, "native-sidecar", 8001, native=True)]
     base["lifecycle"] = {"postStart": {"exec": {"command": [

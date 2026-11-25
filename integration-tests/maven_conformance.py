@@ -28,7 +28,7 @@ def encode(value):
 
 def normalized(process):
     return {
-        "entrypoint": process["entrypoint"],
+        "command": process.get("command"),
         "args": process.get("args") or [],
         "workingDir": process.get("workingDir", "/app"),
         "env": process.get("env") or [],
@@ -42,7 +42,7 @@ def publication_case(executable, project, work, case):
         descriptor = encode(case["launch"])
     else:
         platform = case["value"]
-        descriptor = '{"schemaVersion":1,"process":{"entrypoint":["runner"]}}'
+        descriptor = '{"schemaVersion":1,"process":{"command":["runner"]}}'
     source = work / f'conformance-{case["name"]}.json'
     source.write_text(descriptor)
     layout = work / f'conformance-{case["name"]}-oci'

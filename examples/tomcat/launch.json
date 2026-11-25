@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "process": {
-    "entrypoint": ["/opt/java/openjdk/bin/java"],
+    "command": ["/opt/java/openjdk/bin/java"],
     "args": [
       "-Dcatalina.home=/usr/local/tomcat",
       "-Dcatalina.base=/app/tomcat",

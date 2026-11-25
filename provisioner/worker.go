@@ -329,6 +329,12 @@ func (w *Worker) Reconcile(ctx context.Context) error {
 				m.UID == uint32(r.Spec.User.UID) && m.GID == uint32(r.Spec.User.GID) &&
 				slices.Equal(m.VolumeMountPaths, r.Spec.VolumeMountPaths)
 			upToDate := usableCurrent && m.Generation == r.Status.Generation && m.SourceDigest == r.Status.Digest
+			var executionMetadata node.Metadata
+			executionMetadataKnown := false
+			if upToDate && m.ExecutionConfigKnown {
+				executionMetadata = m
+				executionMetadataKnown = true
+			}
 			if entry.Install == "Eager" && !usableCurrent {
 				if err := w.withholdBaseline(ctx); err != nil {
 					return err
@@ -398,6 +404,10 @@ func (w *Worker) Reconcile(ctx context.Context) error {
 					}
 					return err
 				}
+				if m.ExecutionConfigKnown {
+					executionMetadata = m
+					executionMetadataKnown = true
+				}
 				if entry.Install == "OnDemand" {
 					w.Metrics.install(entry.ID, "ready", installStart)
 				}
@@ -413,6 +423,14 @@ func (w *Worker) Reconcile(ctx context.Context) error {
 			if err := w.Store.RemoveRequest(entry.ID); err != nil {
 				return err
 			}
+			local := api.NodeRuntime{Install: entry.Install, State: state, Installed: true, InventoryUID: r.UID, Generation: r.Status.Generation, Digest: r.Status.Digest}
+			if executionMetadataKnown {
+				local.Entrypoint = slices.Clone(executionMetadata.Entrypoint)
+				local.Cmd = slices.Clone(executionMetadata.Cmd)
+				local.ExecutionConfigKnown = true
+			}
+			inventory[entry.ID] = local
+			continue
 		}
 		inventory[entry.ID] = api.NodeRuntime{Install: entry.Install, State: state, Installed: state == "ready", InventoryUID: r.UID, Generation: r.Status.Generation, Digest: r.Status.Digest}
 	}

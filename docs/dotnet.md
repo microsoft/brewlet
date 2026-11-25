@@ -84,7 +84,7 @@ Save as `launch.json`:
 {
   "schemaVersion": 1,
   "process": {
-    "entrypoint": [
+    "command": [
       "/usr/bin/dotnet"
     ],
     "args": [
@@ -96,7 +96,7 @@ Save as `launch.json`:
 ```
 
 `Greeting.dll` must resolve beside `App.dll`, so both layers map to `/app`. A
-self-contained executable would use its own path as the entrypoint and has its
+self-contained executable would use its own path as `command` and has its
 own loader, native-library and platform requirements.
 
 ## Build and push

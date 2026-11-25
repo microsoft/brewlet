@@ -133,7 +133,14 @@ func TestK8sHelp(t *testing.T) {
 }
 
 func TestK8sRuntimeListAndStatus(t *testing.T) {
-	objs := append([]client.Object{k8sApproved("python-3.12", k8sOldSource), k8sProfile("web", api.RuntimeEntry{ID: "python-3.12"}), k8sNode("node-a", "amd64")}, k8sWorkloads("python-3.12", false)...)
+	node := k8sNode("node-a", "amd64")
+	inventory, _ := json.Marshal(map[string]api.NodeRuntime{"python-3.12": {
+		Install: "Eager", State: "ready", Installed: true, InventoryUID: "runtime-uid", Generation: 1,
+		Digest: "sha256:" + strings.Repeat("a", 64), Entrypoint: []string{"/opt/runtime/launch"},
+		Cmd: []string{"--serve", "two words"}, ExecutionConfigKnown: true,
+	}})
+	node.Annotations = map[string]string{api.InventoryAnnotation: string(inventory)}
+	objs := append([]client.Object{k8sApproved("python-3.12", k8sOldSource), k8sProfile("web", api.RuntimeEntry{ID: "python-3.12"}), node}, k8sWorkloads("python-3.12", false)...)
 	k8sFakeClient(t, objs...)
 	out, _, err := k8sRun("--context", "dev", "runtime", "list")
 	if err != nil {
@@ -152,7 +159,7 @@ func TestK8sRuntimeListAndStatus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{k8sOldSource, "node-a", "apps/web-abc", "web"} {
+	for _, want := range []string{k8sOldSource, "node-a", "apps/web-abc", "web", `"/opt/runtime/launch"`, `"two words"`} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("status missing %q:\n%s", want, out)
 		}

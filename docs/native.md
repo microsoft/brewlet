@@ -70,7 +70,7 @@ Choose the root from the binary's actual requirements:
 In either case, build a Linux executable for the node architecture and package
 all application-owned assets. Use your toolchain's normal release process;
 Brewlet does not compile, relink or discover native dependencies. A macOS
-executable cannot run on a Linux node. An explicit absolute entrypoint needs
+executable cannot run on a Linux node. An explicit absolute `command` needs
 no runtime shell or PATH.
 
 Brewlet already tests static binaries with a distroless static root on arm64
@@ -155,7 +155,7 @@ cat > "$WORK/launch.json" <<'EOF'
 {
   "schemaVersion": 1,
   "process": {
-    "entrypoint": [
+    "command": [
       "/app/bin/server"
     ],
     "workingDir": "/app"

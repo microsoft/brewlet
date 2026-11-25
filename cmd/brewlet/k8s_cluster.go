@@ -27,15 +27,18 @@ type k8sProfileOffer struct {
 }
 
 type k8sNodeState struct {
-	Name       string `json:"name"`
-	Profile    string `json:"profile"`
-	Platform   string `json:"platform"`
-	Install    string `json:"install"`
-	Label      string `json:"label,omitempty"` // brewlet.sh/runtime.<id> value
-	State      string `json:"state,omitempty"` // node inventory annotation state
-	Generation int64  `json:"generation,omitempty"`
-	Digest     string `json:"digest,omitempty"`
-	Fenced     bool   `json:"startupFenced,omitempty"`
+	Name                 string   `json:"name"`
+	Profile              string   `json:"profile"`
+	Platform             string   `json:"platform"`
+	Install              string   `json:"install"`
+	Label                string   `json:"label,omitempty"` // brewlet.sh/runtime.<id> value
+	State                string   `json:"state,omitempty"` // node inventory annotation state
+	Generation           int64    `json:"generation,omitempty"`
+	Digest               string   `json:"digest,omitempty"`
+	Entrypoint           []string `json:"entrypoint,omitempty"`
+	Cmd                  []string `json:"cmd,omitempty"`
+	ExecutionConfigKnown bool     `json:"executionConfigKnown,omitempty"`
+	Fenced               bool     `json:"startupFenced,omitempty"`
 }
 
 type k8sPodRef struct {
@@ -174,6 +177,9 @@ func runtimeNodeStates(ctx context.Context, c client.Client, profiles []api.Node
 		if inv, err := control.ParseInventory(n); err == nil {
 			if r, ok := inv[id]; ok {
 				s.State, s.Generation, s.Digest = r.State, r.Generation, r.Digest
+				s.Entrypoint = slices.Clone(r.Entrypoint)
+				s.Cmd = slices.Clone(r.Cmd)
+				s.ExecutionConfigKnown = r.ExecutionConfigKnown
 			}
 		} else {
 			s.State = "invalid-annotation"

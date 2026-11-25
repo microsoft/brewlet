@@ -189,9 +189,9 @@ func TestPushPreservesExistingOCIOverAuthenticatedTLS(t *testing.T) {
 		return descriptor, digest.FromBytes(raw.Bytes())
 	}
 	appLayer, appDiff := fixtureLayer("app/runner", []byte("runner"), "app")
-	launchLayer, launchDiff := fixtureLayer("launch.json", []byte(`{"schemaVersion":0,"process":{"entrypoint":["runner"]}}`), "launch")
+	launchLayer, launchDiff := fixtureLayer("launch.json", []byte(`{"schemaVersion":0,"process":{"command":["runner"]}}`), "launch")
 	platform := v1.Platform{OS: "linux", Architecture: "arm64"}
-	fixtureConfig, e := store.PutJSON(v1.MediaTypeImageConfig, v1.Image{Platform: platform, Config: v1.ImageConfig{Entrypoint: []string{"runner"}, WorkingDir: "/app"}, RootFS: v1.RootFS{Type: "layers", DiffIDs: []digest.Digest{appDiff, launchDiff}}})
+	fixtureConfig, e := store.PutJSON(v1.MediaTypeImageConfig, v1.Image{Platform: platform, Config: v1.ImageConfig{Entrypoint: []string{artifact.RuntimeEntrypointPlaceholder}, Cmd: []string{"runner"}, WorkingDir: "/app"}, RootFS: v1.RootFS{Type: "layers", DiffIDs: []digest.Digest{appDiff, launchDiff}}})
 	check(e)
 	fixture, e := store.PutJSON(v1.MediaTypeImageManifest, v1.Manifest{Versioned: specs.Versioned{SchemaVersion: 2}, MediaType: v1.MediaTypeImageManifest, Config: fixtureConfig, Layers: []v1.Descriptor{appLayer, launchLayer}, Annotations: map[string]string{"brewlet.sh/artifact-version": "1"}})
 	check(e)

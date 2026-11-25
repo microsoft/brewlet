@@ -180,8 +180,8 @@ finally:
     server.server_close()
 EOF
 cat > "$WORK/launch.json" <<'EOF'
-{"schemaVersion": 1, "process": {"entrypoint": ["/usr/bin/python3"],
- "args": ["/app/server.py"], "workingDir": "/app"}}
+{"schemaVersion": 1, "process": {"args": ["/app/server.py"],
+ "workingDir": "/app"}}
 EOF
 
 brewlet build "$REGISTRY/brewlet/hello:v1" --platform "linux/$ARCH" \

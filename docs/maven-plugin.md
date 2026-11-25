@@ -49,7 +49,7 @@ not symlinks; duplicate dependency filenames and unresolved dependencies fail
 the build.
 
 Unless `launch` is supplied, the plugin generates a descriptor with `java`
-as the entrypoint and `/app` as the working directory. It uses `mainClass`
+as the `command` and `/app` as the working directory. It uses `mainClass`
 or, if omitted, the JAR's `Main-Class` manifest attribute. For a classpath
 application the arguments include `--class-path /app/app.jar:/app/lib/*`
 followed by the main class. With `module`, they instead include

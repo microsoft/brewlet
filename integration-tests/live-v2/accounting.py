@@ -339,7 +339,7 @@ def manifest(h, name):
             "volumes": [{"name": VOLUME, "emptyDir": {"sizeLimit": "96Mi"}}],
             "containers": [{
                 "name": CONTAINER, "image": image["image"], "imagePullPolicy": image["imagePullPolicy"],
-                "command": ["python3"], "args": ["-c", IDLE], "workingDir": "/app",
+                "args": ["python3", "-c", IDLE], "workingDir": "/app",
                 "env": [{"name": "PYTHONDONTWRITEBYTECODE", "value": "1"}],
                 "volumeMounts": [{"name": VOLUME, "mountPath": DATA}],
                 "securityContext": {"readOnlyRootFilesystem": True, "privileged": False,

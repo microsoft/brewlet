@@ -16,7 +16,7 @@ func fixtureApplication(t *testing.T, store Store) v1.Descriptor {
 	must(t, os.WriteFile(filepath.Join(app, "main"), []byte("application"), 0644))
 	cleanSource(t, app)
 	root, err := Build(context.Background(), store, BuildOptions{
-		Launch:    []byte(`{"schemaVersion":1,"process":{"entrypoint":["runner"]}}`),
+		Launch:    []byte(`{"schemaVersion":1,"process":{"command":["runner"]}}`),
 		Platforms: []v1.Platform{{OS: "linux", Architecture: "amd64"}},
 		Layers:    []LayerSpec{{Role: "app", Source: app, Destination: "app"}},
 	})

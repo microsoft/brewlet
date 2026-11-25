@@ -3,17 +3,13 @@
 This variant reuses the unchanged WAR from `../tomcat`. The application team
 supplies a WAR, not Catalina configuration or a launch descriptor. The platform
 packages that WAR and owns the golden image, launcher and runtime approval.
-No Brewlet changes or unreleased Brewlet
-artifacts are needed.
-
-**Moving `conf/` into the golden image is not sufficient by itself.** Released
-Brewlet takes the launch configuration from the application artifact and permits
-Kubernetes process overrides. This example demonstrates runtime-owned
-configuration, but cannot enforce use of its launcher with released Brewlet.
-
-The launch-ownership gap is tracked in
-[#422](https://github.com/microsoft/brewlet/issues/422). No additional Kubernetes
-admission-policy workaround is included.
+**Moving `conf/` into the golden image is not sufficient by itself.** Brewlet
+releases up to 0.11.1 took the launch command from the application artifact and
+permitted Kubernetes command overrides. With
+[#422](https://github.com/microsoft/brewlet/issues/422), Brewlet honors the
+runtime image `ENTRYPOINT` like a downstream Dockerfile does, so the golden
+image's launcher always runs first. No Kubernetes admission-policy workaround is
+needed.
 
 ## Runtime composition
 
@@ -43,29 +39,29 @@ flowchart TB
 | Embedded `META-INF/context.xml` | `deployXML=false` disables application-supplied Catalina context descriptors. `copyXML=false` prevents copying them into the configuration directory. |
 | Common/server/shared class loaders | Runtime-owned `catalina.properties`. The common loader reads only Tomcat's runtime libraries, not an application-side Catalina `lib/` directory. WAR libraries remain application-owned. |
 | Workload mounts | The RuntimeImage approves only `/tmp` outside `/app`. Native Brewlet mount validation protects runtime `conf/`, but application mounts beneath `/app` remain permitted. |
-| Launch | The sample packager supplies the platform launcher. Released Brewlet does not prevent a different artifact or Pod command from selecting another launcher. |
+| Launch | The golden image `ENTRYPOINT` is the platform launcher. Brewlet always runs it first; launch fields or Pod `command`/`args` define its command portion. |
 
 The platform launcher also rejects arguments and nonempty `JAVA_TOOL_OPTIONS`,
 `JDK_JAVA_OPTIONS`, `_JAVA_OPTIONS`, `JAVA_OPTS` and `CATALINA_OPTS`. The runtime
 image's Docker `ENTRYPOINT` is useful for Docker but is **not** the Brewlet
 enforcement mechanism.
 
-## Requested launcher semantics
+## Launcher semantics
 
-The feature request proposes renaming `launch.json.process.entrypoint` to
-`process.command` and resolving initial launch as follows:
+Brewlet composes the initial process like a Dockerfile built `FROM` the golden
+image: the runtime image `ENTRYPOINT` comes first, followed by the effective
+`CMD`.
 
-- A runtime image's nonempty `ENTRYPOINT` is always selected; the application
-  command is ignored, not appended to it.
-- Without a runtime `ENTRYPOINT`, use the application's command.
-- Keep application arguments as arguments to the selected launcher. A platform
-  launcher can accept, reject or ignore them.
-- Fail explicitly if neither source supplies an executable, and ensure Pod
-  command overrides cannot bypass a runtime-owned `ENTRYPOINT`.
-
-This is inspired by Dockerfile ENTRYPOINT/CMD separation, but does not append
-the application command to the runtime entrypoint. The current sample retains
-`process.entrypoint` because the released CLI does not implement this proposal.
+- The golden image sets `ENTRYPOINT ["/opt/brewlet/tomcat/bin/start-tomcat"]`
+  and an empty `CMD`.
+- `platform/launch.json` omits `process.command` and `process.args`, so the
+  application inherits the runtime `CMD` and the initial argv is exactly the
+  platform launcher.
+- Application fields or Pod `command`/`args` would follow the launcher. Pod
+  `command` replaces the application command and ignores launch args unless
+  Pod `args` is also set; Pod `args` replaces only application args. The
+  launcher rejects arguments with exit status 64, so they cannot select a
+  different JVM or configuration or replace the runtime-owned `ENTRYPOINT`.
 
 ## What was observed
 
@@ -93,12 +89,12 @@ the NodeProfile became Ready.
 | Put a deny-all Catalina valve in the WAR's `META-INF/context.xml` | The runtime-owned ROOT descriptor was used; the embedded valve was ignored and requests succeeded. |
 | Supply JVM options through the launcher environment or arguments | Launcher rejected the request with exit status 64. |
 | Package an application layer at `/opt/brewlet/tomcat/conf` | Released CLI rejected it with `LayerPathViolation: destination outside /app`. |
-| Use the original sample's direct-Java launch against this golden image | It successfully used `/app/tomcat/conf`. This demonstrated the missing runtime-entrypoint precedence. |
+| Use the original sample's direct-Java launch against this golden image | It successfully used `/app/tomcat/conf`. This demonstrated the missing runtime-entrypoint precedence, which Brewlet now honors: the same argv is appended to `start-tomcat` and rejected. |
 | Mount over runtime `conf/` | Denied by Brewlet admission with `RuntimeMountNotAllowed`. |
 
 ## Reproduce locally
 
-Use the released Brewlet 0.11.1 CLI on `PATH`, Docker/buildx and Maven. From the
+Use a Brewlet CLI and chart that include #422 (runtime `ENTRYPOINT` support) on `PATH`, Docker/buildx and Maven. From the
 repository root:
 
 ```sh
@@ -204,15 +200,14 @@ remain under the ignored `build/` directory.
 
 ## Limits
 
-This is runtime configuration separation with an unresolved launch-ownership
-gap, **not a sandbox for hostile Java code**. Application code still executes
+This is runtime configuration and launcher separation, **not a sandbox for
+hostile Java code**. Application code still executes
 inside Tomcat's JVM. App-level
 `WEB-INF/web.xml`, servlet behavior and bundled application libraries remain
 application-owned; platform `web.xml` supplies defaults, not a prohibition on
 standard webapp configuration.
 
 The experiment does not establish production hardening, arbitrary Tomcat/JDK
-compatibility, or amd64 behavior. Runtime configuration remains read-only, but
-released Brewlet cannot guarantee that an application uses the runtime's
-launcher. The feature request addresses that gap rather than adding an external
-admission policy to this example.
+compatibility, or amd64 behavior. The launcher is enforced because it is the
+runtime `ENTRYPOINT`; a different approved runtime image without it is a
+platform approval decision, not an application one.

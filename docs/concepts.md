@@ -16,7 +16,8 @@ process, heap, writable filesystem or resource limit.
 
 An ID is a compatibility promise, not a version solver. Neither the CLI nor
 the shim detects a language or infers an interpreter. A runtime image's
-entrypoint is not an alternative application descriptor.
+`ENTRYPOINT` and `CMD` compose with the application launch descriptor exactly
+as a base image's do with a downstream Dockerfile.
 
 ## From publication to a running process
 

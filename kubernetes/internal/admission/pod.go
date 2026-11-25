@@ -225,6 +225,9 @@ func (m *PodMutator) Mutate(ctx context.Context, p *corev1.Pod) ([]string, error
 		if err != nil || !selected {
 			return err
 		}
+		if len(c.Command) > 0 {
+			warnings = append(warnings, c.Name+": Pod command does not override the runtime ENTRYPOINT; it runs after the ENTRYPOINT when one is configured")
+		}
 		r := runtimes[id]
 		if err := policy.Source(c.Image); err != nil {
 			return fmt.Errorf("UnsupportedArtifact: %s: %w", c.Name, err)
@@ -316,7 +319,7 @@ func (m *PodMutator) Mutate(ctx context.Context, p *corev1.Pod) ([]string, error
 	for i := range p.Spec.EphemeralContainers {
 		e := &p.Spec.EphemeralContainers[i]
 		c := corev1.Container{Name: e.Name, Image: e.Image, Env: e.Env, SecurityContext: e.SecurityContext,
-			VolumeMounts: e.VolumeMounts, VolumeDevices: e.VolumeDevices, TerminationMessagePath: e.TerminationMessagePath}
+			Command: e.Command, Args: e.Args, VolumeMounts: e.VolumeMounts, VolumeDevices: e.VolumeDevices, TerminationMessagePath: e.TerminationMessagePath}
 		if err := mutate(&c); err != nil {
 			return nil, err
 		}

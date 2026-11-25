@@ -21,7 +21,7 @@ instrument an otherwise uninstrumented process.
 ## Java example
 
 Add the agent to the launch descriptor yourself. For example, a hand-written
-`launch.json` can set `process.entrypoint` to
+`launch.json` can set `process.command` to
 `["/usr/bin/java", "-javaagent:/app/agents/otel.jar", "-jar"]` and
 `process.args` to `["/app/app.jar"]`. Package a reviewed agent separately under
 `/app` (for example as its own `--layer ./agents:/app/agents`), or

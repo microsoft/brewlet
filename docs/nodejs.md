@@ -109,9 +109,6 @@ Save as `launch.json`:
 {
   "schemaVersion": 1,
   "process": {
-    "entrypoint": [
-      "/nodejs/bin/node"
-    ],
     "args": [
       "/app/src/main.mjs"
     ],
@@ -119,6 +116,11 @@ Save as `launch.json`:
   }
 }
 ```
+
+The distroless Node.js image's `ENTRYPOINT` is `/nodejs/bin/node`, so the
+descriptor omits `command` and supplies only the module as its `CMD`. For a
+runtime image without a Node.js `ENTRYPOINT`, add
+`"command": ["/nodejs/bin/node"]` (or that image's path).
 
 The import is explicit and relative, so `NODE_PATH` is not needed. Do not use
 `NODE_PATH` as a general ES-module resolution mechanism: a CommonJS project may

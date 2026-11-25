@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -44,7 +45,7 @@ func (i *fixtureInstaller) Stage(_ context.Context, r *api.RuntimeImage, base st
 	if err := os.WriteFile(filepath.Join(root, "etc/group"), []byte("app:x:1000:\n"), 0644); err != nil {
 		return "", node.Metadata{}, err
 	}
-	m := node.Metadata{ID: r.Name, InventoryUID: string(r.UID), Generation: r.Status.Generation, SourceDigest: r.Status.Digest, ManifestDigest: "sha256:" + strings.Repeat("b", 64), Platform: ocispec.Platform{OS: "linux", Architecture: runtime.GOARCH}, Env: []string{"PATH=/bin"}, UID: 1000, GID: 1000}
+	m := node.Metadata{ID: r.Name, InventoryUID: string(r.UID), Generation: r.Status.Generation, SourceDigest: r.Status.Digest, ManifestDigest: "sha256:" + strings.Repeat("b", 64), Platform: ocispec.Platform{OS: "linux", Architecture: runtime.GOARCH}, Env: []string{"PATH=/bin"}, Entrypoint: []string{"/opt/runtime/launch"}, Cmd: []string{"--default"}, ExecutionConfigKnown: true, UID: 1000, GID: 1000}
 	return stage, m, nil
 }
 func TestUnknownEagerDoesNotBlockApprovedEntriesFakeAPI(t *testing.T) {
@@ -106,6 +107,11 @@ func TestUnknownEagerDoesNotBlockApprovedEntriesFakeAPI(t *testing.T) {
 			}
 			if len(inventory) != 1 || inventory["static"].State != expected {
 				t.Fatal(fmt.Sprintf("%+v", inventory))
+			}
+			if install == "Eager" && (!inventory["static"].ExecutionConfigKnown ||
+				!slices.Equal(inventory["static"].Entrypoint, []string{"/opt/runtime/launch"}) ||
+				!slices.Equal(inventory["static"].Cmd, []string{"--default"})) {
+				t.Fatalf("runtime execution config not advertised: %+v", inventory["static"])
 			}
 		})
 	}

@@ -39,12 +39,72 @@ type Env struct {
 	Name  string `json:"name"`
 	Value string `json:"value"`
 }
+
+// Process is the application's downstream launch request. Like CMD in a
+// Dockerfile built FROM the runtime image, Command and Args are appended to the
+// runtime image ENTRYPOINT. Nil means the individual field is omitted; when
+// both fields are nil the runtime image CMD is inherited. A non-nil empty slice
+// explicitly declares an empty field and suppresses that fallback.
 type Process struct {
-	Entrypoint []string `json:"entrypoint"`
-	Args       []string `json:"args,omitempty"`
-	WorkingDir string   `json:"workingDir,omitempty"`
-	Env        []Env    `json:"env,omitempty"`
+	Command    *[]string `json:"command,omitempty"`
+	Args       *[]string `json:"args,omitempty"`
+	WorkingDir string    `json:"workingDir,omitempty"`
+	Env        []Env     `json:"env,omitempty"`
 }
+
+// RuntimeEntrypointPlaceholder is mirrored as the application image ENTRYPOINT.
+// Brewlet replaces it on the node with the approved runtime image ENTRYPOINT; it
+// is never executed.
+const RuntimeEntrypointPlaceholder = "/.brewlet/runtime-entrypoint"
+
+// CMD returns the application's downstream CMD (command followed by args) and
+// whether the descriptor declares one. Only when both fields are omitted does
+// the application inherit the runtime image CMD.
+func (p Process) CMD() ([]string, bool) {
+	if p.Command == nil && p.Args == nil {
+		return nil, false
+	}
+	var cmd []string
+	if p.Command != nil {
+		cmd = append(cmd, (*p.Command)...)
+	}
+	if p.Args != nil {
+		cmd = append(cmd, (*p.Args)...)
+	}
+	return cmd, true
+}
+
+// Argv composes the runtime ENTRYPOINT with the effective application command
+// and args. Pod command replaces both launch fields; Pod args replaces only
+// launch args. When neither Pod field overrides the launch descriptor, the
+// runtime CMD is inherited only if both launch fields are omitted.
+func (p Process) Argv(runtimeEntrypoint, runtimeCmd, podCommand, podArgs []string) ([]string, error) {
+	var cmd []string
+	switch {
+	case len(podCommand) > 0:
+		cmd = append(slices.Clone(podCommand), podArgs...)
+	case len(podArgs) > 0:
+		if p.Command != nil {
+			cmd = append(cmd, (*p.Command)...)
+		}
+		cmd = append(cmd, podArgs...)
+	case p.Command != nil || p.Args != nil:
+		cmd, _ = p.CMD()
+	default:
+		cmd = runtimeCmd
+	}
+	argv := append(slices.Clone(runtimeEntrypoint), cmd...)
+	if len(argv) == 0 || argv[0] == "" {
+		return nil, fail("LaunchCommandRequired", "runtime image ENTRYPOINT and the effective command and args are empty; set process.command or process.args in launch.json or an ENTRYPOINT/CMD in the runtime image")
+	}
+	for _, s := range argv {
+		if strings.ContainsRune(s, 0) {
+			return nil, fail("InvalidLaunchConfig", "NUL in argv")
+		}
+	}
+	return argv, nil
+}
+
 type Launch struct {
 	SchemaVersion int     `json:"schemaVersion"`
 	Process       Process `json:"process"`
@@ -124,6 +184,9 @@ func ParseLaunch(data []byte) (*Launch, error) {
 	}
 	var raw map[string]json.RawMessage
 	_ = json.Unmarshal(data, &raw)
+	if _, ok := raw["process"]; !ok {
+		return nil, fail("InvalidLaunchConfig", "process is required")
+	}
 	var process map[string]json.RawMessage
 	_ = json.Unmarshal(raw["process"], &process)
 	if wd, ok := process["workingDir"]; ok && string(wd) == `""` {
@@ -161,10 +224,14 @@ func ParseLaunch(data []byte) (*Launch, error) {
 			return nil, fail("InvalidLaunchConfig", "environment value is required")
 		}
 	}
-	if l.SchemaVersion != 1 || len(l.Process.Entrypoint) == 0 || l.Process.Entrypoint[0] == "" {
-		return nil, fail("InvalidLaunchConfig", "schemaVersion 1 and nonempty entrypoint required")
+	if l.SchemaVersion != 1 {
+		return nil, fail("InvalidLaunchConfig", "schemaVersion 1 required")
 	}
-	for _, s := range append(slices.Clone(l.Process.Entrypoint), l.Process.Args...) {
+	if l.Process.Command != nil && len(*l.Process.Command) > 0 && (*l.Process.Command)[0] == "" {
+		return nil, fail("InvalidLaunchConfig", "command executable must not be empty")
+	}
+	cmd, _ := l.Process.CMD()
+	for _, s := range cmd {
 		if strings.ContainsRune(s, 0) {
 			return nil, fail("InvalidLaunchConfig", "NUL in argv")
 		}
@@ -193,7 +260,8 @@ func (l *Launch) ImageConfig() v1.ImageConfig {
 	if wd == "" {
 		wd = "/app"
 	}
-	return v1.ImageConfig{Entrypoint: l.Process.Entrypoint, Cmd: l.Process.Args, WorkingDir: wd, Env: env, Labels: map[string]string{"sh.brewlet.app": "1"}}
+	cmd, _ := l.Process.CMD()
+	return v1.ImageConfig{Entrypoint: []string{RuntimeEntrypointPlaceholder}, Cmd: cmd, WorkingDir: wd, Env: env, Labels: map[string]string{"sh.brewlet.app": "1"}}
 }
 func ValidateMirror(l *Launch, image v1.Image) error {
 	want, got := l.ImageConfig(), image.Config

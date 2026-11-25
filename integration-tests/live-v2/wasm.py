@@ -137,7 +137,7 @@ class WasmHarness(Harness):
                   all(self.advertised(rid, "ready") for rid in IDS.values()))
         self.record("approved numeric Wasm runtime inventory on an Eager owned pool", {}, ["WASM-01", "WASM-02"])
 
-    def pod(self, name, engine, *, args=None, image=None, selected=None, once=False):
+    def pod(self, name, engine, *, command=None, args=None, image=None, selected=None, once=False):
         container = {"name": "app", "image": image or self.app_images[engine], "imagePullPolicy": "Never",
                      "env": [{"name": "HOST_ONLY", "value": "must-not-reach-guest"},
                              {"name": "PATH", "value": "/app/forbidden"}],
@@ -146,6 +146,8 @@ class WasmHarness(Harness):
                                       {"name": "cache", "mountPath": "/cache"}],
                      "resources": {"requests": {"cpu": "10m", "memory": "32Mi"},
                                    "limits": {"cpu": "1", "memory": "512Mi"}}}
+        if command is not None:
+            container["command"] = command
         if args is not None:
             container["args"] = args
         if not once:
@@ -162,7 +164,7 @@ class WasmHarness(Harness):
 
     def probe(self, *args):
         launch = json.loads((EXAMPLE / "wasmtime-launch.json").read_text())["process"]
-        return launch["entrypoint"] + launch["args"][:-2] + list(args or ("probe", "two words"))
+        return launch["command"] + launch["args"][:-2] + list(args or ("probe", "two words"))
 
 
 def guest(report, dependency="shared-wasm-dependency"):
@@ -284,8 +286,10 @@ def exercise(h):
                  {"lease": lease, "report": report}, ["WASM-01" if engine == "wasmtime" else "WASM-02"])
     for mode, code in (("probe", 0), ("exit37", 37)):
         name = "wasmtime-" + mode
-        launch = json.loads((EXAMPLE / "wasmtime-launch.json").read_text())["process"]["args"][:-2]
-        h.apply(h.pod(name, "wasmtime", args=launch + [mode], once=True))
+        process = json.loads((EXAMPLE / "wasmtime-launch.json").read_text())["process"]
+        # Pod command replaces launch command, and Pod args replace launch args.
+        h.apply(h.pod(name, "wasmtime", command=process["command"],
+                      args=process["args"][:-2] + [mode], once=True))
         def terminated():
             obj = h.get("pod", name, h.namespace)
             for status in obj.get("status", {}).get("containerStatuses", []):

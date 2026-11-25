@@ -245,6 +245,14 @@ def artifact_target(layout):
     return descriptor["digest"], roles
 
 
+def runtime_cmd_variant_descriptor(launch_file):
+    descriptor = json.loads(launch_file.read_text())
+    process = descriptor["process"]
+    process.pop("command", None)
+    process.pop("args", None)
+    return descriptor
+
+
 class Harness:
     def __init__(self, work, *, timeout=600, pinned=True, scenario="complete",
                  retain_on_failure=False, local_language=None):
@@ -295,6 +303,8 @@ class Harness:
         self.registry_id = None
         self.images = {}
         self.app_images = {}
+        self.app_variants = {}
+        self.app_variant_layouts = {}
         self.runtime_images = {}
         self.runtime_paths = {}
         self.initial = {}
@@ -729,12 +739,37 @@ class Harness:
             self.app_images[language] = canonical
             self.record(language + " explicit application artifact with libraries imported",
                         {"image": canonical, "roles": roles}, ["ART-01", "LANG-01"])
+        if "python" in self.languages:
+            variant = "python-runtime-cmd"
+            launch = self.work / (variant + "-launch.json")
+            launch.write_text(json.dumps(runtime_cmd_variant_descriptor(self.launch_file("python"))))
+            tag = f"registry.brewlet.test/{self.run_id}/apps/{variant}:v2"
+            layout = self.work / ("oci-" + variant)
+            command = [*self.cli_command, "build", tag, "--store", layout,
+                       "--platform", "linux/amd64", "--platform", "linux/arm64",
+                       "--launch", launch]
+            for _, source, target in layers["python"]:
+                command += ["--layer", f"{source}:{target}"]
+            self.run(command, timeout=180)
+            digest, roles = artifact_target(layout)
+            self.import_layout(layout)
+            require(self.image_digest(tag) == digest,
+                    "runtime-CMD application import differs from its OCI target")
+            canonical = tag.rsplit(":", 1)[0] + "@" + digest
+            self.ctr("images", "tag", "--force", tag, canonical)
+            require(self.image_digest(canonical) == digest,
+                    "canonical runtime-CMD application import mismatch")
+            self.app_variants[variant] = canonical
+            self.app_variant_layouts[variant] = layout
+            self.record("Python artifact with omitted launch command and args",
+                        {"image": canonical, "roles": roles}, ["PROC-01"])
         self.prepare_components()
         self.runtime_vendor_inputs = rotation_inputs(json.loads(
             (FIXTURES / "runtimes/rotation.json").read_text()))
         self.result["runtimeVendorInputs"] = self.runtime_vendor_inputs
         self.build_runtime_images()
         self.result["applicationImages"] = self.app_images
+        self.result["applicationVariants"] = self.app_variants
         self.result["runtimeImages"] = self.runtime_images
         self.save()
 
@@ -785,11 +820,26 @@ class Harness:
                 directory = self.work / (language + "-" + revision)
                 directory.mkdir()
                 dockerfile = directory / "Dockerfile"
+                runtime_config = ""
+                if language == "python":
+                    (directory / "runtime-entrypoint.py").write_text(
+                        "import json, os, sys\n"
+                        "argv = sys.argv[1:]\n"
+                        "print('brewlet-runtime-entrypoint argv=' + "
+                        "json.dumps(argv, separators=(',', ':')), flush=True)\n"
+                        "if not argv:\n"
+                        "    raise SystemExit('runtime ENTRYPOINT received no command')\n"
+                        "os.execvp(argv[0], argv)\n")
+                    runtime_config = (
+                        "COPY runtime-entrypoint.py /opt/brewlet-runtime-entrypoint.py\n"
+                        'ENTRYPOINT ["python3", "/opt/brewlet-runtime-entrypoint.py"]\n'
+                        'CMD ["python3", "/app/src/main.py", "runtime-cmd-marker"]\n')
+                else:
+                    runtime_config = 'CMD ["overridden-runtime-argument"]\n'
                 dockerfile.write_text(f"FROM {base}\nENV BREWLET_RUNTIME_REVISION={revision} "
                                       "BREWLET_TEST_VALUE=runtime-default\n"
-                                      'ENTRYPOINT ["/ignored-runtime-entrypoint"]\n'
-                                      'CMD ["ignored-runtime-argument"]\n'
-                                      "WORKDIR /ignored-runtime-workdir\n"
+                                      + runtime_config
+                                      + "WORKDIR /ignored-runtime-workdir\n"
                                       "USER 0:0\n"
                                       "EXPOSE 65432\n"
                                       'VOLUME ["/ignored-runtime-volume"]\n'
@@ -1015,9 +1065,16 @@ class Harness:
 
     def probe(self, language):
         process = self.launch(language)
-        return process["entrypoint"] + process.get("args", []) + ["--probe", "two words"]
+        return self.executable(language) + process.get("args", []) + ["--probe", "two words"]
 
-    def pod(self, name, language, *, barrier=None, overrides=False, bound=False):
+    def executable(self, language):
+        # Exec probes bypass the runtime ENTRYPOINT, so they need an explicit executable
+        # even when the launch descriptor inherits it from the runtime image.
+        process = self.launch(language)
+        return process.get("command") or getattr(self, "probe_executables", {})[language]
+
+    def pod(self, name, language, *, barrier=None, overrides=False, bound=False,
+            image=None, command=None, args=None):
         annotations = {"runtime-image.brewlet.sh/app": IDS[language]}
         if barrier is not None:
             annotations["runtime-generation.brewlet.sh/" + IDS[language]] = (
@@ -1035,8 +1092,14 @@ class Harness:
                                    "limits": {"cpu": "500m", "memory": "256Mi"}}}
         if overrides:
             launch = self.launch(language)
-            container.update(command=launch["entrypoint"], args=launch.get("args", []) + ["two words"],
-                             workingDir="/home/app")
+            # Pod args replace descriptor args; the descriptor command remains.
+            container.update(args=launch.get("args", []) + ["two words"], workingDir="/home/app")
+        if image is not None:
+            container["image"] = image
+        if command is not None:
+            container["command"] = command
+        if args is not None:
+            container["args"] = args
         spec = {"runtimeClassName": "brewlet", "restartPolicy": "Always",
                 "nodeSelector": {"kubernetes.io/arch": getattr(self, "arch", "arm64")},
                 "securityContext": {"fsGroup": 65532}, "containers": [container],
@@ -1058,9 +1121,14 @@ class Harness:
             previous = container.get("lastState", {})
             if "terminated" in previous and application_started({"state": previous}):
                 stopped = previous["terminated"]
+                logs = self.kubectl("-n", self.namespace, "logs", name, "-c",
+                                    container.get("name", "app"), "--previous", "--tail=80",
+                                    check=False)
+                log_output = (logs.stdout + logs.stderr).strip()[-4000:]
                 raise Failure(f'positive application {name} actually exited before readiness: '
                               f'{container.get("name", "")}: {stopped.get("reason", "")} '
-                              f'exit={stopped.get("exitCode")} {stopped.get("message", "")}')
+                              f'exit={stopped.get("exitCode")} {stopped.get("message", "")}'
+                              + (f'\nprevious container logs:\n{log_output}' if log_output else ""))
         if status.get("phase") in ("Failed", "Succeeded"):
             details = [status.get("message", "")]
             for container in status.get("containerStatuses", []):
@@ -1137,6 +1205,13 @@ class Harness:
         return json.loads(self.node_exec("curl", "--fail", "--silent", "--show-error",
                                         "--noproxy", "*", "--max-time", "10", f"http://{host}:8000/").stdout)
 
+    def assert_runtime_entrypoint(self, name, argv):
+        output = self.kubectl("-n", self.namespace, "logs", name, "-c", "app").stdout
+        prefix = "brewlet-runtime-entrypoint argv="
+        observed = [json.loads(line[len(prefix):]) for line in output.splitlines()
+                    if line.startswith(prefix)]
+        require(observed == [argv], "runtime ENTRYPOINT did not receive the expected argv: " + repr(observed))
+
     def assert_report(self, report, language, *, arguments, cwd, uid=65532, home="/home/app"):
         require(report["language"] == language and bool(report["runtime"])
                 and report["dependency"] == "shared-contract", "runtime or separate dependency not executing")
@@ -1180,6 +1255,8 @@ class Harness:
             require(obj.get("spec", {}).get("overhead") == {"cpu": "50m", "memory": "64Mi"},
                     "shared RuntimeClass shim/staging reservation missing from admitted application Pod")
             self.assert_report(self.http(name), language, arguments=[], cwd="/app")
+            if language == "python":
+                self.assert_runtime_entrypoint(name, ["python3", "/app/src/main.py"])
             self.assert_report(json.loads(self.exec(name, self.probe(language)).stdout), language,
                                arguments=["--probe", "two words"], cwd="/app")
             # The mountpoint deliberately does not exist in the packaged layers.
@@ -1222,8 +1299,80 @@ class Harness:
             self.apply(self.pod(override, language, overrides=True))
             self.wait(language + " explicit command/args/workingDir overrides", lambda: self.ready(override))
             self.assert_report(self.http(override), language, arguments=["two words"], cwd="/home/app")
+            if language == "python":
+                self.assert_runtime_entrypoint(override, ["python3", "/app/src/main.py", "two words"])
             self.record(language + " Kubernetes command/args/cwd overrides",
                         {"pod": override}, ["LANG-02", "PROC-01"])
+            if language == "python":
+                command_only = "python-command-only"
+                self.apply(self.pod(
+                    command_only, language,
+                    command=["/usr/local/bin/python3", "/app/src/main.py", "pod-command-marker"]))
+                self.wait("Python Pod command replaces launch command and args",
+                          lambda: self.ready(command_only))
+                self.assert_report(self.http(command_only), language,
+                                   arguments=["pod-command-marker"], cwd="/app")
+                self.assert_runtime_entrypoint(
+                    command_only, ["/usr/local/bin/python3", "/app/src/main.py", "pod-command-marker"])
+
+                command_and_args = "python-command-and-args"
+                self.apply(self.pod(
+                    command_and_args, language,
+                    command=["/usr/local/bin/python3", "/app/src/main.py"],
+                    args=["pod-command-and-args-marker"]))
+                self.wait("Python Pod command and args replace launch fields",
+                          lambda: self.ready(command_and_args))
+                self.assert_report(self.http(command_and_args), language,
+                                   arguments=["pod-command-and-args-marker"], cwd="/app")
+                self.assert_runtime_entrypoint(
+                    command_and_args, ["/usr/local/bin/python3", "/app/src/main.py",
+                                       "pod-command-and-args-marker"])
+
+                variant = self.app_variants["python-runtime-cmd"]
+                runtime_cmd = "python-runtime-cmd"
+                self.apply(self.pod(runtime_cmd, language, image=variant))
+                self.wait("Python omitted launch fields inherit runtime CMD",
+                          lambda: self.ready(runtime_cmd))
+                self.assert_report(self.http(runtime_cmd), language,
+                                   arguments=["runtime-cmd-marker"], cwd="/app")
+                self.assert_runtime_entrypoint(
+                    runtime_cmd, ["python3", "/app/src/main.py", "runtime-cmd-marker"])
+
+                runtime_args = "python-runtime-cmd-args"
+                self.apply(self.pod(
+                    runtime_args, language, image=variant,
+                    args=["python3", "/app/src/main.py", "pod-args-marker"]))
+                self.wait("Python Pod args replace runtime CMD",
+                          lambda: self.ready(runtime_args))
+                self.assert_report(self.http(runtime_args), language,
+                                   arguments=["pod-args-marker"], cwd="/app")
+                self.assert_runtime_entrypoint(
+                    runtime_args, ["python3", "/app/src/main.py", "pod-args-marker"])
+
+                runtime_command = "python-runtime-cmd-command"
+                self.apply(self.pod(
+                    runtime_command, language, image=variant,
+                    command=["/usr/local/bin/python3", "/app/src/main.py", "pod-command-marker"]))
+                self.wait("Python Pod command replaces runtime CMD",
+                          lambda: self.ready(runtime_command))
+                self.assert_report(self.http(runtime_command), language,
+                                   arguments=["pod-command-marker"], cwd="/app")
+                self.assert_runtime_entrypoint(
+                    runtime_command, ["/usr/local/bin/python3", "/app/src/main.py",
+                                      "pod-command-marker"])
+                self.record(
+                    "Python runtime ENTRYPOINT, runtime CMD inheritance and Pod overrides",
+                    {"launchCommand": ["python3", "/app/src/main.py"],
+                     "podCommandOnly": ["/usr/local/bin/python3", "/app/src/main.py",
+                                       "pod-command-marker"],
+                     "podCommandAndArgs": ["/usr/local/bin/python3", "/app/src/main.py",
+                                           "pod-command-and-args-marker"],
+                     "runtimeCMD": ["python3", "/app/src/main.py", "runtime-cmd-marker"],
+                     "podArgsReplaceRuntimeCMD": ["python3", "/app/src/main.py", "pod-args-marker"],
+                     "podCommandReplaceRuntimeCMD": ["/usr/local/bin/python3", "/app/src/main.py",
+                                                     "pod-command-marker"],
+                     "applicationVariant": variant},
+                    ["PROC-01"])
             custom = language + "-custom-user"
             custom_pod = self.pod(custom, language)
             custom_pod["spec"]["containers"][0]["securityContext"]["runAsUser"] = 12345

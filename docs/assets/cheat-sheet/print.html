@@ -128,7 +128,7 @@ kubectl wait --for=condition=Ready \
         <div class="column-heading"><span class="number">02</span><div><h2 id="application">Build + deploy</h2><p>Application team | ordinary Kubernetes</p></div></div>
         <h3>Describe the process: launch.json</h3>
         <pre>{"schemaVersion":1,"process":{
-  "entrypoint":["python3"],
+  "command":["python3"],
   "args":["/app/src/main.py"],
   "workingDir":"/app"
 }}</pre>

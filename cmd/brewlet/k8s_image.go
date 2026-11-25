@@ -292,12 +292,6 @@ func k8sGoldenConfig(cfg *v1.Image) (pathValue string, warnings, errs []string) 
 		warnings = append(warnings, "no PATH in image config: only absolute executables can run (RuntimePATHRequired)")
 	}
 	var ignored []string
-	if len(cfg.Config.Entrypoint) > 0 {
-		ignored = append(ignored, "Entrypoint")
-	}
-	if len(cfg.Config.Cmd) > 0 {
-		ignored = append(ignored, "Cmd")
-	}
 	if cfg.Config.WorkingDir != "" {
 		ignored = append(ignored, "WorkingDir")
 	}
@@ -308,7 +302,7 @@ func k8sGoldenConfig(cfg *v1.Image) (pathValue string, warnings, errs []string) 
 		ignored = append(ignored, "Volumes")
 	}
 	if len(ignored) > 0 {
-		warnings = append(warnings, "config "+strings.Join(ignored, ", ")+" ignored: only Env is used (the application artifact and pod own the rest)")
+		warnings = append(warnings, "config "+strings.Join(ignored, ", ")+" ignored: only Env, Entrypoint, and Cmd are used (the application artifact and pod own the rest)")
 	}
 	return pathValue, warnings, errs
 }

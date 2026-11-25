@@ -65,8 +65,7 @@ def runtime_layout(layout, name, arch, revision, binary, base_layout, base):
     data, diff = delivery.tar_layer(entries)
     layer = delivery.blob(layout, data, delivery.LAYER)
     config = delivery.json_blob(layout, {"architecture": arch, "os": "linux",
-        "config": {"Env": ["WASM_RUNTIME_REVISION=" + revision], "User": "0:0",
-                   "Entrypoint": ["/ignored-runtime-entrypoint"]},
+        "config": {"Env": ["WASM_RUNTIME_REVISION=" + revision], "User": "0:0"},
         "rootfs": {"type": "layers", "diff_ids": base["config"]["rootfs"]["diff_ids"] + [diff]}}, delivery.CONFIG)
     target = delivery.json_blob(layout, {"schemaVersion": 2, "mediaType": delivery.MANIFEST,
         "config": config, "layers": manifest["layers"] + [layer]}, delivery.MANIFEST)

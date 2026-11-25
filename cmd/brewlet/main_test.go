@@ -18,7 +18,7 @@ func TestExplicitProducerInputs(t *testing.T) {
 	}
 	defer os.RemoveAll(dir)
 	launch := filepath.Join(dir, "launch.json")
-	if e = os.WriteFile(launch, []byte(`{"schemaVersion":1,"process":{"entrypoint":["runner"]}}`), 0644); e != nil {
+	if e = os.WriteFile(launch, []byte(`{"schemaVersion":1,"process":{"command":["runner"]}}`), 0644); e != nil {
 		t.Fatal(e)
 	}
 	for _, tc := range []struct {
@@ -75,7 +75,7 @@ func TestBuildDefaultsToPerReferenceLayoutAndPushFindsIt(t *testing.T) {
 	if e := os.WriteFile("src/main.sh", []byte("echo hi\n"), 0644); e != nil {
 		t.Fatal(e)
 	}
-	if e := os.WriteFile("launch.json", []byte(`{"schemaVersion":1,"process":{"entrypoint":["/bin/sh","/app/main.sh"]}}`), 0644); e != nil {
+	if e := os.WriteFile("launch.json", []byte(`{"schemaVersion":1,"process":{"command":["/bin/sh","/app/main.sh"]}}`), 0644); e != nil {
 		t.Fatal(e)
 	}
 	var out, errOut, jsonOut strings.Builder
