@@ -1,0 +1,18 @@
+ARG TOMCAT_IMAGE=docker.io/library/tomcat@sha256:94e91501407ed6da44f0fce35e20808922fdab488d9a1643994bdcdd4335d1cc
+FROM ${TOMCAT_IMAGE}
+USER 0:0
+COPY platform/conf/ /opt/brewlet/tomcat/conf/
+COPY --chmod=0555 platform/start-tomcat.sh /opt/brewlet/tomcat/bin/start-tomcat
+RUN mkdir -p /opt/brewlet/tomcat/webapps \
+    && find /opt/brewlet/tomcat -type d -exec chmod 0555 {} + \
+    && find /opt/brewlet/tomcat/conf -type f -exec chmod 0444 {} + \
+    && find / -xdev -type f -perm /6000 -exec chmod a-s {} + \
+    && if command -v getcap >/dev/null 2>&1; then \
+         getcap -r / > /tmp/brewlet-capabilities; \
+         while read -r file capabilities; do setcap -r "$file"; done < /tmp/brewlet-capabilities; \
+         rm /tmp/brewlet-capabilities; \
+       fi
+ENV CATALINA_BASE=/opt/brewlet/tomcat
+USER 65532:65532
+ENTRYPOINT ["/opt/brewlet/tomcat/bin/start-tomcat"]
+CMD []

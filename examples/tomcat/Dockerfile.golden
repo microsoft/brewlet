@@ -1,0 +1,12 @@
+ARG TOMCAT_IMAGE
+FROM ${TOMCAT_IMAGE} AS upstream
+
+FROM upstream AS golden
+USER 0:0
+RUN find / -xdev -type f -perm /6000 -exec chmod a-s {} + \
+    && if command -v getcap >/dev/null 2>&1; then \
+         getcap -r / > /tmp/brewlet-capabilities; \
+         while read -r file capabilities; do setcap -r "$file"; done < /tmp/brewlet-capabilities; \
+         rm /tmp/brewlet-capabilities; \
+       fi
+USER 65532:65532

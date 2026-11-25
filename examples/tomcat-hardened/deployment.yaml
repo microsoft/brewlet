@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tomcat-hardened-war
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tomcat-hardened-war
+  template:
+    metadata:
+      labels:
+        app: tomcat-hardened-war
+      annotations:
+        runtime-image.brewlet.sh/app: tomcat-hardened
+    spec:
+      runtimeClassName: brewlet
+      securityContext:
+        fsGroup: 65532
+      containers:
+        - name: app
+          image: APP_IMAGE
+          securityContext:
+            readOnlyRootFilesystem: true
+          ports:
+            - containerPort: 8080
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /runtime
+              port: 8080
+          volumeMounts:
+            - name: scratch
+              mountPath: /tmp
+      volumes:
+        - name: scratch
+          emptyDir:
+            sizeLimit: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tomcat-hardened-war
+spec:
+  selector:
+    app: tomcat-hardened-war
+  ports:
+    - port: 8080
+      targetPort: 8080

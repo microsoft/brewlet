@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "process": {
+    "entrypoint": ["/opt/java/openjdk/bin/java"],
+    "args": [
+      "-Dcatalina.home=/usr/local/tomcat",
+      "-Dcatalina.base=/app/tomcat",
+      "-Djava.io.tmpdir=/tmp",
+      "-Djava.util.logging.config.file=/app/tomcat/conf/logging.properties",
+      "-Djava.util.logging.manager=org.apache.juli.ClassLoaderLogManager",
+      "--add-opens=java.base/java.lang=ALL-UNNAMED",
+      "--add-opens=java.base/java.io=ALL-UNNAMED",
+      "--add-opens=java.base/java.util=ALL-UNNAMED",
+      "--add-opens=java.base/java.util.concurrent=ALL-UNNAMED",
+      "--add-opens=java.rmi/sun.rmi.transport=ALL-UNNAMED",
+      "--enable-native-access=ALL-UNNAMED",
+      "-classpath",
+      "/usr/local/tomcat/bin/bootstrap.jar:/usr/local/tomcat/bin/tomcat-juli.jar",
+      "org.apache.catalina.startup.Bootstrap",
+      "start"
+    ],
+    "workingDir": "/app"
+  }
+}

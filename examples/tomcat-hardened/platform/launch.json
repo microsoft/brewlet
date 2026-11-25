@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "process": {
+    "entrypoint": ["/opt/brewlet/tomcat/bin/start-tomcat"],
+    "workingDir": "/app"
+  }
+}

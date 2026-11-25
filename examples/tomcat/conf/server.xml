@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Server port="-1">
+  <Service name="Catalina">
+    <Connector port="8080" protocol="HTTP/1.1" />
+    <Engine name="Catalina" defaultHost="localhost">
+      <Host name="localhost" appBase="/app/webapps"
+            unpackWARs="false" autoDeploy="false" workDir="/tmp/tomcat-work" />
+    </Engine>
+  </Service>
+</Server>
