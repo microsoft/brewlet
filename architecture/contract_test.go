@@ -20,9 +20,6 @@ import (
 
 func TestCoreHasNoLanguageProducerOrLaunchVocabulary(t *testing.T) {
 	root := ".."
-	forbiddenNames := map[string]bool{
-		"MainJar": true, "JavaHome": true, "JDKFeature": true,
-	}
 	forbiddenEnv := map[string]bool{
 		"JAVA_HOME": true, "JAVA_TOOL_OPTIONS": true, "JDK_JAVA_OPTIONS": true,
 		"PYTHONPATH": true, "NODE_OPTIONS": true, "DOTNET_ROOT": true,
@@ -55,25 +52,19 @@ func TestCoreHasNoLanguageProducerOrLaunchVocabulary(t *testing.T) {
 				}
 			}
 			ast.Inspect(file, func(node ast.Node) bool {
-				switch value := node.(type) {
-				case *ast.Ident:
-					if forbiddenNames[value.Name] {
-						t.Errorf("%s restores language-specific symbol %s", path, value.Name)
-					}
-				case *ast.BasicLit:
-					if value.Kind != token.STRING {
-						break
-					}
-					text, err := strconv.Unquote(value.Value)
-					if err != nil {
-						t.Error(err)
-						break
-					}
-					if forbiddenEnv[text] || strings.HasPrefix(text, "-XX:") ||
-						strings.HasPrefix(text, "-Xmx") || strings.HasPrefix(text, "-Xms") ||
-						text == "--add-opens" || text == "--enable-preview" {
-						t.Errorf("%s contains language-specific launch rewriting vocabulary %q", path, text)
-					}
+				value, ok := node.(*ast.BasicLit)
+				if !ok || value.Kind != token.STRING {
+					return true
+				}
+				text, err := strconv.Unquote(value.Value)
+				if err != nil {
+					t.Error(err)
+					return true
+				}
+				if forbiddenEnv[text] || strings.HasPrefix(text, "-XX:") ||
+					strings.HasPrefix(text, "-Xmx") || strings.HasPrefix(text, "-Xms") ||
+					text == "--add-opens" || text == "--enable-preview" {
+					t.Errorf("%s contains language-specific launch rewriting vocabulary %q", path, text)
 				}
 				return true
 			})

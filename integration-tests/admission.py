@@ -167,9 +167,6 @@ def main():
            lambda item: item["metadata"]["annotations"].update({selection: "python:3.12"}))
     denied("unknown ID", "UnknownRuntimeImage",
            lambda item: item["metadata"]["annotations"].update({selection: "unknown-runtime"}))
-    for annotation in ("brewlet.sh/jdk", "brewlet.sh/jvm-args", "brewlet.sh/arch"):
-        denied("old annotation", "UnsupportedAnnotation",
-               lambda item, annotation=annotation: item["metadata"]["annotations"].update({annotation: "forbidden"}))
     for field, value in (("runAsUser", 0), ("runAsGroup", 0), ("runAsNonRoot", False)):
         denied(field, "RootNotSupported",
                lambda item, field=field, value=value: item["spec"]["containers"][0].update(

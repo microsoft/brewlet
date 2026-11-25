@@ -462,11 +462,6 @@ func (s *service) assemble(ctx context.Context, r *taskapi.CreateTaskRequest, sp
 	if err := validateHostMounts(spec.Mounts); err != nil {
 		return err
 	}
-	for _, key := range []string{"brewlet.sh/jdk", "brewlet.sh/jvm-args", "brewlet.sh/arch"} {
-		if _, ok := spec.Annotations[key]; ok {
-			return &node.Error{Reason: "UnsupportedAnnotation", Detail: key}
-		}
-	}
 	resolved, podCommand, podArgs, err := s.resolve(ctx, r.ID, spec.Annotations)
 	if err != nil {
 		return err

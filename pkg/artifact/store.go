@@ -231,9 +231,6 @@ func Resolve(ctx context.Context, open BlobOpener, target v1.Descriptor, platfor
 	if m.SchemaVersion != 2 || m.MediaType != v1.MediaTypeImageManifest || m.Annotations["brewlet.sh/artifact-version"] != "1" || m.Config.MediaType != v1.MediaTypeImageConfig || len(m.Layers) < 2 {
 		return nil, fail("UnsupportedArtifact", "not a version 1 application artifact")
 	}
-	if _, old := m.Annotations["brewlet.sh/jvm-config"]; old {
-		return nil, fail("UnsupportedArtifact", "legacy launch annotation")
-	}
 	b, e = readVerified(open, m.Config)
 	if e != nil {
 		return nil, e

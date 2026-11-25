@@ -1150,10 +1150,6 @@ For every `runtimeClassName: brewlet` pod on CREATE, `brewlet-admission`:
   constraints (layer rules and platforms) are enforced by
   the shim and by kubelet's pull, so fail-open admission never weakens them.
 
-The `brewlet.sh/jdk`, `brewlet.sh/jvm-args`, and `brewlet.sh/arch` annotations
-are unsupported on 1.0.0 pods and MUST be rejected (`UnsupportedAnnotation`) so
-a stale manifest fails loudly instead of silently losing its intent.
-
 *Non-normative:* `brewlet-admission` does not restrict which namespaces may
 use an approved ID. Platforms that need this (licensing, compliance tiers,
 pilots) can add a standard admission policy; see the recipe in
@@ -1245,16 +1241,17 @@ not just the failed ID, and also affects ordinary pods without a matching
 toleration. It does not evict running containers or discard leases.
 Rotation status and events MUST report this broader impact (§7.6). Recovery
 MUST revalidate ownership, authorizations, required roots, and every retained
-capability against the current profile before releasing the fence. A pinned
-label for an ID no longer offered, an invalid state/value, or an unsupported
-OnDemand pin leaves the node fenced with `node-advertisement-failed` until the
-platform owner corrects the pool configuration. Completing cleanup or uninstall
-does not authorize removing this fence while stale pinned labels remain;
-provider pool labels and initialization settings require explicit cleanup.
+runtime capability against the current profile before releasing the fence. A
+pinned label for an ID no longer offered, an invalid state/value, or an
+unsupported OnDemand pin leaves the node fenced with `node-advertisement-failed`
+until the platform owner corrects the pool configuration. Completing cleanup or
+uninstall does not authorize removing this fence while stale pinned labels
+remain; provider pool labels and initialization settings require explicit
+cleanup.
 
 ### 9.3 Architecture-aware placement
 
-Removing `brewlet.sh/arch` does not make OCI platform validation a scheduler.
+OCI platform validation does not select a node architecture.
 For native application content, workload authors MUST supply standard
 `kubernetes.io/arch` node selection consistent with the explicitly published
 platforms (§6.1, §11.1), for example:
@@ -1469,7 +1466,7 @@ remains an explicit decision in the reviewed manifest.
   `UnknownRuntimeImage`, `NoCompatibleRuntime`, `RuntimeImageNotInstalled`,
   `RuntimeImageInstalling`, `RuntimeImageInstallFailed`,
   `UnsupportedArtifact`, `LaunchConfigMismatch`, `LaunchCommandRequired`,
-  `LayerPathViolation`, `UnsupportedAnnotation`, `RootNotSupported`,
+  `LayerPathViolation`, `RootNotSupported`,
   `RuntimeImageUpdating`, `InvalidRuntimeGeneration`, `RuntimeImageEpochMismatch`,
   `RuntimeImageRevoked`, `RuntimeImageAuthorizationExpired`,
   `PrivilegeEscalationNotSupported`, `ExecStateUnavailable`,
