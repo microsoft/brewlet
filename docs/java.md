@@ -622,11 +622,11 @@ same option here and in the descriptor: for example, the descriptor's
 `-XX:MaxRAMPercentage=75` can override the `70` shown above. Remove it from
 the descriptor if the Deployment should control that setting.
 
-Do not replace the descriptor arguments with Kubernetes `args` just to add an
-option. Kubernetes `args` **replaces** the descriptor's whole `command` and
-`args`; it does not append to them. If you override `args`, repeat the full
-command, including the Java executable and `-jar /app/app.jar`. Kubernetes
-`command` is ignored.
+Do not replace the descriptor arguments with Kubernetes `command` or `args`
+just to add an option. Pod `command` and `args` together **replace** the
+descriptor's whole `command` and `args`; they do not append to them. If you
+override them, repeat the full command, including the Java executable and
+`-jar /app/app.jar`.
 
 ### Profiles, properties and environment variables
 

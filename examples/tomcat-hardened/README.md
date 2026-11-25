@@ -39,7 +39,7 @@ flowchart TB
 | Embedded `META-INF/context.xml` | `deployXML=false` disables application-supplied Catalina context descriptors. `copyXML=false` prevents copying them into the configuration directory. |
 | Common/server/shared class loaders | Runtime-owned `catalina.properties`. The common loader reads only Tomcat's runtime libraries, not an application-side Catalina `lib/` directory. WAR libraries remain application-owned. |
 | Workload mounts | The RuntimeImage approves only `/tmp` outside `/app`. Native Brewlet mount validation protects runtime `conf/`, but application mounts beneath `/app` remain permitted. |
-| Launch | The golden image `ENTRYPOINT` is the platform launcher. Brewlet always runs it first; application or Pod arguments become its `CMD`, and Pod `command` is ignored. |
+| Launch | The golden image `ENTRYPOINT` is the platform launcher. Brewlet always runs it first; application or Pod `command`/`args` become its `CMD`. |
 
 The platform launcher also rejects arguments and nonempty `JAVA_TOOL_OPTIONS`,
 `JDK_JAVA_OPTIONS`, `_JAVA_OPTIONS`, `JAVA_OPTS` and `CATALINA_OPTS`. The runtime
@@ -57,10 +57,9 @@ image: the runtime image `ENTRYPOINT` comes first, followed by the effective
 - `platform/launch.json` omits `process.command` and `process.args`, so the
   application inherits the runtime `CMD` and the initial argv is exactly the
   platform launcher.
-- An application `command`/`args`, or Pod `args`, would be appended to the
-  launcher as its `CMD`. The launcher rejects arguments with exit status 64, so
-  they cannot select a different JVM or configuration.
-- Pod `command` is ignored for Brewlet workloads; it cannot replace the
+- An application `command`/`args`, or Pod `command`/`args`, would be appended
+  to the launcher as its `CMD`. The launcher rejects arguments with exit status
+  64, so they cannot select a different JVM or configuration or replace the
   runtime-owned `ENTRYPOINT`.
 
 ## What was observed

@@ -35,14 +35,13 @@ func TestZeroNodeAndAllContainers(t *testing.T) {
 	m, p := setup(t)
 	p.Spec.Containers[0].SecurityContext = &corev1.SecurityContext{RunAsUser: ptr(int64(1234))}
 	p.Spec.Containers[0].Env = []corev1.EnvVar{{Name: "PATH", Value: "/bad"}}
-	p.Spec.InitContainers[0].Command = []string{"/bin/sh"}
 	w, err := m.Mutate(context.Background(), p)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if len(w) != 3 || !strings.Contains(w[0], "web") || !strings.Contains(w[2], "init: command is ignored") {
-		t.Fatalf("missing zero-node/PATH/command warnings: %v", w)
+	if len(w) != 2 || !strings.Contains(w[0], "web") {
+		t.Fatalf("missing zero-node/PATH warnings: %v", w)
 	}
 	if *p.Spec.Containers[0].SecurityContext.RunAsUser != 1234 || *p.Spec.Containers[0].SecurityContext.RunAsGroup != 2000 {
 		t.Fatal("independent UID/GID defaulting broken")

@@ -39,6 +39,7 @@ type Env struct {
 	Name  string `json:"name"`
 	Value string `json:"value"`
 }
+
 // Process is the application's downstream launch request. Like CMD in a
 // Dockerfile built FROM the runtime image, Command and Args are appended to the
 // runtime image ENTRYPOINT. Nil means omitted (inherit the runtime image CMD);
@@ -74,8 +75,8 @@ func (p Process) CMD() ([]string, bool) {
 
 // Argv composes the initial process argv with Dockerfile ENTRYPOINT/CMD
 // semantics: runtime ENTRYPOINT + effective CMD. The effective CMD is
-// override when nonempty (Kubernetes args or local run arguments), otherwise the
-// application CMD when declared, otherwise the runtime image CMD.
+// override when nonempty (Pod command followed by args, or local run arguments),
+// otherwise the application CMD when declared, otherwise the runtime image CMD.
 func (p Process) Argv(runtimeEntrypoint, runtimeCmd, override []string) ([]string, error) {
 	cmd := runtimeCmd
 	if len(override) > 0 {
@@ -94,6 +95,7 @@ func (p Process) Argv(runtimeEntrypoint, runtimeCmd, override []string) ([]strin
 	}
 	return argv, nil
 }
+
 type Launch struct {
 	SchemaVersion int     `json:"schemaVersion"`
 	Process       Process `json:"process"`

@@ -120,7 +120,8 @@ Brewlet 1.0.0 expresses this flow in language-neutral terms:
 - Keep Kubernetes-native semantics: `args`, `env`, `workingDir`, probes,
   volumes, and resources retain their normal override behavior. Like a
   Dockerfile built `FROM` the runtime image, the runtime image `ENTRYPOINT` is
-  always the argv prefix; Kubernetes `command` is ignored (§6.3).
+  always the argv prefix; Kubernetes `command` and `args` together replace
+  the application `CMD` (§6.3).
   Intentional restrictions are runtime-owned `PATH`, non-root identities and
   no privilege escalation, synthesized `HOME`, and read-only packaged `/app`
   content (§8.2–§8.4).
@@ -297,11 +298,12 @@ Dockerfile built `FROM` the runtime image would:
 1. The application `CMD` is `process.command` followed by `process.args`. It is
    defined when either field is present, even as an empty array; an explicit
    empty value clears the inherited runtime `CMD`.
-2. The effective `CMD` is the first of: non-empty Kubernetes `args`; the
-   application `CMD`, when defined; the runtime image config `Cmd`.
+2. The effective `CMD` is the first of: Kubernetes `command` followed by
+   `args`, when either is non-empty; the application `CMD`, when defined; the
+   runtime image config `Cmd`.
 3. argv is the runtime image config `Entrypoint` followed by the effective
-   `CMD`. Kubernetes `command` is always ignored, so a workload cannot replace
-   a runtime-owned `ENTRYPOINT`.
+   `CMD`. Unlike ordinary Kubernetes, `command` does not replace the
+   `ENTRYPOINT`, so a workload cannot replace a runtime-owned `ENTRYPOINT`.
 4. An empty argv, or an empty `argv[0]`, fails with `LaunchCommandRequired`.
    A non-absolute `argv[0]` requires the runtime image's `PATH` for sandbox
    resolution (runc semantics); absent PATH fails with `RuntimePATHRequired`
@@ -1036,8 +1038,8 @@ generation; Exec inherits it, rather than constructing a new writable view.
 ### 8.3 Process fields
 
 - **argv** is the runtime `Entrypoint` followed by the effective `CMD` (§6.3).
-  Kubernetes `args` replace the whole effective `CMD`; Kubernetes `command` is
-  ignored, and admission emits a warning when a selected container sets it.
+  Kubernetes `command` followed by `args` replaces the whole effective `CMD`
+  when either is non-empty.
 - **Working directory** is taken verbatim from the CRI-provided spec, which
   already reflects Kubernetes `workingDir` over the mirrored image config.
 - **Environment** is merged in increasing precedence: runtime image `Env`, then

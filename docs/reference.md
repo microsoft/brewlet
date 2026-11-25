@@ -16,9 +16,9 @@ CRDs and [CLI reference](cli-reference.md) remain authoritative.
 | `process.env` | Optional ordered `{name,value}` entries with unique names; PATH forbidden. |
 
 Like a Dockerfile built `FROM` the runtime image, argv is the runtime image
-`ENTRYPOINT` followed by the effective `CMD`: nonempty Kubernetes `args`, else
-`command`+`args` when either is present (an explicit `[]` clears the runtime
-`CMD`), else the runtime image `CMD`. Kubernetes `command` is ignored.
+`ENTRYPOINT` followed by the effective `CMD`: Pod `command`+`args` when either
+is nonempty, else `command`+`args` when either is present (an explicit `[]`
+clears the runtime `CMD`), else the runtime image `CMD`.
 
 Unknown/duplicate fields, invalid paths and config-mirror drift fail validation.
 The final launch layer contains exactly one regular `launch.json`. The OCI

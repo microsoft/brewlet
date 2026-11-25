@@ -10,6 +10,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -344,7 +345,8 @@ func (s *service) resolve(ctx context.Context, id string, annotations map[string
 					Image     string `json:"image"`
 					Requested string `json:"user_specified_image"`
 				} `json:"image"`
-				Args []string `json:"args"`
+				Command []string `json:"command"`
+				Args    []string `json:"args"`
 			} `json:"config"`
 		} `json:"Metadata"`
 	}
@@ -440,7 +442,9 @@ func (s *service) resolve(ctx context.Context, id string, annotations map[string
 	}
 	resolved.ContentRoots = contentCache.References()
 	resolved.Reference = canonical.String()
-	return resolved, cri.Config.Args, nil
+	// Pod command and args together replace the application CMD; the runtime
+	// image ENTRYPOINT still runs first.
+	return resolved, append(slices.Clone(cri.Config.Command), cri.Config.Args...), nil
 }
 
 func (s *service) assemble(ctx context.Context, r *taskapi.CreateTaskRequest, spec *specs.Spec) error {
@@ -466,7 +470,7 @@ func (s *service) assemble(ctx context.Context, r *taskapi.CreateTaskRequest, sp
 			return &node.Error{Reason: "UnsupportedAnnotation", Detail: key}
 		}
 	}
-	resolved, kubernetesArgs, err := s.resolve(ctx, r.ID, spec.Annotations)
+	resolved, podCmd, err := s.resolve(ctx, r.ID, spec.Annotations)
 	if err != nil {
 		return err
 	}
@@ -503,7 +507,7 @@ func (s *service) assemble(ctx context.Context, r *taskapi.CreateTaskRequest, sp
 	}
 	// Compose argv like a Dockerfile built FROM the approved runtime image:
 	// runtime ENTRYPOINT + (Kubernetes args | application CMD | runtime CMD).
-	argv, err := resolved.Launch.Process.Argv(lease.Metadata.Entrypoint, lease.Metadata.Cmd, kubernetesArgs)
+	argv, err := resolved.Launch.Process.Argv(lease.Metadata.Entrypoint, lease.Metadata.Cmd, podCmd)
 	if err != nil {
 		return err
 	}

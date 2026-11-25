@@ -127,13 +127,12 @@ argv is the runtime image `ENTRYPOINT` followed by the effective `CMD`.
 
 | Source | Effective `CMD` |
 | --- | --- |
-| Nonempty Pod `args` | Pod `args`, replacing the whole `command`+`args`. |
+| Pod `command` and/or `args` nonempty | Pod `command` followed by `args`, replacing the whole `launch.json` `command`+`args`. |
 | `launch.json` `command` and/or `args` present | `command` followed by `args`. An explicit `[]` clears the runtime `CMD`. |
 | Neither present | The runtime image `CMD`. |
 
-Pod `command` is ignored for Brewlet containers (admission returns a
-warning), so a runtime-owned
-`ENTRYPOINT` cannot be replaced. If both the runtime `ENTRYPOINT` and the
+Unlike ordinary Kubernetes, Pod `command` does not replace the image
+`ENTRYPOINT`: the runtime-owned `ENTRYPOINT` always runs first. If both the runtime `ENTRYPOINT` and the
 effective `CMD` are empty, the start fails with `LaunchCommandRequired`. When
 the runtime image has an `ENTRYPOINT`, such as a distroless interpreter, omit
 the interpreter from `command`. Exec, probes and exec hooks run their own argv

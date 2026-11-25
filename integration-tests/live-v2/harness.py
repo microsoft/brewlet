@@ -1040,10 +1040,10 @@ class Harness:
                                    "limits": {"cpu": "500m", "memory": "256Mi"}}}
         if overrides:
             launch = self.launch(language)
-            # Kubernetes command is ignored; args replace the whole CMD after the runtime ENTRYPOINT.
-            container.update(command=["/ignored-kubernetes-command"],
-                             args=launch.get("command", []) + launch.get("args", []) + ["two words"],
-                             workingDir="/home/app")
+            # Pod command+args replace the whole CMD after the runtime ENTRYPOINT.
+            if launch.get("command"):
+                container["command"] = launch["command"]
+            container.update(args=launch.get("args", []) + ["two words"], workingDir="/home/app")
         spec = {"runtimeClassName": "brewlet", "restartPolicy": "Always",
                 "nodeSelector": {"kubernetes.io/arch": getattr(self, "arch", "arm64")},
                 "securityContext": {"fsGroup": 65532}, "containers": [container],
