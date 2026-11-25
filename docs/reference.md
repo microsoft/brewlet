@@ -9,14 +9,22 @@ CRDs and [CLI reference](cli-reference.md) remain authoritative.
 | Field | Contract |
 | --- | --- |
 | `schemaVersion` | Exactly 1. |
-| `process.entrypoint` | Required nonempty argv prefix; no language detection. |
-| `process.args` | Optional ordered arguments, not shell text. |
+| `process` | Required object; may be empty. |
+| `process.command` | Optional application argv; `command[0]` must be nonempty. No language detection. |
+| `process.args` | Optional ordered arguments appended after `command`, not shell text. |
 | `process.workingDir` | Optional canonical absolute path; default `/app`. |
 | `process.env` | Optional ordered `{name,value}` entries with unique names; PATH forbidden. |
 
+Like a Dockerfile built `FROM` the runtime image, argv is the runtime image
+`ENTRYPOINT` followed by the effective `CMD`: nonempty Kubernetes `args`, else
+`command`+`args` when either is present (an explicit `[]` clears the runtime
+`CMD`), else the runtime image `CMD`. Kubernetes `command` is ignored.
+
 Unknown/duplicate fields, invalid paths and config-mirror drift fail validation.
 The final launch layer contains exactly one regular `launch.json`. The OCI
-config must canonically mirror argv, Env and working directory, with empty User.
+config must canonically mirror the placeholder `Entrypoint`
+`["/.brewlet/runtime-entrypoint"]`, `Cmd` (`command`+`args`), Env and working
+directory, with empty User.
 The manifest carries `brewlet.sh/artifact-version=1`.
 
 Brewlet's artifact and launch versions are independent of OCI image manifests
@@ -56,6 +64,7 @@ application inputs to patch.
 | `NoCompatibleRuntime` | No valid NodeProfile offers all selected runtime IDs. |
 | `RuntimeImageInstalling`, `RuntimeImageInstallFailed` | Cold publication pending or installation failed. |
 | `RuntimePATHRequired` | Relative executable without a runtime PATH. |
+| `LaunchCommandRequired` | Runtime `ENTRYPOINT` and effective `CMD` are both empty. |
 | `RootNotSupported`, `PrivilegeEscalationNotSupported` | Prohibited process identity/security. |
 | `ReadOnlyRootRequired` | A writable container root was requested or reached the shim. |
 | `RuntimeMountNotAllowed` | Mount/device destination is unapproved, aliases runtime paths or overlaps another workload mount. |

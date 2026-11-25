@@ -86,13 +86,14 @@ final class Conformance {
 
     static ObjectNode process(ArtifactContract.Process process) {
         ObjectNode node = JSON.createObjectNode();
-        if (process.entrypoint() == null) {
-            node.putNull("entrypoint");
-        } else {
-            process.entrypoint().forEach(node.putArray("entrypoint")::add);
+        // Presence matters: an omitted list inherits the runtime CMD, an empty one clears it.
+        if (process.command() != null) {
+            ArrayNode command = node.putArray("command");
+            process.command().forEach(command::add);
         }
-        if (process.args() != null && !process.args().isEmpty()) {
-            process.args().forEach(node.putArray("args")::add);
+        if (process.args() != null) {
+            ArrayNode args = node.putArray("args");
+            process.args().forEach(args::add);
         }
         if (process.workingDir() != null && !process.workingDir().isEmpty()) {
             node.put("workingDir", process.workingDir());
@@ -155,7 +156,7 @@ final class Conformance {
         String[] workingDir = {""};
         List<ArtifactContract.Env> env = new ArrayList<>();
         ArtifactContract.goStruct(value, Map.of(
-                "entrypoint", v -> lists.set(0, ArtifactContract.goStrings(v)),
+                "command", v -> lists.set(0, ArtifactContract.goStrings(v)),
                 "args", v -> lists.set(1, ArtifactContract.goStrings(v)),
                 "workingDir", v -> workingDir[0] = ArtifactContract.goString(v, workingDir[0]),
                 "env", v -> {

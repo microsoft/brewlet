@@ -67,9 +67,6 @@ Save as `$WORK/launch.json`:
 {
   "schemaVersion": 1,
   "process": {
-    "entrypoint": [
-      "/usr/bin/python3.13"
-    ],
     "args": [
       "/app/src/main.py"
     ],
@@ -87,6 +84,11 @@ Save as `$WORK/launch.json`:
   }
 }
 ```
+
+The distroless Python image's `ENTRYPOINT` is `/usr/bin/python3.13`, so the
+descriptor omits `command` and supplies only the script as its `CMD`, as a
+downstream Dockerfile would. For a runtime image without an interpreter
+`ENTRYPOINT`, add `"command": ["/usr/bin/python3.13"]` (or that image's path).
 
 `PYTHONPATH` configures this explicit dependency layout, not executable lookup.
 PATH remains runtime-owned. Disabling bytecode writes suits the read-only

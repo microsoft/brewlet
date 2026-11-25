@@ -136,7 +136,7 @@ export function launchDescriptor() {
     return {
         schemaVersion: 1,
         process: {
-            entrypoint: ["/opt/java/openjdk/bin/java"],
+            command: ["/opt/java/openjdk/bin/java"],
             args: [`--add-opens=${INSPECTION_OPENS}`, `-D${INSPECTION_LOGGING}=WARN`, "-jar", "/app/app.jar", "--server.port=8080"],
             workingDir: "/app",
         },

@@ -109,7 +109,7 @@ test("deployment template is a plain Deployment selecting a runtime by annotatio
 test("launch.json uses the node runtime and the extracted layers", () => {
     const launch = launchDescriptor();
     assert.equal(launch.schemaVersion, 1);
-    assert.deepEqual(launch.process.entrypoint, ["/opt/java/openjdk/bin/java"]);
+    assert.deepEqual(launch.process.command, ["/opt/java/openjdk/bin/java"]);
     assert.ok(launch.process.args.includes("/app/app.jar"));
 });
 

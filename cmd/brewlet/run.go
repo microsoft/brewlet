@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -37,10 +39,19 @@ The container is assembled the way the Brewlet shim does on a cluster:
     directory and bind-mounted read-only at /app, hiding any runtime /app;
   - the root filesystem is read-only, all capabilities are dropped and
     no-new-privileges is set;
-  - launch.json supplies the entrypoint, args, working directory (default
-    /app) and environment, overriding the runtime image environment; -e
-    overrides launch.json and PATH stays runtime-owned;
-  - ARGS after '--' replace launch.json args, like Kubernetes 'args'.
+  - the process starts like a Dockerfile built FROM the runtime image: the
+    runtime image ENTRYPOINT followed by the launch.json command and args
+    (the application's CMD); when launch.json omits both, the runtime image
+    CMD is inherited, and an explicitly empty command/args clears it;
+  - ARGS after '--' replace the whole CMD, like Kubernetes 'args'; there is
+    no equivalent of Kubernetes 'command', which Brewlet ignores;
+  - launch.json supplies the working directory (default /app) and
+    environment, overriding the runtime image environment; -e overrides
+    launch.json and PATH stays runtime-owned.
+
+The runtime image ENTRYPOINT and CMD are read with '<engine> image inspect'.
+A missing runtime image is pulled for --platform; --dry-run never pulls and
+fails if the runtime image is not available locally.
 
 The runtime is never guessed. --runtime IMAGE runs on IMAGE; --runtime ID=IMAGE
 also names the runtime image ID.
@@ -99,6 +110,43 @@ var lookupRuntimeImage = func(ctx context.Context, kubeconfig, contextName, id s
 		return nil, err
 	}
 	return &ri, nil
+}
+
+type runtimeImageConfig struct {
+	Entrypoint []string `json:"Entrypoint"`
+	Cmd        []string `json:"Cmd"`
+}
+
+// inspectRuntimeImage reads the runtime image ENTRYPOINT and CMD through the
+// container engine, pulling the image first when pull is set. Tests replace it.
+var inspectRuntimeImage = func(ctx context.Context, engine, image, platform string, pull bool, progress io.Writer) (runtimeImageConfig, error) {
+	var cfg runtimeImageConfig
+	inspect := func() ([]byte, error) {
+		return exec.CommandContext(ctx, engine, "image", "inspect", "--format", "{{json .Config}}", image).Output()
+	}
+	out, err := inspect()
+	if err != nil && pull {
+		cmd := exec.CommandContext(ctx, engine, "pull", "--platform", platform, image)
+		cmd.Stdout, cmd.Stderr = progress, progress
+		if err := cmd.Run(); err != nil {
+			return cfg, fmt.Errorf("run: pull runtime image %s: %w", image, err)
+		}
+		out, err = inspect()
+	}
+	if err != nil {
+		if pull {
+			return cfg, fmt.Errorf("run: inspect runtime image %s: %w", image, err)
+		}
+		return cfg, fmt.Errorf("run: runtime image %s is not available locally; its ENTRYPOINT and CMD are needed to compose the command (pull it first: %s pull --platform %s %s)", image, engine, platform, image)
+	}
+	trimmed := bytes.TrimSpace(out)
+	if len(trimmed) == 0 || string(trimmed) == "null" {
+		return cfg, nil
+	}
+	if err := json.Unmarshal(trimmed, &cfg); err != nil {
+		return cfg, fmt.Errorf("run: parse runtime image %s config: %w", image, err)
+	}
+	return cfg, nil
 }
 
 type exitStatusError struct{ code int }
@@ -211,11 +259,23 @@ func runLocal(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 		}
 	}
 	process := launch.Process
-	cmdArgs := append([]string{}, process.Entrypoint[1:]...)
+	enginePath := *engine
+	if !*dryRun {
+		if enginePath, err = exec.LookPath(*engine); err != nil {
+			return fmt.Errorf("run: container engine %q not found (use --engine or BREWLET_CONTAINER_ENGINE): %w", *engine, err)
+		}
+	}
+	runtimeConfig, err := inspectRuntimeImage(ctx, enginePath, rt.Image, platformText, !*dryRun, stderr)
+	if err != nil {
+		return err
+	}
+	var override []string
 	if hasExtra {
-		cmdArgs = append(cmdArgs, extra...)
-	} else {
-		cmdArgs = append(cmdArgs, process.Args...)
+		override = extra
+	}
+	processArgv, err := process.Argv(runtimeConfig.Entrypoint, runtimeConfig.Cmd, override)
+	if err != nil {
+		return fmt.Errorf("run: %w", err)
 	}
 	build := func(appDir string) []string {
 		argv := []string{"run", "--rm", "-i"}
@@ -244,18 +304,15 @@ func runLocal(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 		if rt.ID != "" {
 			argv = append(argv, "--label", api.RuntimeAnnotation+"="+rt.ID)
 		}
-		argv = append(argv, "--entrypoint", process.Entrypoint[0], rt.Image)
-		return append(argv, cmdArgs...)
+		// --entrypoint also clears the image CMD, so the composed argv is exact.
+		argv = append(argv, "--entrypoint", processArgv[0], rt.Image)
+		return append(argv, processArgv[1:]...)
 	}
 
 	if *dryRun {
 		fmt.Fprintf(stderr, "# %s: /app materialized from %s at run time (skipped by --dry-run)\n", runAppDirPlaceholder, dir)
 		_, err := fmt.Fprintln(stdout, shellJoin(append([]string{*engine}, build(runAppDirPlaceholder)...)))
 		return err
-	}
-	enginePath, err := exec.LookPath(*engine)
-	if err != nil {
-		return fmt.Errorf("run: container engine %q not found (use --engine or BREWLET_CONTAINER_ENGINE): %w", *engine, err)
 	}
 	// Materialize next to the layout, not in the system temp directory, so
 	// the bind source lives in a path Docker Desktop/Podman machine share.

@@ -117,8 +117,10 @@ Brewlet 1.0.0 expresses this flow in language-neutral terms:
 - Let each explicitly selected container in a `runtimeClassName: brewlet` Pod
   name an approved runtime image ID through Pod metadata, with **no digest** in
   the workload, while leaving unselected containers as ordinary OCI workloads.
-- Keep Kubernetes-native semantics: `command`, `args`, `env`, `workingDir`,
-  probes, volumes, and resources retain their normal override behavior.
+- Keep Kubernetes-native semantics: `args`, `env`, `workingDir`, probes,
+  volumes, and resources retain their normal override behavior. Like a
+  Dockerfile built `FROM` the runtime image, the runtime image `ENTRYPOINT` is
+  always the argv prefix; Kubernetes `command` is ignored (§6.3).
   Intentional restrictions are runtime-owned `PATH`, non-root identities and
   no privilege escalation, synthesized `HOME`, and read-only packaged `/app`
   content (§8.2–§8.4).
@@ -267,7 +269,7 @@ store and **never mounts it** into the sandbox.
 {
   "schemaVersion": 1,
   "process": {
-    "entrypoint": ["python"],
+    "command": ["python"],
     "args": ["-m", "gunicorn", "app.wsgi:application", "--bind", "0.0.0.0:8000"],
     "workingDir": "/app",
     "env": [
@@ -283,10 +285,31 @@ Field contract (unknown fields MUST be rejected at publish and launch time):
 | Field | Required | Rules |
 |---|---|---|
 | `schemaVersion` | yes | MUST be `1`. |
-| `process.entrypoint` | yes | Non-empty argv prefix. A non-absolute `entrypoint[0]` requires the runtime image's `PATH` for sandbox resolution (runc semantics); absent PATH fails with `RuntimePATHRequired` (§7.2). |
-| `process.args` | no | Default arguments appended after `entrypoint`. |
+| `process` | yes | Object; it MAY be empty. |
+| `process.command` | no | Application argv, the downstream equivalent of the leading part of Dockerfile `CMD`. If present and non-empty, `command[0]` MUST be non-empty. |
+| `process.args` | no | Arguments appended after `command`. |
 | `process.workingDir` | no | Absolute path; defaults to `/app`. |
 | `process.env` | no | Ordered list of unique names. `PATH` is forbidden (§8.3). |
+
+**Initial process composition.** Brewlet composes the initial argv as a
+Dockerfile built `FROM` the runtime image would:
+
+1. The application `CMD` is `process.command` followed by `process.args`. It is
+   defined when either field is present, even as an empty array; an explicit
+   empty value clears the inherited runtime `CMD`.
+2. The effective `CMD` is the first of: non-empty Kubernetes `args`; the
+   application `CMD`, when defined; the runtime image config `Cmd`.
+3. argv is the runtime image config `Entrypoint` followed by the effective
+   `CMD`. Kubernetes `command` is always ignored, so a workload cannot replace
+   a runtime-owned `ENTRYPOINT`.
+4. An empty argv, or an empty `argv[0]`, fails with `LaunchCommandRequired`.
+   A non-absolute `argv[0]` requires the runtime image's `PATH` for sandbox
+   resolution (runc semantics); absent PATH fails with `RuntimePATHRequired`
+   (§7.2). argv is exact; no shell is inserted.
+
+The runtime `Entrypoint` and `Cmd` come from the leased runtime generation, not
+from the application artifact. Exec, probes, and lifecycle hooks run their own
+argv and do not pass through the runtime `ENTRYPOINT`.
 
 Workloads select an approved runtime explicitly. Authors are responsible for
 testing applications against the selected runtime.
@@ -300,13 +323,13 @@ packages it unchanged (§11.1); for Java projects the Maven plugin MAY generate 
 
 ### 6.4 Image config
 
-To give pods ordinary Kubernetes override semantics without Brewlet-specific
-parsing, producers MUST mirror the launch configuration into the image config:
+Producers MUST mirror the launch configuration into the image config so that
+containerd produces a valid CRI process and the shim can verify it:
 
 | Image config field | Value |
 |---|---|
-| `Entrypoint` | `process.entrypoint` |
-| `Cmd` | `process.args` |
+| `Entrypoint` | `["/.brewlet/runtime-entrypoint"]`, a placeholder for the runtime `ENTRYPOINT` |
+| `Cmd` | `process.command` followed by `process.args`; absent when both are absent |
 | `WorkingDir` | `process.workingDir` (or `/app`) |
 | `Env` | `process.env` rendered as `NAME=value` |
 | `User` | MUST be empty (§8.4) |
@@ -315,13 +338,13 @@ parsing, producers MUST mirror the launch configuration into the image config:
 The shim MUST verify that the config mirrors `launch.json` exactly and fail with
 `LaunchConfigMismatch` otherwise. Because the config is authoritative only by
 virtue of matching the launch layer, CRI's normal merge of the image config with
-the pod spec (`command` replaces `Entrypoint`, `args` replaces `Cmd`, `env` and
-`workingDir` override) then yields exactly Kubernetes semantics, and the shim
-consumes the CRI-produced process fields as-is (§8.3).
+the pod spec (`env` and `workingDir` override) yields Kubernetes semantics for
+those fields. The placeholder `Entrypoint` is never executed: the shim
+recomposes argv from `launch.json`, the runtime generation, and the Kubernetes
+`args` recorded by CRI (§6.3, §8.3).
 
-**Canonical mirror.** Missing optional `args` and `env` render as empty arrays;
-absent or null config arrays compare as empty arrays. `entrypoint` remains
-non-empty, and a missing launch `workingDir` renders as `/app` (an empty config
+**Canonical mirror.** Missing optional `env` renders as an empty array;
+absent or null config arrays compare as empty arrays. A missing launch `workingDir` renders as `/app` (an empty config
 `WorkingDir` is not equivalent). Array order and strings are compared exactly,
 including environment order; duplicate environment names are rejected.
 Config `User` is absent or empty. `ExposedPorts`, `Volumes`, `Healthcheck`, and
@@ -423,9 +446,10 @@ A runtime image MUST be a valid OCI image whose platforms cover every node
 architecture of the pools that offer it. Its **config** contributes:
 
 - `Env` — the base environment, including the authoritative `PATH` (§8.3);
-- nothing else. `Entrypoint`, `Cmd`, `WorkingDir`, `User`, `ExposedPorts`,
-  `Volumes`, and `Healthcheck` are ignored; the application artifact and the pod
-  own those.
+- `Entrypoint` and `Cmd` — composed with the application launch as a
+  downstream Dockerfile would (§6.3);
+- nothing else. `WorkingDir`, `User`, `ExposedPorts`, `Volumes`, and
+  `Healthcheck` are ignored; the application artifact and the pod own those.
 
 Environment names MUST be unique. `PATH` MAY be absent for absolute executable
 invocation. When present it MUST occur exactly once, contain non-empty canonical
@@ -1011,9 +1035,11 @@ generation; Exec inherits it, rather than constructing a new writable view.
 
 ### 8.3 Process fields
 
-- **argv and working directory** are taken verbatim from the CRI-provided spec,
-  which already reflects Kubernetes `command`/`args`/`workingDir` over the
-  mirrored image config.
+- **argv** is the runtime `Entrypoint` followed by the effective `CMD` (§6.3).
+  Kubernetes `args` replace the whole effective `CMD`; Kubernetes `command` is
+  ignored.
+- **Working directory** is taken verbatim from the CRI-provided spec, which
+  already reflects Kubernetes `workingDir` over the mirrored image config.
 - **Environment** is merged in increasing precedence: runtime image `Env`, then
   the CRI-provided environment. Within CRI, image-config defaults are overlaid
   by kubelet's environment: service variables fill only names not explicitly
@@ -1024,7 +1050,7 @@ generation; Exec inherits it, rather than constructing a new writable view.
   that is indistinguishable from an explicit one and because executable lookup
   must be stable across rotations. Admission emits a warning when a pod sets
   `PATH`. Applications add directories through ecosystem variables or
-  absolute `entrypoint` paths.
+  absolute `command` paths.
   If runtime PATH is absent, it remains absent; absolute executable invocation
   is allowed and relative initial/Exec invocation fails with `RuntimePATHRequired`.
 
@@ -1436,7 +1462,7 @@ remains an explicit decision in the reviewed manifest.
 - New reason codes: `InvalidRuntimeImageID`,
   `UnknownRuntimeImage`, `NoCompatibleRuntime`, `RuntimeImageNotInstalled`,
   `RuntimeImageInstalling`, `RuntimeImageInstallFailed`,
-  `UnsupportedArtifact`, `LaunchConfigMismatch`,
+  `UnsupportedArtifact`, `LaunchConfigMismatch`, `LaunchCommandRequired`,
   `LayerPathViolation`, `UnsupportedAnnotation`, `RootNotSupported`,
   `RuntimeImageUpdating`, `InvalidRuntimeGeneration`, `RuntimeImageEpochMismatch`,
   `RuntimeImageRevoked`, `RuntimeImageAuthorizationExpired`,

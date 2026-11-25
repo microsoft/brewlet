@@ -96,7 +96,7 @@ The Wasmtime descriptor,
 {
   "schemaVersion": 1,
   "process": {
-    "entrypoint": [
+    "command": [
       "/usr/local/bin/wasmtime"
     ],
     "args": [

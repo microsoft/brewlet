@@ -406,7 +406,7 @@ class Lifecycle:
         obj = self.h.pod(name, "python", bound=True, barrier=minimum)
         obj["metadata"]["annotations"]["runtime-image.brewlet.sh/app"] = rid
         container = obj["spec"]["containers"][0]
-        container.update(command=["python3"], args=["-c", MAIN], imagePullPolicy="IfNotPresent")
+        container.update(args=["python3", "-c", MAIN], imagePullPolicy="IfNotPresent")
         container.pop("readinessProbe", None)
         self.h.apply(obj)
         self.pods[name] = self.h.owned[("pod", self.h.namespace, name)]
@@ -957,7 +957,7 @@ class Lifecycle:
                              "io.kubernetes.pod.namespace": self.h.namespace,
                              "io.kubernetes.pod.name": sandbox["metadata"]["name"],
                              "io.kubernetes.container.name": "life-orphan"},
-                  "command": ["python3"], "args": ["-c", MAIN],
+                  "args": ["python3", "-c", MAIN],
                   "envs": [{"key": "PYTHONPATH", "value": "/app/dependencies"}],
                   "log_path": "orphan.log",
                   "linux": {"resources": {"memory_limit_in_bytes": 256 * 1024 * 1024,

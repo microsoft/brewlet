@@ -80,7 +80,7 @@ final class JavaProducer {
             }
             Map<String, Object> descriptor = new LinkedHashMap<>();
             descriptor.put("schemaVersion", 1);
-            descriptor.put("process", Map.of("entrypoint", List.of("java"),
+            descriptor.put("process", Map.of("command", List.of("java"),
                     "args", args, "workingDir", "/app"));
             launch = output.resolve("launch.json");
             new ObjectMapper().enable(SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS)

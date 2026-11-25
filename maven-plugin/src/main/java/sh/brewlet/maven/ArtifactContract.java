@@ -33,7 +33,24 @@ final class ArtifactContract {
     }
 
     record Env(String name, String value) {}
-    record Process(List<String> entrypoint, List<String> args, String workingDir, List<Env> env) {}
+    /**
+     * The application's downstream launch request. Like CMD in a Dockerfile built
+     * FROM the runtime image, command and args are appended to the runtime image
+     * ENTRYPOINT. A null list is omitted (inherit the runtime CMD); an empty list
+     * is an explicit, empty value.
+     */
+    record Process(List<String> command, List<String> args, String workingDir, List<Env> env) {
+        /** Downstream CMD (command then args), or null when both fields are omitted. */
+        List<String> cmd() {
+            if (command == null && args == null) {
+                return null;
+            }
+            return concat(command == null ? List.of() : command, args == null ? List.of() : args);
+        }
+    }
+
+    /** Mirrored as the application image ENTRYPOINT and replaced on the node by the runtime ENTRYPOINT. */
+    static final String RUNTIME_ENTRYPOINT_PLACEHOLDER = "/.brewlet/runtime-entrypoint";
     record Launch(Process process) {}
 
     private static final Pattern ID = Pattern.compile(
@@ -79,43 +96,49 @@ final class ArtifactContract {
         Json process = root.get("process");
         Json schema = root.get("schemaVersion");
         long version = schema == null ? 0 : goLong(schema, 0);
-        List<String> entrypoint = List.of();
-        List<String> args = List.of();
+        List<String> command = null;
+        List<String> args = null;
         String workingDir = "";
         List<Env> env = new ArrayList<>();
-        if (process != null) {
-            exactKeys(process, Set.of("entrypoint", "args", "workingDir", "env"));
-            if (process.get("entrypoint") != null) {
-                entrypoint = goStrings(process.get("entrypoint"));
-            }
-            if (process.get("args") != null) {
-                args = goStrings(process.get("args"));
-            }
-            if (process.get("workingDir") != null) {
-                workingDir = goString(process.get("workingDir"), "");
-                if (workingDir.isEmpty()) {
-                    throw new IllegalArgumentException("workingDir must be absolute");
-                }
-            }
-            Json entries = process.get("env");
-            if (entries != null) {
-                if (entries.kind != Json.Kind.ARRAY) {
-                    throw new IllegalArgumentException("env must be an array");
-                }
-                for (Json entry : entries.items) {
-                    exactKeys(entry, Set.of("name", "value"));
-                    if (entry.get("value") == null) {
-                        throw new IllegalArgumentException("environment value is required");
-                    }
-                    env.add(new Env(entry.get("name") == null ? "" : goString(entry.get("name"), ""),
-                            goString(entry.get("value"), "")));
-                }
+        if (process == null) {
+            throw new IllegalArgumentException("process is required");
+        }
+        exactKeys(process, Set.of("command", "args", "workingDir", "env"));
+        if (process.get("command") != null) {
+            command = goStrings(process.get("command"));
+        }
+        if (process.get("args") != null) {
+            args = goStrings(process.get("args"));
+        }
+        if (process.get("workingDir") != null) {
+            workingDir = goString(process.get("workingDir"), "");
+            if (workingDir.isEmpty()) {
+                throw new IllegalArgumentException("workingDir must be absolute");
             }
         }
-        if (version != 1 || entrypoint.isEmpty() || entrypoint.get(0).isEmpty()) {
-            throw new IllegalArgumentException("schemaVersion 1 and nonempty entrypoint required");
+        Json entries = process.get("env");
+        if (entries != null) {
+            if (entries.kind != Json.Kind.ARRAY) {
+                throw new IllegalArgumentException("env must be an array");
+            }
+            for (Json entry : entries.items) {
+                exactKeys(entry, Set.of("name", "value"));
+                if (entry.get("value") == null) {
+                    throw new IllegalArgumentException("environment value is required");
+                }
+                env.add(new Env(entry.get("name") == null ? "" : goString(entry.get("name"), ""),
+                        goString(entry.get("value"), "")));
+            }
         }
-        for (String arg : concat(entrypoint, args)) {
+        if (version != 1) {
+            throw new IllegalArgumentException("schemaVersion 1 required");
+        }
+        if (command != null && !command.isEmpty() && command.get(0).isEmpty()) {
+            throw new IllegalArgumentException("command executable must not be empty");
+        }
+        command = command == null ? null : List.copyOf(command);
+        args = args == null ? null : List.copyOf(args);
+        for (String arg : concat(command == null ? List.of() : command, args == null ? List.of() : args)) {
             if (arg.indexOf(0) >= 0) {
                 throw new IllegalArgumentException("NUL in argv");
             }
@@ -133,7 +156,7 @@ final class ArtifactContract {
                 throw new IllegalArgumentException("invalid or duplicate env " + quote(e.name()));
             }
         }
-        return new Launch(new Process(entrypoint, args, workingDir, List.copyOf(env)));
+        return new Launch(new Process(command, args, workingDir, List.copyOf(env)));
     }
 
     /** Mutable target mirroring how OCI image config decoding merges case-variant members. */
@@ -158,7 +181,7 @@ final class ArtifactContract {
         }
         Process want = launch.process();
         List<String> env = want.env().stream().map(e -> e.name() + "=" + e.value()).toList();
-        if (!sameList(want.entrypoint(), got.entrypoint) || !sameList(want.args(), got.cmd)
+        if (!sameList(List.of(RUNTIME_ENTRYPOINT_PLACEHOLDER), got.entrypoint) || !sameList(want.cmd(), got.cmd)
                 || !sameList(env, got.env) || !want.workingDir().equals(got.workingDir)
                 || !got.user.isEmpty() || !got.exposedPorts.isEmpty() || !got.volumes.isEmpty()
                 || !got.stopSignal.isEmpty() || got.argsEscaped) {

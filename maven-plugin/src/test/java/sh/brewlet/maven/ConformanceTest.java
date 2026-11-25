@@ -25,10 +25,10 @@ class ConformanceTest {
 
     @Test void processIsReportedOnlyForParsedLaunchCases() {
         JsonNode results = Conformance.run("{\"schemaVersion\":1,\"cases\":["
-                + "{\"name\":\"a\",\"kind\":\"launch\",\"launch\":{\"schemaVersion\":1,\"process\":{\"entrypoint\":[\"x\"],\"args\":[]}}},"
+                + "{\"name\":\"a\",\"kind\":\"launch\",\"launch\":{\"schemaVersion\":1,\"process\":{\"command\":[\"x\"],\"args\":[]}}},"
                 + "{\"name\":\"b\",\"kind\":\"id\",\"value\":\"r\"},"
-                + "{\"name\":\"c\",\"kind\":\"launch\",\"launch\":{\"schemaVersion\":1.0,\"process\":{\"entrypoint\":[\"x\"]}},\"reason\":\"Other\"}]}");
-        assertEquals("{\"name\":\"a\",\"process\":{\"entrypoint\":[\"x\"],\"workingDir\":\"/app\"},\"passed\":true}",
+                + "{\"name\":\"c\",\"kind\":\"launch\",\"launch\":{\"schemaVersion\":1.0,\"process\":{\"command\":[\"x\"]}},\"reason\":\"Other\"}]}");
+        assertEquals("{\"name\":\"a\",\"process\":{\"command\":[\"x\"],\"args\":[],\"workingDir\":\"/app\"},\"passed\":true}",
                 results.get(0).toString());
         assertEquals("{\"name\":\"b\",\"passed\":true}", results.get(1).toString());
         assertEquals("{\"name\":\"c\",\"reason\":\"InvalidLaunchConfig\",\"passed\":false}", results.get(2).toString());
@@ -39,12 +39,18 @@ class ConformanceTest {
     }
 
     @Test void launchRulesCarryReasonCodes() throws Exception {
-        var launch = ArtifactContract.parseLaunch("{\"schemaVersion\":1,\"process\":{\"entrypoint\":[\"java\"],"
+        var launch = ArtifactContract.parseLaunch("{\"schemaVersion\":1,\"process\":{\"command\":[\"java\"],"
                 + "\"env\":[{\"name\":\"B\",\"value\":\"1\"},{\"name\":\"A\",\"value\":\"2\"}]}}");
         assertEquals(List.of("B", "A"), launch.process().env().stream().map(ArtifactContract.Env::name).toList());
-        for (String invalid : List.of("", "{}", "[]", "{\"schemaVersion\":1,\"process\":{\"entrypoint\":[\"a\\u0000\"]}}",
-                "{\"schemaVersion\":1,\"process\":{\"entrypoint\":[\"a\"]}} {}",
-                "{\"schemaVersion\":1,\"process\":{\"entrypoint\":[\"a\"],\"env\":[{\"name\":\"A=B\",\"value\":\"\"}]}}")) {
+        var inherited = ArtifactContract.parseLaunch("{\"schemaVersion\":1,\"process\":{}}").process();
+        assertNull(inherited.cmd());
+        assertEquals(List.of(), ArtifactContract.parseLaunch(
+                "{\"schemaVersion\":1,\"process\":{\"command\":[]}}").process().cmd());
+        for (String invalid : List.of("", "{}", "[]", "{\"schemaVersion\":1}",
+                "{\"schemaVersion\":1,\"process\":{\"entrypoint\":[\"java\"]}}",
+                "{\"schemaVersion\":1,\"process\":{\"command\":[\"\"]}}", "{\"schemaVersion\":1,\"process\":{\"command\":[\"a\\u0000\"]}}",
+                "{\"schemaVersion\":1,\"process\":{\"command\":[\"a\"]}} {}",
+                "{\"schemaVersion\":1,\"process\":{\"command\":[\"a\"],\"env\":[{\"name\":\"A=B\",\"value\":\"\"}]}}")) {
             var violation = assertThrows(ArtifactContract.Violation.class, () -> ArtifactContract.parseLaunch(invalid));
             assertEquals("InvalidLaunchConfig", violation.reason);
             assertTrue(violation.getMessage().startsWith("InvalidLaunchConfig: "));

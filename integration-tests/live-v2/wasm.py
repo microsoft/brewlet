@@ -162,7 +162,7 @@ class WasmHarness(Harness):
 
     def probe(self, *args):
         launch = json.loads((EXAMPLE / "wasmtime-launch.json").read_text())["process"]
-        return launch["entrypoint"] + launch["args"][:-2] + list(args or ("probe", "two words"))
+        return launch["command"] + launch["args"][:-2] + list(args or ("probe", "two words"))
 
 
 def guest(report, dependency="shared-wasm-dependency"):
@@ -284,7 +284,9 @@ def exercise(h):
                  {"lease": lease, "report": report}, ["WASM-01" if engine == "wasmtime" else "WASM-02"])
     for mode, code in (("probe", 0), ("exit37", 37)):
         name = "wasmtime-" + mode
-        launch = json.loads((EXAMPLE / "wasmtime-launch.json").read_text())["process"]["args"][:-2]
+        process = json.loads((EXAMPLE / "wasmtime-launch.json").read_text())["process"]
+        # Kubernetes args replace the whole CMD, including the launch command.
+        launch = process["command"] + process["args"][:-2]
         h.apply(h.pod(name, "wasmtime", args=launch + [mode], once=True))
         def terminated():
             obj = h.get("pod", name, h.namespace)

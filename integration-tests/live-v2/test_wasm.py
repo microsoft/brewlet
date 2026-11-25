@@ -63,7 +63,7 @@ class WasmFixtureTests(unittest.TestCase):
     def test_launches_have_no_guest_build_or_remote_resolution(self):
         for name in ("wasmtime", "spin"):
             launch = json.loads((EXAMPLE / (name + "-launch.json")).read_text())
-            self.assertEqual(launch["process"]["entrypoint"], ["/usr/local/bin/" + name])
+            self.assertEqual(launch["process"]["command"], ["/usr/local/bin/" + name])
             self.assertNotIn("--build", launch["process"]["args"])
             self.assertIn({"name": "XDG_CACHE_HOME", "value": "/cache/compiled"}, launch["process"]["env"])
             self.assertNotIn("/cache", launch["process"]["args"])

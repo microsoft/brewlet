@@ -529,8 +529,7 @@ class SafetyTests(ProjectWork):
         for language in h.LANGUAGES:
             for revision in ("before", "after"):
                 dockerfile = (instance.work / (language + "-" + revision) / "Dockerfile").read_text()
-                for field in ('ENTRYPOINT ["/ignored-runtime-entrypoint"]',
-                              'CMD ["ignored-runtime-argument"]',
+                for field in ('CMD ["overridden-runtime-argument"]',
                               "WORKDIR /ignored-runtime-workdir", "USER 0:0",
                               "EXPOSE 65432", 'VOLUME ["/ignored-runtime-volume"]',
                               'HEALTHCHECK CMD ["/ignored-runtime-healthcheck"]'):

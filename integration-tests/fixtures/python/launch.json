@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "process": {
-    "entrypoint": ["python3"],
+    "command": ["python3"],
     "args": ["/app/src/main.py"],
     "workingDir": "/app",
     "env": [

@@ -23,7 +23,7 @@ explicit producer assertion, not evidence that a native dependency is portable.
 {
   "schemaVersion": 1,
   "process": {
-    "entrypoint": [
+    "command": [
       "python3"
     ],
     "args": [
@@ -122,8 +122,22 @@ subject to the execution contract.
 
 ## Kubernetes overrides and environment
 
-`command`, `args` and `workingDir` retain Kubernetes semantics. In particular,
-`args` replaces the image argument array; it does not append to it.
+The initial process composes like a Dockerfile built `FROM` the runtime image:
+argv is the runtime image `ENTRYPOINT` followed by the effective `CMD`.
+
+| Source | Effective `CMD` |
+| --- | --- |
+| Nonempty Pod `args` | Pod `args`, replacing the whole `command`+`args`. |
+| `launch.json` `command` and/or `args` present | `command` followed by `args`. An explicit `[]` clears the runtime `CMD`. |
+| Neither present | The runtime image `CMD`. |
+
+Pod `command` is ignored for Brewlet containers, so a runtime-owned
+`ENTRYPOINT` cannot be replaced. If both the runtime `ENTRYPOINT` and the
+effective `CMD` are empty, the start fails with `LaunchCommandRequired`. When
+the runtime image has an `ENTRYPOINT`, such as a distroless interpreter, omit
+the interpreter from `command`. Exec, probes and exec hooks run their own argv
+and do not pass through the runtime `ENTRYPOINT`. `workingDir` retains
+Kubernetes semantics.
 Runtime Env provides defaults and CRI Env overrides them, except that PATH is
 runtime-owned. Explicit Pod PATH is ignored with a warning.
 

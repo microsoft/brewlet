@@ -86,7 +86,7 @@ The Docker Official PHP images install PHP at `/usr/local/bin/php`. Save as
 {
   "schemaVersion": 1,
   "process": {
-    "entrypoint": [
+    "command": [
       "/usr/local/bin/php"
     ],
     "args": [

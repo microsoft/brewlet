@@ -111,9 +111,13 @@ brewlet run registry.example.com/apps/api:v2 --runtime java-21 --from-cluster --
   `spec.source.image` and approved `spec.user`.
 - The container is assembled like the shim's: app layers bind-mounted read-only
   at `/app`, read-only root filesystem, no capabilities, no-new-privileges, and
-  `launch.json` entrypoint/args/workingDir/env over the runtime image env.
+  argv composed as runtime `ENTRYPOINT` + `CMD` (`launch.json`
+  `command`/`args`, else the runtime `CMD`), plus `workingDir`/`env` over the
+  runtime image env. The runtime image is inspected locally; `--dry-run` never
+  pulls and fails if the image is not present.
   `-e NAME=VALUE` overrides those, except runtime-owned `PATH`.
-- `ARGS` after `--` replace `launch.json` args. UID/GID 0 is refused; without
+- `ARGS` after `--` replace the whole effective `CMD` (`launch.json`
+  `command`+`args`), like Pod `args`. UID/GID 0 is refused; without
   `--user UID:GID` or `--from-cluster` the image's default user is used with a
   warning. `--tmpfs PATH` adds writable space.
 - `--platform` defaults to `linux/<host arch>`; `--engine` defaults to

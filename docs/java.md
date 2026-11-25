@@ -53,6 +53,12 @@ Ask your platform team for:
 - **Absolute path of the `java` executable** in that runtime image. Distroless
   images commonly use `/usr/bin/java`; Eclipse Temurin images use
   `/opt/java/openjdk/bin/java`. The examples below use `/usr/bin/java`.
+- **Runtime image `ENTRYPOINT` and `CMD`**. Brewlet composes them with your
+  descriptor like a Dockerfile built `FROM` the runtime image: argv is the
+  runtime `ENTRYPOINT` followed by your `command` and `args`. The examples
+  below assume no `ENTRYPOINT`. Distroless Java's `ENTRYPOINT` is
+  `/usr/bin/java -jar`; with it, omit `command`, use `"args": ["/app/app.jar"]`
+  and pass JVM options through `JDK_JAVA_OPTIONS`.
 - **Supported platforms** (`linux/amd64`, `linux/arm64`).
 - **Approved mount locations** outside `/app`, such as `/tmp`, if any (see
   [writable files](#writable-files)).
@@ -161,13 +167,14 @@ install -m 0644 target/app.jar brewlet/application/app.jar   # Gradle: build/lib
 ```
 
 Save the following as `brewlet/launch.json`. Ask the platform team to confirm
-that the selected runtime provides Java 21 at `/usr/bin/java`.
+that the selected runtime provides Java 21 at `/usr/bin/java` and has no
+`ENTRYPOINT` (see the runtime checklist above).
 
 ```json
 {
   "schemaVersion": 1,
   "process": {
-    "entrypoint": ["/usr/bin/java"],
+    "command": ["/usr/bin/java"],
     "args": [
       "-XX:MaxRAMPercentage=75",
       "-jar",
@@ -181,8 +188,10 @@ that the selected runtime provides Java 21 at `/usr/bin/java`.
 The fields describe a process invocation, not shell text:
 
 - `schemaVersion` selects Brewlet's version-1 launch descriptor format.
-- `entrypoint` is the absolute Java executable path in the runtime image. Brewlet
-  runs it directly, without starting a shell or needing a `PATH` lookup.
+- `command` is the absolute Java executable path in the runtime image. Brewlet
+  runs it directly, after any runtime image `ENTRYPOINT`, without starting a
+  shell or needing a `PATH` lookup. For a runtime whose `ENTRYPOINT` is already
+  `java` (such as distroless Java), omit `command`.
 - `args` is an ordered array of separate arguments. `-XX:MaxRAMPercentage=75`
   is an example JVM option used to size the maximum heap as a percentage of
   available memory. With a container-aware JVM and a memory limit, that limit
@@ -313,7 +322,7 @@ as the Spring Boot example, but starts the Quarkus bootstrap JAR:
 {
   "schemaVersion": 1,
   "process": {
-    "entrypoint": ["/usr/bin/java"],
+    "command": ["/usr/bin/java"],
     "args": [
       "-XX:MaxRAMPercentage=75",
       "-Djava.util.logging.manager=org.jboss.logmanager.LogManager",
@@ -399,7 +408,7 @@ and main class explicitly:
 {
   "schemaVersion": 1,
   "process": {
-    "entrypoint": ["/usr/bin/java"],
+    "command": ["/usr/bin/java"],
     "args": [
       "--class-path",
       "/app/app.jar:/app/lib/*",
@@ -410,7 +419,7 @@ and main class explicitly:
 }
 ```
 
-`schemaVersion`, `entrypoint` and `workingDir` have the same meanings as in
+`schemaVersion`, `command` and `workingDir` have the same meanings as in
 the [Spring Boot descriptor](#executable-jar). Change `/usr/bin/java` to the
 executable path in your chosen runtime. The Pod must select an approved,
 compatible runtime.
@@ -614,9 +623,10 @@ same option here and in the descriptor: for example, the descriptor's
 the descriptor if the Deployment should control that setting.
 
 Do not replace the descriptor arguments with Kubernetes `args` just to add an
-option. Kubernetes `args` **replaces** the descriptor's whole argument list;
-it does not append to it. If you override `args`, repeat the full command,
-including `-jar /app/app.jar`.
+option. Kubernetes `args` **replaces** the descriptor's whole `command` and
+`args`; it does not append to them. If you override `args`, repeat the full
+command, including the Java executable and `-jar /app/app.jar`. Kubernetes
+`command` is ignored.
 
 ### Profiles, properties and environment variables
 

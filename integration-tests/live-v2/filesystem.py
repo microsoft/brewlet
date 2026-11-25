@@ -34,10 +34,10 @@ def execute(h):
         h.wait("filesystem Pod deletion: " + name,
                lambda: h.get("pod", name, h.namespace, absent=True) is None)
 
-    executable = h.launch("python")["entrypoint"]
+    executable = h.executable("python")
     pod = h.pod("filesystem-initial", "python")
     container = pod["spec"]["containers"][0]
-    container.update(command=executable, args=["-c", PROBE])
+    container.update(args=executable + ["-c", PROBE])
     container.pop("readinessProbe", None)
     pod["spec"]["restartPolicy"] = "Never"
     h.apply(pod)
@@ -58,7 +58,7 @@ def execute(h):
     temporary["spec"]["volumes"].append({"name": "tmp", "emptyDir": {"sizeLimit": "32Mi"}})
     container = temporary["spec"]["containers"][0]
     container["volumeMounts"].append({"name": "tmp", "mountPath": "/tmp"})
-    container.update(command=executable, args=["-c",
+    container.update(args=executable + ["-c",
         "from pathlib import Path; p=Path('/tmp/permitted'); p.write_text('explicit temporary volume'); "
         "print(p.read_text(), flush=True)"])
     container.pop("readinessProbe", None)

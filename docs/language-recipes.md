@@ -34,15 +34,14 @@ dependencies with your ecosystem tools and package them as application files.
 
 ## Python
 
-Read the [complete Python guide](python.md). For a distroless Python runtime image:
+Read the [complete Python guide](python.md). A distroless Python runtime image's
+`ENTRYPOINT` is already `/usr/bin/python3.13`, so the descriptor supplies only
+the script as its `CMD`:
 
 ```json
 {
   "schemaVersion": 1,
   "process": {
-    "entrypoint": [
-      "/usr/bin/python3.13"
-    ],
     "args": [
       "/app/src/main.py"
     ],
@@ -81,7 +80,7 @@ a thin-JAR classpath descriptor is:
 {
   "schemaVersion": 1,
   "process": {
-    "entrypoint": [
+    "command": [
       "/usr/bin/java"
     ],
     "args": [
@@ -105,16 +104,14 @@ Java launch arguments for you.
 
 ## Node.js
 
-Read the [complete Node.js guide](nodejs.md). In the distroless Node.js image,
-`/nodejs/bin/node` is not on the default PATH, so name it explicitly:
+Read the [complete Node.js guide](nodejs.md). The distroless Node.js image's
+`ENTRYPOINT` is already `/nodejs/bin/node`, so the descriptor supplies only the
+module as its `CMD`:
 
 ```json
 {
   "schemaVersion": 1,
   "process": {
-    "entrypoint": [
-      "/nodejs/bin/node"
-    ],
     "args": [
       "/app/src/main.mjs"
     ],
@@ -136,7 +133,7 @@ Read the [complete .NET guide](dotnet.md). For a runtime explicitly providing
 {
   "schemaVersion": 1,
   "process": {
-    "entrypoint": [
+    "command": [
       "/usr/bin/dotnet"
     ],
     "args": [
@@ -161,7 +158,7 @@ Read the [complete PHP guide](php.md). The Docker Official PHP images provide
 {
   "schemaVersion": 1,
   "process": {
-    "entrypoint": [
+    "command": [
       "/usr/local/bin/php"
     ],
     "args": [

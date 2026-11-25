@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "process": {
-    "entrypoint": ["dotnet"],
+    "command": ["dotnet"],
     "args": ["/app/App.dll"],
     "workingDir": "/app"
   }

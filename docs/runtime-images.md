@@ -19,8 +19,15 @@ The platform must validate that its root:
   metadata must be well formed and unambiguous.
 - Contains no set-ID binaries or file capabilities.
 
-The runtime config contributes only Env. Runtime Entrypoint, Cmd, WorkingDir
-and User do not define the application process. Brewlet does not build or
+The runtime config contributes Env, Entrypoint and Cmd. Like a Dockerfile built
+`FROM` the runtime image, the runtime `ENTRYPOINT` always prefixes the initial
+argv and the runtime `CMD` is inherited when `launch.json` sets neither
+`process.command` nor `process.args`. A platform launcher such as
+`ENTRYPOINT ["/opt/platform/start"]` therefore cannot be bypassed by the
+application or by Pod `command`. Runtime WorkingDir and User do not define the
+application process. Entrypoint and Cmd are recorded in the installed runtime
+generation; republish runtime generations installed by earlier Brewlet
+releases so the node has them. Brewlet does not build or
 silently sanitize the approved image.
 
 Use an explicit absolute executable in `launch.json`, such as

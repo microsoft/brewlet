@@ -787,8 +787,7 @@ class Harness:
                 dockerfile = directory / "Dockerfile"
                 dockerfile.write_text(f"FROM {base}\nENV BREWLET_RUNTIME_REVISION={revision} "
                                       "BREWLET_TEST_VALUE=runtime-default\n"
-                                      'ENTRYPOINT ["/ignored-runtime-entrypoint"]\n'
-                                      'CMD ["ignored-runtime-argument"]\n'
+                                      'CMD ["overridden-runtime-argument"]\n'
                                       "WORKDIR /ignored-runtime-workdir\n"
                                       "USER 0:0\n"
                                       "EXPOSE 65432\n"
@@ -1015,7 +1014,13 @@ class Harness:
 
     def probe(self, language):
         process = self.launch(language)
-        return process["entrypoint"] + process.get("args", []) + ["--probe", "two words"]
+        return self.executable(language) + process.get("args", []) + ["--probe", "two words"]
+
+    def executable(self, language):
+        # Exec probes bypass the runtime ENTRYPOINT, so they need an explicit executable
+        # even when the launch descriptor inherits it from the runtime image.
+        process = self.launch(language)
+        return process.get("command") or getattr(self, "probe_executables", {})[language]
 
     def pod(self, name, language, *, barrier=None, overrides=False, bound=False):
         annotations = {"runtime-image.brewlet.sh/app": IDS[language]}
@@ -1035,7 +1040,9 @@ class Harness:
                                    "limits": {"cpu": "500m", "memory": "256Mi"}}}
         if overrides:
             launch = self.launch(language)
-            container.update(command=launch["entrypoint"], args=launch.get("args", []) + ["two words"],
+            # Kubernetes command is ignored; args replace the whole CMD after the runtime ENTRYPOINT.
+            container.update(command=["/ignored-kubernetes-command"],
+                             args=launch.get("command", []) + launch.get("args", []) + ["two words"],
                              workingDir="/home/app")
         spec = {"runtimeClassName": "brewlet", "restartPolicy": "Always",
                 "nodeSelector": {"kubernetes.io/arch": getattr(self, "arch", "arm64")},

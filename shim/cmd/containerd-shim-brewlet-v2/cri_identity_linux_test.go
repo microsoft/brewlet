@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"slices"
 	"testing"
 
 	containerd "github.com/containerd/containerd/v2/client"
@@ -78,7 +79,7 @@ func TestResolveUsesProtectedRequestedTargetNotHintsOrConfigIdentity(t *testing.
 			envelope := map[string]any{"Version": version, "Metadata": map[string]any{
 				"ImageRef": configID, "config": map[string]any{"image": map[string]string{
 					"image": configImage, "user_specified_image": requested,
-				}},
+				}, "command": []string{"/ignored-kubernetes-command"}, "args": []string{"--kubernetes", "two words"}},
 			}}
 			data, err := json.Marshal(envelope)
 			if err != nil {
@@ -107,7 +108,7 @@ func TestResolveUsesProtectedRequestedTargetNotHintsOrConfigIdentity(t *testing.
 				annotations["brewlet.sh/artifact-container"] = "foreign-container"
 			}
 			service := &service{client: client}
-			resolved, err := service.resolve(ctx, value.ID, annotations)
+			resolved, kubernetesArgs, err := service.resolve(ctx, value.ID, annotations)
 			if name != "valid" && name != "conflicting hints" {
 				if err == nil {
 					t.Fatal("conflicting protected CRI identity selected executable content")
@@ -116,6 +117,9 @@ func TestResolveUsesProtectedRequestedTargetNotHintsOrConfigIdentity(t *testing.
 			}
 			if err != nil || resolved.Target.Digest != target.Digest || resolved.Manifest.Config.Digest != manifest.Config.Digest {
 				t.Fatal("protected target/config identity was not preserved", resolved, err)
+			}
+			if !slices.Equal(kubernetesArgs, []string{"--kubernetes", "two words"}) {
+				t.Fatal("protected Kubernetes args were not returned verbatim", kubernetesArgs)
 			}
 			if _, err := os.Stat(cacheRoot); err != nil {
 				t.Fatal("native content cache was not exercised", err)

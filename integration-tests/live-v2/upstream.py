@@ -125,7 +125,7 @@ def pathless_and_shadowed_runtime(h):
         ("tmp/", b"", 0o1777)])
     layer = delivery.blob(layout, compressed, delivery.LAYER)
     config = delivery.json_blob(layout, {"architecture": h.arch, "os": "linux",
-        "config": {"Env": [], "User": "0:0", "Entrypoint": ["/ignored"]},
+        "config": {"Env": [], "User": "0:0"},
         "rootfs": {"type": "layers", "diff_ids": [diff]}}, delivery.CONFIG)
     selected = delivery.finish_layout(layout, delivery.json_blob(layout, {
         "schemaVersion": 2, "mediaType": delivery.MANIFEST, "config": config, "layers": [layer]}, delivery.MANIFEST))
@@ -159,7 +159,7 @@ def pathless_and_shadowed_runtime(h):
             "relative Exec adopted default/cwd search")
     bad = h.delivery.native_pod(h.arch, "pathless-relative")
     bad["metadata"]["annotations"]["runtime-image.brewlet.sh/app"] = rid
-    bad["spec"]["containers"][0].update(command=["native"], args=["--probe"])
+    bad["spec"]["containers"][0].update(args=["native", "--probe"])
     h.apply(bad)
     h.no_start("pathless-relative", "RuntimePATHRequired")
     h.record("actual numeric pathless execution, isolated runtime app, readonly and explicit volume parity",
@@ -356,9 +356,11 @@ def run(work):
     h.result.update(selectedScenario="unchanged-upstream-distroless", selectedLanguages=list(h.languages))
     h.result["gaps"].append("Focused upstream suite; full-userland controls and complete proposal are separate.")
     h.launch_files = {}
+    h.probe_executables = {language: [EXECUTABLES[language]] for language in h.languages}
     for language in h.languages:
         launch = json.loads((FIXTURES / language / "launch.json").read_text())
-        launch["process"]["entrypoint"] = [EXECUTABLES[language]]
+        # Distroless images set the interpreter as ENTRYPOINT; the application supplies only its CMD.
+        launch["process"].pop("command")
         h.launch_files[language] = h.work / (language + "-launch.json")
         h.launch_files[language].write_text(json.dumps(launch))
     h.build_runtime_images = lambda: None

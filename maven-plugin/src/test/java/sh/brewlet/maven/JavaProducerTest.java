@@ -36,7 +36,7 @@ class JavaProducerTest {
                 Files.createDirectory(temp.resolve("out")));
         var json = new ObjectMapper().readTree(result.launch().toFile());
         assertEquals(1, json.path("schemaVersion").intValue());
-        assertEquals("java", json.at("/process/entrypoint/0").textValue());
+        assertEquals("java", json.at("/process/command/0").textValue());
         assertEquals("-Dmessage=two words", json.at("/process/args/0").textValue());
         assertEquals("example.Main", json.at("/process/args/3").textValue());
         assertEquals(Files.getLastModifiedTime(jar),
@@ -44,12 +44,12 @@ class JavaProducerTest {
         assertEquals(FileTime.fromMillis(0), Files.getLastModifiedTime(result.application()));
         assertFalse(json.has("jvm"));
         String serialized = Files.readString(result.launch());
-        assertTrue(serialized.indexOf("\"args\"") < serialized.indexOf("\"entrypoint\""));
+        assertTrue(serialized.indexOf("\"args\"") < serialized.indexOf("\"command\""));
     }
 
     @Test void handWrittenDescriptorIsNotRewritten() throws Exception {
         Path descriptor = temp.resolve("custom.json");
-        Files.writeString(descriptor, "{\"schemaVersion\":1,\"process\":{\"entrypoint\":[\"java\"]}}");
+        Files.writeString(descriptor, "{\"schemaVersion\":1,\"process\":{\"command\":[\"java\"]}}");
         byte[] original = Files.readAllBytes(descriptor);
         var result = JavaProducer.prepare(new JavaProducer.Inputs(jar("a.jar", null), List.of(),
                 descriptor, null, null, List.of()),
@@ -105,7 +105,7 @@ class JavaProducerTest {
 
     @Test void handWrittenDescriptorOverridesAllGeneratedLaunchOptions() throws Exception {
         Path descriptor = temp.resolve("authoritative.json");
-        String json = "{\"schemaVersion\":1,\"process\":{\"entrypoint\":[\"custom java\"],"
+        String json = "{\"schemaVersion\":1,\"process\":{\"command\":[\"custom java\"],"
                 + "\"args\":[\"hand-written\"]}}";
         Files.writeString(descriptor, json);
         var prepared = JavaProducer.prepare(new JavaProducer.Inputs(jar("app.jar", "manifest.Main"),
@@ -118,7 +118,7 @@ class JavaProducerTest {
 
     @Test void invalidLaunchDescriptorsFailWithReasonCodeBeforeTheCli() throws Exception {
         Path descriptor = temp.resolve("invalid.json");
-        Files.writeString(descriptor, "{\"schemaVersion\":1,\"process\":{\"entrypoint\":[\"java\"]},\"unknown\":{}}");
+        Files.writeString(descriptor, "{\"schemaVersion\":1,\"process\":{\"command\":[\"java\"]},\"unknown\":{}}");
         IOException failure = assertThrows(IOException.class, () -> JavaProducer.prepare(new JavaProducer.Inputs(
                 jar("a.jar", null), List.of(), descriptor, null, null, List.of()),
                 Files.createDirectory(temp.resolve("out"))));
@@ -149,7 +149,7 @@ class JavaProducerTest {
     @Test void appCdsArchiveDoesNotRewriteHandWrittenLaunch() throws Exception {
         Path archive = Files.write(temp.resolve("app.jsa"), new byte[] {9});
         Path descriptor = temp.resolve("launch.json");
-        String json = "{\"schemaVersion\":1,\"process\":{\"entrypoint\":[\"java\"]}}";
+        String json = "{\"schemaVersion\":1,\"process\":{\"command\":[\"java\"]}}";
         Files.writeString(descriptor, json);
         var prepared = JavaProducer.prepare(new JavaProducer.Inputs(jar("a.jar", null), List.of(), descriptor,
                 null, null, List.of(), archive), Files.createDirectory(temp.resolve("out")));

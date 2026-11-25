@@ -95,8 +95,7 @@ def runc_lifecycle(h, survivor):
     pod["spec"]["restartPolicy"] = "Never"
     container = pod["spec"]["containers"][0]
     container.pop("readinessProbe")
-    container["command"] = ["/bin/sh"]
-    container["args"] = ["-ec", "trap 'exit 42' TERM; printf 'runc-signal-ready\\n'; "
+    container["args"] = ["/bin/sh", "-ec", "trap 'exit 42' TERM; printf 'runc-signal-ready\\n'; "
                          "while :; do sleep 1; done"]
     h.apply(pod)
     running = h.wait("dedicated delegated signal task starts", lambda: h.ready(name))

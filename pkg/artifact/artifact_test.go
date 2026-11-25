@@ -346,7 +346,7 @@ func TestBuildDeterministicAndResolve(t *testing.T) {
 	s := Store{Dir: filepath.Join(dir, "store")}
 	p1, _ := ParsePlatform("linux/amd64")
 	p2, _ := ParsePlatform("linux/arm64")
-	o := BuildOptions{Launch: []byte(`{"schemaVersion":1,"process":{"entrypoint":["/app/server"]}}`), Platforms: []v1.Platform{p1, p2}, Layers: []LayerSpec{{Role: "app", Source: app, Destination: "app"}}}
+	o := BuildOptions{Launch: []byte(`{"schemaVersion":1,"process":{"command":["/app/server"]}}`), Platforms: []v1.Platform{p1, p2}, Layers: []LayerSpec{{Role: "app", Source: app, Destination: "app"}}}
 	first, e := Build(context.Background(), s, o)
 	must(t, e)
 	second, e := Build(context.Background(), s, o)
@@ -429,7 +429,7 @@ func TestApplicationLibrariesArePayload(t *testing.T) {
 	cleanSource(t, app)
 	cleanSource(t, libs)
 	platform := v1.Platform{OS: "linux", Architecture: "amd64"}
-	launch := []byte(`{"schemaVersion":1,"process":{"entrypoint":["python3","/app/main.py"],"env":[{"name":"PYTHONPATH","value":"/app/lib"}]}}`)
+	launch := []byte(`{"schemaVersion":1,"process":{"command":["python3","/app/main.py"],"env":[{"name":"PYTHONPATH","value":"/app/lib"}]}}`)
 	var layers []LayerSpec
 	for _, input := range []string{libs + ":/app/lib", app + ":/app"} {
 		layer, err := ParseLayerSpec(input)
@@ -499,7 +499,7 @@ func TestBuildPlatformScopedLayers(t *testing.T) {
 	s := Store{Dir: filepath.Join(dir, "store")}
 	p1, _ := ParsePlatform("linux/amd64")
 	p2, _ := ParsePlatform("linux/arm64")
-	launch := []byte(`{"schemaVersion":1,"process":{"entrypoint":["/app/file"]}}`)
+	launch := []byte(`{"schemaVersion":1,"process":{"command":["/app/file"]}}`)
 	o := BuildOptions{Launch: launch, Platforms: []v1.Platform{p1, p2}, Layers: []LayerSpec{
 		spec("linux/amd64:" + amd + ":/app/deps"),
 		spec("linux/arm64:" + arm + ":/app/deps"),
