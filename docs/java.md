@@ -623,10 +623,12 @@ same option here and in the descriptor: for example, the descriptor's
 the descriptor if the Deployment should control that setting.
 
 Do not replace the descriptor arguments with Kubernetes `command` or `args`
-just to add an option. Pod `command` and `args` together **replace** the
-descriptor's whole `command` and `args`; they do not append to them. If you
-override them, repeat the full command, including the Java executable and
-`-jar /app/app.jar`.
+just to add an option. Pod `args` replaces the descriptor's args while
+preserving its command; Pod `command` replaces the descriptor's command and
+launch args, while Pod `args` supplies replacement args when set. Neither field
+appends to the descriptor. If overriding `args`, supply the complete desired
+argument list. If overriding `command`, also set `args` when the Java invocation
+needs arguments such as `-jar /app/app.jar`.
 
 ### Profiles, properties and environment variables
 

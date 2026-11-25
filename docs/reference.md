@@ -15,10 +15,12 @@ CRDs and [CLI reference](cli-reference.md) remain authoritative.
 | `process.workingDir` | Optional canonical absolute path; default `/app`. |
 | `process.env` | Optional ordered `{name,value}` entries with unique names; PATH forbidden. |
 
-Like a Dockerfile built `FROM` the runtime image, argv is the runtime image
-`ENTRYPOINT` followed by the effective `CMD`: Pod `command`+`args` when either
-is nonempty, else `command`+`args` when either is present (an explicit `[]`
-clears the runtime `CMD`), else the runtime image `CMD`.
+The runtime image `ENTRYPOINT` always prefixes argv. A nonempty Pod `command`
+replaces the launch command and ignores launch args; Pod `args` supplies the
+replacement args when set. Pod `args` alone replaces launch args while
+preserving launch command. With no Pod override, declared launch fields replace
+the runtime `CMD`; if both launch fields are omitted, the runtime `CMD` is
+inherited.
 
 Unknown/duplicate fields, invalid paths and config-mirror drift fail validation.
 The final launch layer contains exactly one regular `launch.json`. The OCI

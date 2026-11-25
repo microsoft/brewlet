@@ -137,7 +137,7 @@ class WasmHarness(Harness):
                   all(self.advertised(rid, "ready") for rid in IDS.values()))
         self.record("approved numeric Wasm runtime inventory on an Eager owned pool", {}, ["WASM-01", "WASM-02"])
 
-    def pod(self, name, engine, *, args=None, image=None, selected=None, once=False):
+    def pod(self, name, engine, *, command=None, args=None, image=None, selected=None, once=False):
         container = {"name": "app", "image": image or self.app_images[engine], "imagePullPolicy": "Never",
                      "env": [{"name": "HOST_ONLY", "value": "must-not-reach-guest"},
                              {"name": "PATH", "value": "/app/forbidden"}],
@@ -146,6 +146,8 @@ class WasmHarness(Harness):
                                       {"name": "cache", "mountPath": "/cache"}],
                      "resources": {"requests": {"cpu": "10m", "memory": "32Mi"},
                                    "limits": {"cpu": "1", "memory": "512Mi"}}}
+        if command is not None:
+            container["command"] = command
         if args is not None:
             container["args"] = args
         if not once:
@@ -285,9 +287,9 @@ def exercise(h):
     for mode, code in (("probe", 0), ("exit37", 37)):
         name = "wasmtime-" + mode
         process = json.loads((EXAMPLE / "wasmtime-launch.json").read_text())["process"]
-        # Kubernetes args replace the whole CMD, including the launch command.
-        launch = process["command"] + process["args"][:-2]
-        h.apply(h.pod(name, "wasmtime", args=launch + [mode], once=True))
+        # Pod command replaces launch command, and Pod args replace launch args.
+        h.apply(h.pod(name, "wasmtime", command=process["command"],
+                      args=process["args"][:-2] + [mode], once=True))
         def terminated():
             obj = h.get("pod", name, h.namespace)
             for status in obj.get("status", {}).get("containerStatuses", []):

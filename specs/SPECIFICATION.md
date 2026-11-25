@@ -121,7 +121,7 @@ Brewlet 1.0.0 expresses this flow in language-neutral terms:
   volumes, and resources retain their normal override behavior. Like a
   Dockerfile built `FROM` the runtime image, the runtime image `ENTRYPOINT` is
   always the argv prefix; Kubernetes `command` and `args` together replace
-  the application `CMD` (§6.3).
+  the   application command and args (§6.3).
   Intentional restrictions are runtime-owned `PATH`, non-root identities and
   no privilege escalation, synthesized `HOME`, and read-only packaged `/app`
   content (§8.2–§8.4).
@@ -292,19 +292,22 @@ Field contract (unknown fields MUST be rejected at publish and launch time):
 | `process.workingDir` | no | Absolute path; defaults to `/app`. |
 | `process.env` | no | Ordered list of unique names. `PATH` is forbidden (§8.3). |
 
-**Initial process composition.** Brewlet composes the initial argv as a
-Dockerfile built `FROM` the runtime image would:
+**Initial process composition.** The runtime image `Entrypoint` is always the
+argv prefix and cannot be replaced by a workload. Brewlet applies Kubernetes
+`command`/`args` override behavior to the application's `launch.json` fields:
 
-1. The application `CMD` is `process.command` followed by `process.args`. It is
-   defined when either field is present, even as an empty array; an explicit
-   empty value clears the inherited runtime `CMD`.
-2. The effective `CMD` is the first of: Kubernetes `command` followed by
-   `args`, when either is non-empty; the application `CMD`, when defined; the
+1. If Pod `command` is nonempty, argv continues with Pod `command` followed by
+   Pod `args`; both launch fields and the runtime image `Cmd` are ignored.
+2. Otherwise, if Pod `args` is nonempty, argv continues with
+   `process.command` (when declared) followed by Pod `args`. The launch args
+   and runtime image `Cmd` are ignored.
+3. Otherwise, if either launch field is present, argv continues with
+   `process.command` followed by `process.args`. An explicitly empty field
+   still declares the application command and suppresses the runtime image
+   `Cmd`.
+4. If neither Pod nor launch fields are present, argv continues with the
    runtime image config `Cmd`.
-3. argv is the runtime image config `Entrypoint` followed by the effective
-   `CMD`. Unlike ordinary Kubernetes, `command` does not replace the
-   `ENTRYPOINT`, so a workload cannot replace a runtime-owned `ENTRYPOINT`.
-4. An empty argv, or an empty `argv[0]`, fails with `LaunchCommandRequired`.
+5. An empty argv, or an empty `argv[0]`, fails with `LaunchCommandRequired`.
    A non-absolute `argv[0]` requires the runtime image's `PATH` for sandbox
    resolution (runc semantics); absent PATH fails with `RuntimePATHRequired`
    (§7.2). argv is exact; no shell is inserted.
@@ -343,7 +346,7 @@ virtue of matching the launch layer, CRI's normal merge of the image config with
 the pod spec (`env` and `workingDir` override) yields Kubernetes semantics for
 those fields. The placeholder `Entrypoint` is never executed: the shim
 recomposes argv from `launch.json`, the runtime generation, and the Kubernetes
-`args` recorded by CRI (§6.3, §8.3).
+`command` and `args` recorded by CRI (§6.3, §8.3).
 
 **Canonical mirror.** Missing optional `env` renders as an empty array;
 absent or null config arrays compare as empty arrays. A missing launch `workingDir` renders as `/app` (an empty config
@@ -1037,9 +1040,10 @@ generation; Exec inherits it, rather than constructing a new writable view.
 
 ### 8.3 Process fields
 
-- **argv** is the runtime `Entrypoint` followed by the effective `CMD` (§6.3).
-  Kubernetes `command` followed by `args` replaces the whole effective `CMD`
-  when either is non-empty.
+- **argv** is the runtime `Entrypoint` followed by the effective application
+  command and args (§6.3). Pod `command` replaces the launch command and drops
+  omitted args; Pod `args` replaces launch args while preserving launch command.
+  Neither overrides the runtime `Entrypoint`.
 - **Working directory** is taken verbatim from the CRI-provided spec, which
   already reflects Kubernetes `workingDir` over the mirrored image config.
 - **Environment** is merged in increasing precedence: runtime image `Env`, then

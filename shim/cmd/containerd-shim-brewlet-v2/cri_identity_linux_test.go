@@ -108,7 +108,7 @@ func TestResolveUsesProtectedRequestedTargetNotHintsOrConfigIdentity(t *testing.
 				annotations["brewlet.sh/artifact-container"] = "foreign-container"
 			}
 			service := &service{client: client}
-			resolved, podCmd, err := service.resolve(ctx, value.ID, annotations)
+			resolved, podCommand, podArgs, err := service.resolve(ctx, value.ID, annotations)
 			if name != "valid" && name != "conflicting hints" {
 				if err == nil {
 					t.Fatal("conflicting protected CRI identity selected executable content")
@@ -118,8 +118,9 @@ func TestResolveUsesProtectedRequestedTargetNotHintsOrConfigIdentity(t *testing.
 			if err != nil || resolved.Target.Digest != target.Digest || resolved.Manifest.Config.Digest != manifest.Config.Digest {
 				t.Fatal("protected target/config identity was not preserved", resolved, err)
 			}
-			if !slices.Equal(podCmd, []string{"/kubernetes-command", "--kubernetes", "two words"}) {
-				t.Fatal("protected Pod command and args were not returned verbatim", podCmd)
+			if !slices.Equal(podCommand, []string{"/kubernetes-command"}) ||
+				!slices.Equal(podArgs, []string{"--kubernetes", "two words"}) {
+				t.Fatal("protected Pod command and args were not returned separately", podCommand, podArgs)
 			}
 			if _, err := os.Stat(cacheRoot); err != nil {
 				t.Fatal("native content cache was not exercised", err)

@@ -122,22 +122,23 @@ subject to the execution contract.
 
 ## Kubernetes overrides and environment
 
-The initial process composes like a Dockerfile built `FROM` the runtime image:
-argv is the runtime image `ENTRYPOINT` followed by the effective `CMD`.
+The runtime image `ENTRYPOINT` always starts the initial argv. Pod
+`command`/`args` then override the corresponding launch descriptor fields:
 
-| Source | Effective `CMD` |
+| Pod fields | Command portion after runtime `ENTRYPOINT` |
 | --- | --- |
-| Pod `command` and/or `args` nonempty | Pod `command` followed by `args`, replacing the whole `launch.json` `command`+`args`. |
-| `launch.json` `command` and/or `args` present | `command` followed by `args`. An explicit `[]` clears the runtime `CMD`. |
-| Neither present | The runtime image `CMD`. |
+| Nonempty Pod `command` | Pod `command` followed by Pod `args`; launch fields and runtime `CMD` are ignored. |
+| Only nonempty Pod `args` | `launch.json` `command` (if present) followed by Pod `args`; launch args and runtime `CMD` are ignored. |
+| No Pod override; either launch field is present | `launch.json` `command` followed by `args`. Explicit empty fields suppress the runtime `CMD`. |
+| No Pod override; both launch fields are omitted | The runtime image `CMD`. |
 
-Unlike ordinary Kubernetes, Pod `command` does not replace the image
-`ENTRYPOINT`: the runtime-owned `ENTRYPOINT` always runs first. If both the runtime `ENTRYPOINT` and the
-effective `CMD` are empty, the start fails with `LaunchCommandRequired`. When
-the runtime image has an `ENTRYPOINT`, such as a distroless interpreter, omit
-the interpreter from `command`. Exec, probes and exec hooks run their own argv
-and do not pass through the runtime `ENTRYPOINT`. `workingDir` retains
-Kubernetes semantics.
+Pod `command` replaces the launch command and drops launch args when Pod `args`
+is omitted. Pod `args` alone replaces only launch args and keeps the launch
+command. Empty Pod lists count as unset. If both the runtime `ENTRYPOINT` and
+the resulting command portion are empty, startup fails with
+`LaunchCommandRequired`. Exec, probes and exec hooks run their own argv and do
+not pass through the runtime `ENTRYPOINT`. `workingDir` retains Kubernetes
+semantics.
 Runtime Env provides defaults and CRI Env overrides them, except that PATH is
 runtime-owned. Explicit Pod PATH is ignored with a warning.
 

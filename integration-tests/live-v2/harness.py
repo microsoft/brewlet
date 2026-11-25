@@ -1040,9 +1040,7 @@ class Harness:
                                    "limits": {"cpu": "500m", "memory": "256Mi"}}}
         if overrides:
             launch = self.launch(language)
-            # Pod command+args replace the whole CMD after the runtime ENTRYPOINT.
-            if launch.get("command"):
-                container["command"] = launch["command"]
+            # Pod args replace descriptor args; the descriptor command remains.
             container.update(args=launch.get("args", []) + ["two words"], workingDir="/home/app")
         spec = {"runtimeClassName": "brewlet", "restartPolicy": "Always",
                 "nodeSelector": {"kubernetes.io/arch": getattr(self, "arch", "arm64")},

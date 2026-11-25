@@ -141,7 +141,7 @@ func TestRunDryRunDefaultsAndExtraArgs(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !strings.HasPrefix(out, "docker run ") || !strings.Contains(out, " --workdir /app ") ||
-		!strings.HasSuffix(out, " --entrypoint x alpine:3 --y") || strings.Contains(out, "default") || strings.Contains(out, "--user") {
+		!strings.HasSuffix(out, " --entrypoint /bin/echo alpine:3 x --y") || strings.Contains(out, "default") || strings.Contains(out, "--user") {
 		t.Fatalf("unexpected command: %s", out)
 	}
 	if !strings.Contains(stderr, "warning: running as the runtime image's default user") {
@@ -160,7 +160,7 @@ func TestRunDryRunComposesRuntimeEntrypointAndCmd(t *testing.T) {
 		{"application CMD appended", `{"command":["java"],"args":["-jar","/app/app.jar"]}`, nil, " --entrypoint /opt/bin/launch golden:1 --secure java -jar /app/app.jar"},
 		{"runtime CMD inherited", `{}`, nil, " --entrypoint /opt/bin/launch golden:1 --secure default 'two words'"},
 		{"explicitly empty CMD clears runtime CMD", `{"command":[],"args":[]}`, nil, " --entrypoint /opt/bin/launch golden:1 --secure"},
-		{"extra args replace whole CMD", `{"command":["java"],"args":["-jar","/app/app.jar"]}`, []string{"--", "--debug"}, " --entrypoint /opt/bin/launch golden:1 --secure --debug"},
+		{"extra args replace launch args and preserve command", `{"command":["java"],"args":["-jar","/app/app.jar"]}`, []string{"--", "--debug"}, " --entrypoint /opt/bin/launch golden:1 --secure java --debug"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			store := buildRunTestImage(t, `{"schemaVersion":1,"process":`+tc.launch+`}`)

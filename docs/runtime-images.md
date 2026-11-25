@@ -19,16 +19,43 @@ The platform must validate that its root:
   metadata must be well formed and unambiguous.
 - Contains no set-ID binaries or file capabilities.
 
-The runtime config contributes Env, Entrypoint and Cmd. Like a Dockerfile built
-`FROM` the runtime image, the runtime `ENTRYPOINT` always prefixes the initial
-argv and the runtime `CMD` is inherited when `launch.json` sets neither
-`process.command` nor `process.args`. A platform launcher such as
-`ENTRYPOINT ["/opt/platform/start"]` therefore cannot be bypassed by the
-application or by Pod `command`. Runtime WorkingDir and User do not define the
-application process. Entrypoint and Cmd are recorded in the installed runtime
-generation; republish runtime generations installed by earlier Brewlet
-releases so the node has them. Brewlet does not build or
+The runtime config contributes Env, Entrypoint and Cmd. The runtime
+`ENTRYPOINT` always prefixes the initial argv; the runtime `CMD` is inherited
+only when both `launch.json` fields are omitted and the Pod supplies neither
+`command` nor `args`. Pod `command` cannot bypass the platform launcher, but it
+does replace the launch command and ignores its args unless Pod `args` is also
+set; Pod `args` alone replaces only launch args. Runtime WorkingDir and User do
+not define the application process. Entrypoint and Cmd are recorded in the
+installed runtime generation; republish runtime generations installed by
+earlier Brewlet releases so the node has them. Brewlet does not build or
 silently sanitize the approved image.
+
+### Harden a fixed runtime launcher
+
+Use the runtime image `ENTRYPOINT` as a platform-owned launcher when every
+application must pass through the same startup policy. Brewlet never lets Pod
+`command` replace that entrypoint. A selected container's nonempty Pod
+`command` is appended after the runtime `ENTRYPOINT` and triggers an admission
+warning; Pod `args` replaces only launch args. Check
+`brewlet k8s runtime status ID` to see the `ENTRYPOINT` and `CMD` observed per
+node and platform. OnDemand runtimes report this information only after
+installation; nodes with older runtime metadata can show it as unknown until a
+new runtime generation is installed.
+
+Treat the launcher as a strict boundary:
+
+- Use absolute paths and do not rely on the Pod `workingDir`; Kubernetes can
+  still set it.
+- Validate or reject all received arguments and environment variables that
+  could alter launcher behavior. Pod `command`/`args` become its arguments;
+  they do not replace it.
+- `kubectl exec`, exec probes and exec lifecycle hooks start their own argv and
+  bypass the `ENTRYPOINT`. Restrict `pods/exec` with RBAC and separately govern
+  exec probes and hooks if they must not launch arbitrary programs.
+- Approving a runtime image is the platform's trust decision. Keep the
+  `ENTRYPOINT` contract stable across approved runtime updates, and test the
+  actual approved image on every offered architecture.
+- Do not put secrets in `ENTRYPOINT`, `CMD` or other image configuration.
 
 Use an explicit absolute executable in `launch.json`, such as
 `/usr/bin/python3.13` or `/nodejs/bin/node`, when the runtime does not supply a

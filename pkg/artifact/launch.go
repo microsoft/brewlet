@@ -42,8 +42,9 @@ type Env struct {
 
 // Process is the application's downstream launch request. Like CMD in a
 // Dockerfile built FROM the runtime image, Command and Args are appended to the
-// runtime image ENTRYPOINT. Nil means omitted (inherit the runtime image CMD);
-// a non-nil empty slice is an explicit, empty value.
+// runtime image ENTRYPOINT. Nil means the individual field is omitted; when
+// both fields are nil the runtime image CMD is inherited. A non-nil empty slice
+// explicitly declares an empty field and suppresses that fallback.
 type Process struct {
 	Command    *[]string `json:"command,omitempty"`
 	Args       *[]string `json:"args,omitempty"`
@@ -73,20 +74,28 @@ func (p Process) CMD() ([]string, bool) {
 	return cmd, true
 }
 
-// Argv composes the initial process argv with Dockerfile ENTRYPOINT/CMD
-// semantics: runtime ENTRYPOINT + effective CMD. The effective CMD is
-// override when nonempty (Pod command followed by args, or local run arguments),
-// otherwise the application CMD when declared, otherwise the runtime image CMD.
-func (p Process) Argv(runtimeEntrypoint, runtimeCmd, override []string) ([]string, error) {
-	cmd := runtimeCmd
-	if len(override) > 0 {
-		cmd = override
-	} else if app, declared := p.CMD(); declared {
-		cmd = app
+// Argv composes the runtime ENTRYPOINT with the effective application command
+// and args. Pod command replaces both launch fields; Pod args replaces only
+// launch args. When neither Pod field overrides the launch descriptor, the
+// runtime CMD is inherited only if both launch fields are omitted.
+func (p Process) Argv(runtimeEntrypoint, runtimeCmd, podCommand, podArgs []string) ([]string, error) {
+	var cmd []string
+	switch {
+	case len(podCommand) > 0:
+		cmd = append(slices.Clone(podCommand), podArgs...)
+	case len(podArgs) > 0:
+		if p.Command != nil {
+			cmd = append(cmd, (*p.Command)...)
+		}
+		cmd = append(cmd, podArgs...)
+	case p.Command != nil || p.Args != nil:
+		cmd, _ = p.CMD()
+	default:
+		cmd = runtimeCmd
 	}
 	argv := append(slices.Clone(runtimeEntrypoint), cmd...)
 	if len(argv) == 0 || argv[0] == "" {
-		return nil, fail("LaunchCommandRequired", "runtime image ENTRYPOINT and the effective CMD are both empty; set process.command in launch.json or an ENTRYPOINT/CMD in the runtime image")
+		return nil, fail("LaunchCommandRequired", "runtime image ENTRYPOINT and the effective command and args are empty; set process.command or process.args in launch.json or an ENTRYPOINT/CMD in the runtime image")
 	}
 	for _, s := range argv {
 		if strings.ContainsRune(s, 0) {

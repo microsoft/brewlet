@@ -299,12 +299,15 @@ func (e *NodeRetirementEvidence) DeepCopyObject() runtime.Object     { return e.
 func (e *NodeRetirementEvidenceList) DeepCopyObject() runtime.Object { return clone(e) }
 
 type NodeRuntime struct {
-	Install      string    `json:"install"`
-	State        string    `json:"state"`
-	Installed    bool      `json:"installed"`
-	InventoryUID types.UID `json:"inventoryUID"`
-	Generation   int64     `json:"generation"`
-	Digest       string    `json:"digest"`
+	Install              string    `json:"install"`
+	State                string    `json:"state"`
+	Installed            bool      `json:"installed"`
+	InventoryUID         types.UID `json:"inventoryUID"`
+	Generation           int64     `json:"generation"`
+	Digest               string    `json:"digest"`
+	Entrypoint           []string  `json:"entrypoint,omitempty"`
+	Cmd                  []string  `json:"cmd,omitempty"`
+	ExecutionConfigKnown bool      `json:"executionConfigKnown,omitempty"`
 }
 type Barrier struct {
 	ID           string    `json:"id"`

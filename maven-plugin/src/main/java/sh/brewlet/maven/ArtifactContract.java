@@ -35,9 +35,9 @@ final class ArtifactContract {
     record Env(String name, String value) {}
     /**
      * The application's downstream launch request. Like CMD in a Dockerfile built
-     * FROM the runtime image, command and args are appended to the runtime image
-     * ENTRYPOINT. A null list is omitted (inherit the runtime CMD); an empty list
-     * is an explicit, empty value.
+     * FROM the runtime image, command and args form the command portion after the
+     * fixed runtime image ENTRYPOINT. When both lists are null, the runtime CMD is
+     * inherited; an empty list is an explicit, empty value.
      */
     record Process(List<String> command, List<String> args, String workingDir, List<Env> env) {
         /** Downstream CMD (command then args), or null when both fields are omitted. */

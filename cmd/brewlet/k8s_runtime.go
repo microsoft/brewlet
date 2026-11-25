@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"sort"
@@ -95,7 +96,9 @@ const k8sStatusHelp = `Usage: brewlet k8s runtime status ID [--output table|json
 Show one RuntimeImage: approval conditions, the approved generation and digest,
 rotation progress (participants and excluded nodes), the operator's rolling-
 restart summary, per-node install state, containers bound to each generation
-(status.taskObservations) and live pods that select the ID.
+(status.taskObservations), runtime ENTRYPOINT/CMD observed on installed nodes,
+and live pods that select the ID. OnDemand runtimes report execution config
+after a node installs them.
 
 Examples:
   brewlet k8s runtime status python-3.12
@@ -233,7 +236,7 @@ func k8sRuntimeStatus(ctx context.Context, conn *k8sConn, args []string, stdout 
 	fmt.Fprintf(stdout, "\nNodes (%d):\n", len(nodes))
 	if len(nodes) > 0 {
 		w = tabwriter.NewWriter(stdout, 0, 4, 2, ' ', 0)
-		fmt.Fprintln(w, "  NODE\tPROFILE\tPLATFORM\tINSTALL\tLABEL\tSTATE\tGENERATION\tDIGEST")
+		fmt.Fprintln(w, "  NODE\tPROFILE\tPLATFORM\tINSTALL\tLABEL\tSTATE\tGENERATION\tDIGEST\tENTRYPOINT\tCMD")
 		for _, n := range nodes {
 			label := orDash(n.Label)
 			if n.Fenced {
@@ -243,7 +246,11 @@ func k8sRuntimeStatus(ctx context.Context, conn *k8sConn, args []string, stdout 
 			if n.Generation > 0 {
 				gen = fmt.Sprint(n.Generation)
 			}
-			fmt.Fprintf(w, "  %s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", n.Name, n.Profile, n.Platform, n.Install, label, orDash(n.State), gen, shortDigest(n.Digest))
+			entrypoint, cmd := "unknown", "unknown"
+			if n.ExecutionConfigKnown {
+				entrypoint, cmd = formatArgv(n.Entrypoint), formatArgv(n.Cmd)
+			}
+			fmt.Fprintf(w, "  %s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", n.Name, n.Profile, n.Platform, n.Install, label, orDash(n.State), gen, shortDigest(n.Digest), entrypoint, cmd)
 		}
 		w.Flush()
 	}
@@ -271,6 +278,11 @@ func k8sRuntimeStatus(ctx context.Context, conn *k8sConn, args []string, stdout 
 		w.Flush()
 	}
 	return nil
+}
+
+func formatArgv(argv []string) string {
+	data, _ := json.Marshal(argv)
+	return string(data)
 }
 
 func approvedCondition(im *api.RuntimeImage) *metav1.Condition {

@@ -43,8 +43,8 @@ The container is assembled the way the Brewlet shim does on a cluster:
     runtime image ENTRYPOINT followed by the launch.json command and args
     (the application's CMD); when launch.json omits both, the runtime image
     CMD is inherited, and an explicitly empty command/args clears it;
-  - ARGS after '--' replace the whole CMD, like Kubernetes 'args'; there is
-    no equivalent of Kubernetes 'command', which Brewlet ignores;
+  - ARGS after '--' replace launch.json args, like Kubernetes 'args', while
+    preserving launch.json command;
   - launch.json supplies the working directory (default /app) and
     environment, overriding the runtime image environment; -e overrides
     launch.json and PATH stays runtime-owned.
@@ -269,11 +269,11 @@ func runLocal(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 	if err != nil {
 		return err
 	}
-	var override []string
+	var podArgs []string
 	if hasExtra {
-		override = extra
+		podArgs = extra
 	}
-	processArgv, err := process.Argv(runtimeConfig.Entrypoint, runtimeConfig.Cmd, override)
+	processArgv, err := process.Argv(runtimeConfig.Entrypoint, runtimeConfig.Cmd, nil, podArgs)
 	if err != nil {
 		return fmt.Errorf("run: %w", err)
 	}

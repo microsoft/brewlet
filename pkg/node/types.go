@@ -42,14 +42,17 @@ type Metadata struct {
 	// Entrypoint and Cmd are the approved runtime image's ENTRYPOINT and CMD.
 	// The application launch request is composed onto them like a Dockerfile
 	// built FROM the runtime image.
-	Entrypoint       []string          `json:"entrypoint,omitempty"`
-	Cmd              []string          `json:"cmd,omitempty"`
-	UID              uint32            `json:"uid"`
-	GID              uint32            `json:"gid"`
-	VolumeMountPaths []string          `json:"volumeMountPaths,omitempty"`
-	Home             string            `json:"home"`
-	Homes            map[uint32]string `json:"homes"`
-	ValidatedAt      time.Time         `json:"validatedAt"`
+	Entrypoint           []string          `json:"entrypoint,omitempty"`
+	Cmd                  []string          `json:"cmd,omitempty"`
+	// ExecutionConfigKnown distinguishes new metadata with an empty config
+	// from older records that did not capture the runtime's process config.
+	ExecutionConfigKnown bool              `json:"executionConfigKnown,omitempty"`
+	UID                  uint32            `json:"uid"`
+	GID                  uint32            `json:"gid"`
+	VolumeMountPaths     []string          `json:"volumeMountPaths,omitempty"`
+	Home                 string            `json:"home"`
+	Homes                map[uint32]string `json:"homes"`
+	ValidatedAt          time.Time         `json:"validatedAt"`
 }
 
 func (m Metadata) Validate() error {

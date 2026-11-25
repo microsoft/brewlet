@@ -10,7 +10,7 @@
     "process": {
       "type": "object",
       "additionalProperties": false,
-      "description": "command and args form the downstream CMD appended to the runtime image ENTRYPOINT. Omitting both inherits the runtime image CMD; an explicitly empty value clears it.",
+      "description": "command and args form the application command portion after the fixed runtime image ENTRYPOINT. Omitting both inherits the runtime image CMD; an explicitly empty value clears it.",
       "properties": {
         "command": {"type":"array","prefixItems":[{"type":"string","minLength":1,"pattern":"^[^\\u0000]*$"}],"items":{"type":"string","pattern":"^[^\\u0000]*$"}},
         "args": {"type":"array","items":{"type":"string","pattern":"^[^\\u0000]*$"}},

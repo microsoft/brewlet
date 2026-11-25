@@ -317,24 +317,23 @@ type readCloser struct {
 	io.Closer
 }
 
-// resolve returns the protected application artifact and the Kubernetes args
-// recorded in the protected CRI container config. Kubernetes command is
-// deliberately not returned: the runtime image ENTRYPOINT is authoritative.
-func (s *service) resolve(ctx context.Context, id string, annotations map[string]string) (*artifact.Resolved, []string, error) {
+// resolve returns the protected application artifact and Kubernetes command
+// and args recorded in the protected CRI container config.
+func (s *service) resolve(ctx context.Context, id string, annotations map[string]string) (*artifact.Resolved, []string, []string, error) {
 	container, err := s.client.LoadContainer(ctx, id)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	info, err := container.Info(ctx)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	if strings.TrimSpace(info.Image) == "" {
-		return nil, nil, fmt.Errorf("protected container image identity missing")
+		return nil, nil, nil, fmt.Errorf("protected container image identity missing")
 	}
 	ext, ok := info.Extensions["io.cri-containerd.container.metadata"]
 	if !ok {
-		return nil, nil, fmt.Errorf("protected CRI metadata missing")
+		return nil, nil, nil, fmt.Errorf("protected CRI metadata missing")
 	}
 	var envelope struct {
 		Version  string `json:"Version"`
@@ -351,48 +350,48 @@ func (s *service) resolve(ctx context.Context, id string, annotations map[string
 		} `json:"Metadata"`
 	}
 	if err := json.Unmarshal(ext.GetValue(), &envelope); err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	cri := envelope.Metadata
 	if envelope.Version != "v1" || cri.ImageRef == "" || cri.Config.Image.Image != cri.ImageRef {
-		return nil, nil, fmt.Errorf("invalid protected CRI config identity")
+		return nil, nil, nil, fmt.Errorf("invalid protected CRI config identity")
 	}
 	requested := cri.Config.Image.Requested
 	ref, err := reference.ParseNormalizedNamed(requested)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	canonical, ok := ref.(reference.Canonical)
 	if !ok || canonical.Digest().Algorithm() != digest.SHA256 || canonical.Digest().Validate() != nil {
-		return nil, nil, fmt.Errorf("application image must be digest-pinned")
+		return nil, nil, nil, fmt.Errorf("application image must be digest-pinned")
 	}
 	if _, tagged := ref.(reference.Tagged); tagged {
-		return nil, nil, fmt.Errorf("tagged application image is unsupported")
+		return nil, nil, nil, fmt.Errorf("tagged application image is unsupported")
 	}
 	stamped, stampErr := reference.ParseNormalizedNamed(annotations["io.kubernetes.cri.image-name"])
 	if stampErr != nil || stamped.String() != canonical.String() {
-		return nil, nil, fmt.Errorf("protected CRI image-name does not match requested image")
+		return nil, nil, nil, fmt.Errorf("protected CRI image-name does not match requested image")
 	}
 	store := s.client.ContentStore()
 	contentCache := &artifact.ContentCache{Dir: filepath.Join(cacheRoot, ".content"), IsMissing: func(err error) bool { return errdefs.IsNotFound(err) || os.IsNotExist(err) }}
 	contentInfo, err := store.Info(ctx, canonical.Digest())
 	if err != nil && !errdefs.IsNotFound(err) {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	if err == nil && contentInfo.Size > 16<<20 {
-		return nil, nil, fmt.Errorf("image target metadata too large")
+		return nil, nil, nil, fmt.Errorf("image target metadata too large")
 	}
 	var target ocispec.Descriptor
 	if errdefs.IsNotFound(err) {
 		target, err = contentCache.Target(ctx, canonical.Digest())
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 	} else {
 		target = ocispec.Descriptor{Digest: canonical.Digest(), Size: contentInfo.Size}
 	}
 	if target.Size > 16<<20 {
-		return nil, nil, fmt.Errorf("image target metadata too large")
+		return nil, nil, nil, fmt.Errorf("image target metadata too large")
 	}
 	source := func(d ocispec.Descriptor) (io.ReadCloser, error) {
 		r, err := store.ReaderAt(ctx, d)
@@ -408,43 +407,41 @@ func (s *service) resolve(ctx context.Context, id string, annotations map[string
 			// original descriptor, without masking inconsistent source info.
 			retained, retainedErr := contentCache.Target(ctx, canonical.Digest())
 			if retainedErr != nil {
-				return nil, nil, retainedErr
+				return nil, nil, nil, retainedErr
 			}
 			if retained.Size != target.Size {
-				return nil, nil, fmt.Errorf("retained target differs from protected content info")
+				return nil, nil, nil, fmt.Errorf("retained target differs from protected content info")
 			}
 			target = retained
 		}
 		reader, err = contentCache.Open(ctx, source, target)
 	}
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	bytes, err := io.ReadAll(io.LimitReader(reader, 16<<20))
 	reader.Close()
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	var header struct {
 		MediaType string `json:"mediaType"`
 	}
 	if err := json.Unmarshal(bytes, &header); err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	target.MediaType = header.MediaType
 	open := func(d ocispec.Descriptor) (io.ReadCloser, error) { return contentCache.Open(ctx, source, d) }
 	resolved, err := resolveNativeArtifact(ctx, open, target, brewletplatform.Native())
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	if string(resolved.Manifest.Config.Digest) != cri.ImageRef {
-		return nil, nil, fmt.Errorf("LaunchConfigMismatch: selected manifest config differs from protected CRI config identity")
+		return nil, nil, nil, fmt.Errorf("LaunchConfigMismatch: selected manifest config differs from protected CRI config identity")
 	}
 	resolved.ContentRoots = contentCache.References()
 	resolved.Reference = canonical.String()
-	// Pod command and args together replace the application CMD; the runtime
-	// image ENTRYPOINT still runs first.
-	return resolved, append(slices.Clone(cri.Config.Command), cri.Config.Args...), nil
+	return resolved, slices.Clone(cri.Config.Command), slices.Clone(cri.Config.Args), nil
 }
 
 func (s *service) assemble(ctx context.Context, r *taskapi.CreateTaskRequest, spec *specs.Spec) error {
@@ -470,7 +467,7 @@ func (s *service) assemble(ctx context.Context, r *taskapi.CreateTaskRequest, sp
 			return &node.Error{Reason: "UnsupportedAnnotation", Detail: key}
 		}
 	}
-	resolved, podCmd, err := s.resolve(ctx, r.ID, spec.Annotations)
+	resolved, podCommand, podArgs, err := s.resolve(ctx, r.ID, spec.Annotations)
 	if err != nil {
 		return err
 	}
@@ -505,9 +502,9 @@ func (s *service) assemble(ctx context.Context, r *taskapi.CreateTaskRequest, sp
 	if err := validateRuntimeHostPlatform(lease.Metadata.Platform, brewletplatform.Native()); err != nil {
 		return err
 	}
-	// Compose argv like a Dockerfile built FROM the approved runtime image:
-	// runtime ENTRYPOINT + (Kubernetes args | application CMD | runtime CMD).
-	argv, err := resolved.Launch.Process.Argv(lease.Metadata.Entrypoint, lease.Metadata.Cmd, podCmd)
+	// Keep the runtime ENTRYPOINT fixed while applying Kubernetes overrides to
+	// the application command and args.
+	argv, err := resolved.Launch.Process.Argv(lease.Metadata.Entrypoint, lease.Metadata.Cmd, podCommand, podArgs)
 	if err != nil {
 		return err
 	}
