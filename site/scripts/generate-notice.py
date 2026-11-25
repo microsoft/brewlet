@@ -11,7 +11,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-MATERIAL_VERSION = "9.8.1"
+MATERIAL_VERSION = "9.8.2"
 HEADER = """NOTICES AND INFORMATION
 Do Not Translate or Localize
 
