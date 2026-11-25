@@ -107,11 +107,10 @@ distinct from real-node evidence. See the
    selected runtime generation. Running tasks retain that generation across
    rotations.
 
-There is no language detection, default runtime selection, JVM flag injection,
-`JavaApplication` resource, or 0.x compatibility. The shared RuntimeClass reserves
-`64Mi` memory and `50m` CPU per pod for shim and staging overhead, not for the
-language runtime. Workload requests and limits must cover the entire application
-process, including its interpreter or VM.
+The `brewlet` RuntimeClass adds a configurable per-Pod scheduling reservation
+for shim and staging overhead. Workload requests and limits must cover the entire
+application process, including its interpreter or VM. See the
+[resource guidance](docs/resources.md) for details.
 
 ## Subprojects
 
