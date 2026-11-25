@@ -842,6 +842,14 @@ class SafetyTests(ProjectWork):
 
 
 class ContractTests(ProjectWork):
+    def test_runtime_cmd_variant_omits_only_launch_command_and_args(self):
+        descriptor = h.runtime_cmd_variant_descriptor(h.FIXTURES / "python" / "launch.json")
+        process = descriptor["process"]
+        self.assertNotIn("command", process)
+        self.assertNotIn("args", process)
+        self.assertEqual("/app", process["workingDir"])
+        self.assertIn({"name": "PYTHONPATH", "value": "/app/dependencies"}, process["env"])
+
     def test_maven_launch_normalization_preserves_omitted_command(self):
         omitted = maven_conformance_module.normalized({"args": ["runner"]})
         self.assertIsNone(omitted["command"])

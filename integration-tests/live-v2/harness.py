@@ -245,6 +245,14 @@ def artifact_target(layout):
     return descriptor["digest"], roles
 
 
+def runtime_cmd_variant_descriptor(launch_file):
+    descriptor = json.loads(launch_file.read_text())
+    process = descriptor["process"]
+    process.pop("command", None)
+    process.pop("args", None)
+    return descriptor
+
+
 class Harness:
     def __init__(self, work, *, timeout=600, pinned=True, scenario="complete",
                  retain_on_failure=False, local_language=None):
@@ -734,7 +742,7 @@ class Harness:
         if "python" in self.languages:
             variant = "python-runtime-cmd"
             launch = self.work / (variant + "-launch.json")
-            launch.write_text(json.dumps({"schemaVersion": 1, "process": {}}))
+            launch.write_text(json.dumps(runtime_cmd_variant_descriptor(self.launch_file("python"))))
             tag = f"registry.brewlet.test/{self.run_id}/apps/{variant}:v2"
             layout = self.work / ("oci-" + variant)
             command = [*self.cli_command, "build", tag, "--store", layout,
