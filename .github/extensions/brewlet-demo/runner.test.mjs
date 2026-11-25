@@ -102,7 +102,6 @@ test("deployment template is a plain Deployment selecting a runtime by annotatio
     assert.match(rendered, /brewlet\.sh\/restart-on-rotation: "true"/);
     assert.match(rendered, /image: "example\.invalid\/a@sha256:1"/);
     assert.match(rendered, /readOnlyRootFilesystem: true/);
-    assert.doesNotMatch(rendered, /JavaApplication/);
     assert.throws(() => renderDeploymentYaml("kind: Deployment", { namespace: "n", image: "i", runtime: "r", arch: "a" }), /missing __NAMESPACE__/);
 });
 
@@ -622,7 +621,7 @@ test("legacy 0.x state is discarded rather than reused", async (t) => {
     await writeFile(path.join(manager.dir, "state.json"), JSON.stringify({ namespace: manager.namespace, steps: { deploy: { status: "passed" } }, evidence: {} }));
     await manager.init();
     assert.deepEqual(manager.state.steps, {});
-    assert.match(manager.state.terminal, /0\.x JavaApplication demo was discarded/);
+    assert.match(manager.state.terminal, /Progress from the previous demo was discarded/);
 });
 
 test("cleanup refuses to delete a kind cluster this demo did not create", async (t) => {

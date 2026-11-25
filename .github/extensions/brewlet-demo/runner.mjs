@@ -529,7 +529,7 @@ export class DemoManager extends EventEmitter {
         }
         if (this.state.legacy) {
             delete this.state.legacy;
-            this.log("\nBrewlet demo enabled. Progress from the 0.x JavaApplication demo was discarded; its Docker Desktop resources are not touched.\n");
+            this.log("\nBrewlet demo enabled. Progress from the previous demo was discarded; its Docker Desktop resources are not touched.\n");
         }
         await this.save();
     }
