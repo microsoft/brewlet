@@ -102,7 +102,6 @@ test("deployment template is a plain Deployment selecting a runtime by annotatio
     assert.match(rendered, /brewlet\.sh\/restart-on-rotation: "true"/);
     assert.match(rendered, /image: "example\.invalid\/a@sha256:1"/);
     assert.match(rendered, /readOnlyRootFilesystem: true/);
-    assert.doesNotMatch(rendered, /JavaApplication/);
     assert.throws(() => renderDeploymentYaml("kind: Deployment", { namespace: "n", image: "i", runtime: "r", arch: "a" }), /missing __NAMESPACE__/);
 });
 
@@ -615,14 +614,15 @@ test("steps enforce prerequisites, invalidate downstream work and persist across
     await assert.rejects(new DemoManager(dir, "other-session").init(), /does not match/);
 });
 
-test("legacy 0.x state is discarded rather than reused", async (t) => {
+test("unsupported demo state schema is rejected without replacing the state", async (t) => {
     const dir = await workspace(t);
     const manager = new DemoManager(dir, "s");
     await mkdir(manager.dir, { recursive: true });
-    await writeFile(path.join(manager.dir, "state.json"), JSON.stringify({ namespace: manager.namespace, steps: { deploy: { status: "passed" } }, evidence: {} }));
-    await manager.init();
-    assert.deepEqual(manager.state.steps, {});
-    assert.match(manager.state.terminal, /0\.x JavaApplication demo was discarded/);
+    const saved = { schema: 99, namespace: manager.namespace, steps: {}, evidence: {} };
+    const stateFile = path.join(manager.dir, "state.json");
+    await writeFile(stateFile, JSON.stringify(saved));
+    await assert.rejects(manager.init(), /Unsupported demo state schema/);
+    assert.deepEqual(JSON.parse(await readFile(stateFile, "utf8")), saved);
 });
 
 test("cleanup refuses to delete a kind cluster this demo did not create", async (t) => {

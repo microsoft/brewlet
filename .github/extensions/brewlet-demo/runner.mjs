@@ -484,14 +484,11 @@ export class DemoManager extends EventEmitter {
         try {
             const saved = JSON.parse(await readFile(path.join(this.dir, "state.json"), "utf8"));
             if (saved.namespace !== this.namespace) throw new Error("Saved demo namespace does not match this session.");
-            if (saved.schema !== 2) {
-                this.state.legacy = true;
-            } else {
-                this.state = saved;
-                if (this.state.active) {
-                    this.state.steps[this.state.active] = { status: "interrupted", error: "Extension restarted. Run the step again." };
-                    this.state.active = null;
-                }
+            if (saved.schema !== 2) throw new Error("Unsupported demo state schema.");
+            this.state = saved;
+            if (this.state.active) {
+                this.state.steps[this.state.active] = { status: "interrupted", error: "Extension restarted. Run the step again." };
+                this.state.active = null;
             }
             this.state.localURL = null;
             this.state.clusterURL = null;
@@ -526,10 +523,6 @@ export class DemoManager extends EventEmitter {
             if (previousScenario !== "temurin-25-golden-jdk") this.state.privateRuntime = null;
             this.state.scenario = "temurin-25-same-id-rotation";
             if (this.state.cluster?.created) this.log("\nDemo now rotates the existing temurin-25 RuntimeImage by digest. Remove the existing private cluster, then prepare again. Rebuild the golden runtime only if it is not already verified.\n");
-        }
-        if (this.state.legacy) {
-            delete this.state.legacy;
-            this.log("\nBrewlet demo enabled. Progress from the 0.x JavaApplication demo was discarded; its Docker Desktop resources are not touched.\n");
         }
         await this.save();
     }

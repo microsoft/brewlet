@@ -78,9 +78,6 @@ func (w *Worker) recoveryPlan(ctx context.Context, s *control.Snapshot) (recover
 			return p, fmt.Errorf("node-advertisement-failed: invalid retained runtime baseline label")
 		}
 		for key, value := range s.Node.Labels {
-			if strings.HasPrefix(key, "brewlet.sh/jdk.") || strings.HasPrefix(key, "brewlet.sh/jdk-feature.") {
-				return p, fmt.Errorf("node-advertisement-failed: obsolete retained capability %s requires pool correction", key)
-			}
 			if !strings.HasPrefix(key, "brewlet.sh/runtime.") {
 				continue
 			}

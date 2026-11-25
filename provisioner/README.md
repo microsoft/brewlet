@@ -226,12 +226,12 @@ after actual execution do not turn application failures into deferred installs.
 The worker checks all IDs before publication and repeats the checks after
 advertisement readback, before removing the startup fence. Target changes in an
 otherwise unaffected ID block release. Retained capability keys, values and
-install modes must be valid and offered. Unknown, obsolete or nonoffered labels
-are not silently deleted or normalized while fenced: actual pool correction is
-required. OnDemand mutability is re-probed during recovery even if an earlier
-healthy probe succeeded; provider refusal preserves its label and the confirmed
-node-wide fence. Node readiness, schedulability, UID-bound ownership and current
-profile authority must also pass.
+install modes must be valid and offered. Invalid or nonoffered runtime capability
+labels are not silently deleted or normalized while fenced: actual pool
+correction is required. OnDemand mutability is re-probed during recovery even if
+an earlier healthy probe succeeded; provider refusal preserves its label and
+the confirmed node-wide fence. Node readiness, schedulability, UID-bound
+ownership and current profile authority must also pass.
 Unexpected nonoffered capabilities on a previously healthy node trigger freshly
 authorized withdrawal before host work. A real provider refusal must establish
 and read back the node-wide startup fence; logging a publication error while

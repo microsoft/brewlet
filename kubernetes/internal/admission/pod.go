@@ -44,11 +44,6 @@ func (m *PodMutator) Mutate(ctx context.Context, p *corev1.Pod) ([]string, error
 	if err != nil {
 		return nil, err
 	}
-	for _, k := range []string{"brewlet.sh/jdk", "brewlet.sh/jvm-args", "brewlet.sh/arch"} {
-		if _, ok := p.Annotations[k]; ok {
-			return nil, fmt.Errorf("UnsupportedAnnotation: %s", k)
-		}
-	}
 	ids := workload.DistinctRuntimeIDs(selections)
 	if len(ids) == 0 {
 		return nil, nil

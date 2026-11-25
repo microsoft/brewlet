@@ -51,9 +51,8 @@ def publication(h, language):
     diagnostics = json.loads(node["metadata"].get("annotations", {}).get("brewlet.sh/runtime-images", "{}"))
     require(labels.get("brewlet.sh/runtime") == "ready"
             and labels.get("brewlet.sh/runtime." + IDS[language]) == "ready"
-            and diagnostics[IDS[language]]["generation"] == metadata["generation"]
-            and not any(key.startswith(("brewlet.sh/jdk.", "brewlet.sh/jdk-feature.")) for key in labels),
-            "v2 readiness/diagnostics disagree or legacy JDK labels are published")
+            and diagnostics[IDS[language]]["generation"] == metadata["generation"],
+            "runtime readiness and diagnostics disagree")
     h.record(language + " actual root publication binds protected epoch, generation, source and v2 readiness",
              {"nodeUID": h.node_uid, "runtime": metadata, "immutableDirectory": expected,
               "permissions": permissions}, ["ROOT-04", "PROF-04", "LABEL-01"])

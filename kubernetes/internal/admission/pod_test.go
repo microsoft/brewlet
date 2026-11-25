@@ -200,7 +200,6 @@ func TestSecurityAndSelectionDenials(t *testing.T) {
 	}{
 		"empty runtime":  {func(p *corev1.Pod) { p.Annotations["runtime-image.brewlet.sh/app"] = "" }, "InvalidRuntimeImageID"},
 		"digest runtime": {func(p *corev1.Pod) { p.Annotations["runtime-image.brewlet.sh/app"] = "python@sha256:a" }, "InvalidRuntimeImageID"},
-		"legacy":         {func(p *corev1.Pod) { p.Annotations["brewlet.sh/jdk"] = "21" }, "UnsupportedAnnotation"},
 		"root":           {func(p *corev1.Pod) { p.Spec.SecurityContext = &corev1.PodSecurityContext{RunAsUser: ptr(int64(0))} }, "RootNotSupported"},
 		"primary root group": {func(p *corev1.Pod) {
 			p.Spec.SecurityContext = &corev1.PodSecurityContext{RunAsGroup: ptr(int64(0))}

@@ -47,7 +47,6 @@ class ConformanceTest {
         assertEquals(List.of(), ArtifactContract.parseLaunch(
                 "{\"schemaVersion\":1,\"process\":{\"command\":[]}}").process().cmd());
         for (String invalid : List.of("", "{}", "[]", "{\"schemaVersion\":1}",
-                "{\"schemaVersion\":1,\"process\":{\"entrypoint\":[\"java\"]}}",
                 "{\"schemaVersion\":1,\"process\":{\"command\":[\"\"]}}", "{\"schemaVersion\":1,\"process\":{\"command\":[\"a\\u0000\"]}}",
                 "{\"schemaVersion\":1,\"process\":{\"command\":[\"a\"]}} {}",
                 "{\"schemaVersion\":1,\"process\":{\"command\":[\"a\"],\"env\":[{\"name\":\"A=B\",\"value\":\"\"}]}}")) {

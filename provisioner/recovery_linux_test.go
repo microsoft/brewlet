@@ -237,7 +237,7 @@ func (c recoveryPinClient) Update(ctx context.Context, object client.Object, opt
 	return c.Client.Update(ctx, object, opts...)
 }
 func TestRecoveryPreservesStaleKeysAndProviderPinnedOnDemandEvidence(t *testing.T) {
-	for _, key := range []string{"brewlet.sh/runtime.retired", "brewlet.sh/runtime.Bad", "brewlet.sh/jdk.stale", "brewlet.sh/runtime.static"} {
+	for _, key := range []string{"brewlet.sh/runtime.retired", "brewlet.sh/runtime.Bad", "brewlet.sh/runtime.static"} {
 		t.Run(key, func(t *testing.T) {
 			mode := "Eager"
 			value := "ready"

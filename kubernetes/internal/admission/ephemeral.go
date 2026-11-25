@@ -43,9 +43,6 @@ func (h *PodHandler) ephemeralUpdate(ctx context.Context, req webhook.Request, p
 		candidate.Spec.Tolerations = nil
 		candidate.Spec.Affinity = nil
 		candidate.Spec.NodeSelector = nil
-		for _, key := range []string{"brewlet.sh/jdk", "brewlet.sh/jvm-args", "brewlet.sh/arch"} {
-			delete(candidate.Annotations, key)
-		}
 		if candidate.Spec.SecurityContext == nil {
 			candidate.Spec.SecurityContext = &corev1.PodSecurityContext{}
 		}
