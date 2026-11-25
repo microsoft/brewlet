@@ -1113,9 +1113,14 @@ class Harness:
             previous = container.get("lastState", {})
             if "terminated" in previous and application_started({"state": previous}):
                 stopped = previous["terminated"]
+                logs = self.kubectl("-n", self.namespace, "logs", name, "-c",
+                                    container.get("name", "app"), "--previous", "--tail=80",
+                                    check=False)
+                log_output = (logs.stdout + logs.stderr).strip()[-4000:]
                 raise Failure(f'positive application {name} actually exited before readiness: '
                               f'{container.get("name", "")}: {stopped.get("reason", "")} '
-                              f'exit={stopped.get("exitCode")} {stopped.get("message", "")}')
+                              f'exit={stopped.get("exitCode")} {stopped.get("message", "")}'
+                              + (f'\nprevious container logs:\n{log_output}' if log_output else ""))
         if status.get("phase") in ("Failed", "Succeeded"):
             details = [status.get("message", "")]
             for container in status.get("containerStatuses", []):
