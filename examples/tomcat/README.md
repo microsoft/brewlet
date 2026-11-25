@@ -12,6 +12,22 @@ image, stripping those bits and any file capabilities, passed node validation.
 For the variant where the platform team owns Catalina's `conf/` and launcher,
 see the [hardened Tomcat experiment](../tomcat-hardened/).
 
+## Runtime composition
+
+```mermaid
+flowchart TB
+    app["Application artifact<br/>ROOT.war + Catalina conf/ + launch.json"]
+    runtime["Platform golden runtime<br/>JDK + Tomcat"]
+    brewlet["Brewlet<br/>Read-only runtime root + /app"]
+    tomcat["Tomcat JVM<br/>catalina.home: /usr/local/tomcat<br/>catalina.base: /app/tomcat"]
+    scratch["Writable /tmp"]
+
+    app --> brewlet
+    runtime --> brewlet
+    brewlet --> tomcat
+    tomcat -.->|JSP compilation| scratch
+```
+
 ## Inputs actually tested
 
 Release discovery and experiment: November 24, 2026 (US Eastern).

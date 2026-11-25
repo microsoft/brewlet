@@ -15,6 +15,22 @@ The launch-ownership gap is tracked in
 [#422](https://github.com/microsoft/brewlet/issues/422). No additional Kubernetes
 admission-policy workaround is included.
 
+## Runtime composition
+
+```mermaid
+flowchart TB
+    app["Application artifact<br/>App-team ROOT.war<br/>Platform-provided launch.json"]
+    runtime["Platform golden runtime<br/>JDK + Tomcat<br/>Catalina conf/ + launcher"]
+    brewlet["Brewlet<br/>Read-only runtime root + /app"]
+    tomcat["Tomcat JVM<br/>catalina.home: /usr/local/tomcat<br/>catalina.base: /opt/brewlet/tomcat"]
+    scratch["Writable /tmp"]
+
+    app --> brewlet
+    runtime --> brewlet
+    brewlet --> tomcat
+    tomcat -.->|JSP compilation| scratch
+```
+
 ## Runtime configuration ownership
 
 | Component | Owner / enforcement |
