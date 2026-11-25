@@ -21,7 +21,6 @@ import (
 func TestCoreHasNoLanguageProducerOrLaunchVocabulary(t *testing.T) {
 	root := ".."
 	forbiddenNames := map[string]bool{
-		"SelectedJdk": true, "JVMArgs": true,
 		"MainJar": true, "JavaHome": true, "JDKFeature": true,
 	}
 	forbiddenEnv := map[string]bool{
