@@ -24,18 +24,22 @@ mvn sh.brewlet:brewlet-maven-plugin:0.11.1:conformance \
 The result file contains normalized process fields and reason codes per case.
 Any failing case fails Maven without replacing an existing result. The
 integration harness checks every fixture and also publishes the applicable
-launch, runtime-ID and platform cases through the actual CLI `push` goal.
+launch, runtime-ID and platform cases through the `build` goal and the actual CLI.
 
-Package and publish in the same Maven invocation:
+The `build` and `push` goals mirror `brewlet build` and `brewlet push`.
+`build` writes an OCI layout (default `target/brewlet/oci`) and never
+contacts a registry; `push` uploads that layout unchanged. Package, build and
+publish in the same Maven invocation:
 
 ```sh
-mvn package sh.brewlet:brewlet-maven-plugin:0.11.1:push \
+mvn package sh.brewlet:brewlet-maven-plugin:0.11.1:build sh.brewlet:brewlet-maven-plugin:0.11.1:push \
   -Dbrewlet.image=registry.example.com/apps/example:v2 \
   -Dbrewlet.platforms=linux/amd64,linux/arm64 \
   -Dbrewlet.mainClass=example.Main
 ```
 
-Use `-Dbrewlet.store=/absolute/path/to/oci` for local publication,
+Omit `push` to build locally only. Use `-Dbrewlet.store=/absolute/path/to/oci`
+to select another layout for both goals,
 `-Dbrewlet.executable=/absolute/path/to/brewlet` to select the installed CLI,
 or `-Dbrewlet.launch=/path/to/launch.json` for an authoritative hand-written
 descriptor. The producer never supplies a platform default.
@@ -71,7 +75,7 @@ filenames, descriptor authority, AppCDS and goal execution with a recording CLI.
 `ConformanceTest` requires every case in `../conformance/artifact-v1.json`
 to pass the Java evaluator.
 
-For real CLI integration, install the matching plugin and use `package ...:push`
+For real CLI integration, install the matching plugin and use `package ...:build`
 as above. The executable is selectable with
 `-Dbrewlet.executable=/absolute/path/to/cli-wrapper`; on hosts that attach
 unremovable filesystem xattrs, package inside the existing Linux integration

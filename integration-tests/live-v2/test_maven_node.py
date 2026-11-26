@@ -49,9 +49,9 @@ class MavenNodeTests(unittest.TestCase):
         self.assertEqual(h.delivery.publish.call_count, 1)
         commands = [list(map(str, call.args[0])) for call in h.run.call_args_list]
         self.assertEqual(len(commands), 2)
-        pushes = [command for command in commands if any(a.endswith(":push") for a in command)]
-        self.assertEqual(len(pushes), 1)
-        for command in pushes:
+        builds = [command for command in commands if any(a.endswith(":build") for a in command)]
+        self.assertEqual(len(builds), 1)
+        for command in builds:
             self.assertIn("-Dbrewlet.platforms=linux/amd64,linux/arm64", command)
             self.assertIn("-Dbrewlet.executable=" + str(self.work / "maven-brewlet"), command)
         for call in h.run.call_args_list:

@@ -11,8 +11,8 @@ For a walkthrough and framework-specific alternatives, see
 
 - Java 17 or later to run Maven and the plugin.
 - A Brewlet CLI matching the plugin version, available on `PATH` or specified
-  with `brewlet.executable` for the `push` goal.
-- A packaged project JAR and explicit image reference and platforms for `push`.
+  with `brewlet.executable` for the `build` and `push` goals.
+- A packaged project JAR and explicit image reference and platforms for `build`.
 - Registry credentials, when the registry requires them, in the environment
   (see [Registry access](#registry-access)).
 
@@ -30,15 +30,18 @@ Use the plugin version matching the CLI. The examples below use `0.11.0`.
 
 | Goal | Purpose |
 | --- | --- |
-| `push` | Prepare the Java layers and launch descriptor, build an OCI layout and, unless `store` is set, push it to a registry. Requires runtime dependency resolution; its default lifecycle phase is `package` when configured in an execution. |
+| `build` | Prepare the Java layers and launch descriptor and run `brewlet build` to write a local OCI layout. Never contacts a registry. Requires runtime dependency resolution; its default lifecycle phase is `package` when configured in an execution. |
+| `push` | Run `brewlet push` to upload the layout written by `build`, byte for byte. Does not rebuild; fails if no build exists. Its default lifecycle phase is `deploy` when configured in an execution. |
 | `conformance` | Evaluate shared artifact fixtures with the plugin's independent Java implementation. Does not require the Brewlet CLI. |
 
-### `push`
+### `build`
 
-Package the project before invoking the goal in the same Maven command:
+The goals mirror the CLI's [`build` and `push`](cli-reference.md#build-and-publish) commands.
+Package the project before invoking `build` in the same Maven command, and
+add `push` to publish the result:
 
 ```sh
-mvn package sh.brewlet:brewlet-maven-plugin:0.11.0:push \
+mvn package sh.brewlet:brewlet-maven-plugin:0.11.0:build sh.brewlet:brewlet-maven-plugin:0.11.0:push \
   -Dbrewlet.image=registry.example.com/apps/orders:v2 \
   -Dbrewlet.platforms=linux/amd64,linux/arm64 \
   -Dbrewlet.mainClass=com.example.Main
@@ -61,14 +64,16 @@ At least a main class, a module or an explicit launch descriptor is required.
 #### Configuration
 
 Set scalar options in the POM or with the listed Maven properties. The list
-option `javaArgs` is POM configuration, not a `-D` property.
+option `javaArgs` is POM configuration, not a `-D` property. Only `image`,
+`executable` and `store` apply to `push`; set them to the same values for both
+goals.
 
 | POM configuration | Maven property | Optional | Default | Meaning |
 | --- | --- | --- | --- | --- |
 | `image` | `brewlet.image` | No | None | Image reference. |
 | `platforms` | `brewlet.platforms` | No | None | Explicit platform list, such as `linux/amd64,linux/arm64`. |
 | `executable` | `brewlet.executable` | Yes | `brewlet` | CLI executable or path. |
-| `store` | `brewlet.store` | Yes | Generated layout in the project build directory; push to registry | OCI layout directory. When set, build locally without pushing. |
+| `store` | `brewlet.store` | Yes | `${project.build.directory}/brewlet/oci` | OCI layout that `build` writes and `push` uploads. |
 | `launch` | `brewlet.launch` | Yes | Generated descriptor | Path to an authoritative version-1 launch descriptor. The plugin validates it but does not rewrite it. |
 | `mainClass` | `brewlet.mainClass` | Yes | JAR's `Main-Class`, if present | Main class for the generated descriptor. |
 | `module` | `brewlet.module` | Yes | None | JPMS module name; also places dependencies under `/app/mods`. |
@@ -109,8 +114,8 @@ Runtime rotation can change the JDK build, so archive use is best-effort.
 
 #### Registry access
 
-The plugin has no credential or TLS options. When it pushes, it runs
-`brewlet push` as a child process that inherits Maven's environment, so you
+Only the `push` goal contacts a registry. The plugin has no credential or TLS
+options; `push` runs `brewlet push` as a child process that inherits Maven's environment, so you
 configure registry access with the same environment variables as the
 [CLI](cli-reference.md#registry-access):
 
@@ -126,7 +131,7 @@ Set them in the shell or CI step that runs Maven:
 export BREWLET_REGISTRY_USERNAME=ci-bot
 export BREWLET_REGISTRY_PASSWORD="$REGISTRY_TOKEN"
 export SSL_CERT_FILE=/etc/ssl/private-registry-ca.pem   # only for a private CA
-mvn package sh.brewlet:brewlet-maven-plugin:0.11.0:push \
+mvn package sh.brewlet:brewlet-maven-plugin:0.11.0:build sh.brewlet:brewlet-maven-plugin:0.11.0:push \
   -Dbrewlet.image=registry.example.com/apps/orders:v2 \
   -Dbrewlet.platforms=linux/amd64,linux/arm64 \
   -Dbrewlet.mainClass=com.example.Main
@@ -140,12 +145,12 @@ them out of source control; see
 Registries on `localhost` or `127.0.0.1` are reached over plain HTTP; all
 other registries use HTTPS. The plugin cannot pass the CLI's `--insecure` or
 `--registry-scheme` flags. To push to a plain-HTTP registry on another host,
-or to a loopback registry over TLS, build with `store` and run
-`brewlet push` with those flags yourself.
+or to a loopback registry over TLS, run only `build` and then
+`brewlet push --store target/brewlet/oci` with those flags yourself.
 
 A rejected login or an untrusted certificate fails the Maven build, and no
-tag is written. With `store` set, the plugin does not contact a registry and
-needs none of these variables.
+tag is written. The `build` goal does not contact a registry and needs none
+of these variables.
 
 ### `conformance`
 

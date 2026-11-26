@@ -93,8 +93,8 @@ class MojoContractTest {
         assertThrows(MojoExecutionException.class, mojo::execute);
     }
 
-    @Test void pushPackagesRuntimeLibrariesAndApplicationAsSeparateAppLayers() throws Exception {
-        PushMojo mojo = new PushMojo();
+    @Test void buildPackagesRuntimeLibrariesAndApplicationAsSeparateAppLayers() throws Exception {
+        BuildMojo mojo = new BuildMojo();
         MavenProject project = project();
         Path provided = Files.writeString(temp.resolve("provided.jar"), "provided");
         project.getArtifacts().add(artifact("provided", "provided", provided));
@@ -104,11 +104,9 @@ class MojoContractTest {
         set(mojo, "mainClass", "example.Main");
         mojo.execute();
         List<String> argv = Files.readAllLines(temp.resolve("argv"));
-        assertEquals("build", argv.get(0));
-        int push = argv.lastIndexOf("push");
-        assertTrue(push > 0, "build without a store must be followed by push");
-        assertEquals(List.of("push", "registry.test/app:v2", "--store",
-                argv.get(argv.indexOf("--store") + 1)), argv.subList(push, argv.size()));
+        assertEquals(List.of("build", "registry.test/app:v2", "--store",
+                temp.resolve("target/brewlet/oci").toString()), argv.subList(0, 4));
+        assertFalse(argv.contains("push"), "build must not publish");
         assertEquals(2, argv.stream().filter("--layer"::equals).count());
         String libraryLayer = argv.get(argv.indexOf("--layer") + 1);
         assertTrue(libraryLayer.endsWith(":/app/lib"));
@@ -121,8 +119,8 @@ class MojoContractTest {
         assertTrue(Files.isRegularFile(application.resolve("app.jar")));
     }
 
-    @Test void pushValidatesPlatformsBeforeTheCli() throws Exception {
-        PushMojo mojo = new PushMojo();
+    @Test void buildValidatesPlatformsBeforeTheCli() throws Exception {
+        BuildMojo mojo = new BuildMojo();
         MavenProject project = project();
         project.getProperties().setProperty("maven.compiler.release", "21");
         initialize(mojo, project);
@@ -136,8 +134,8 @@ class MojoContractTest {
         mojo.execute();
     }
 
-    @Test void pushRejectsUnresolvedRuntimeDependenciesBeforeCallingCli() throws Exception {
-        PushMojo mojo = new PushMojo();
+    @Test void buildRejectsUnresolvedRuntimeDependenciesBeforeCallingCli() throws Exception {
+        BuildMojo mojo = new BuildMojo();
         MavenProject project = project();
         project.getArtifacts().add(artifact("unresolved", "compile", temp.resolve("unused.jar")));
         project.getArtifacts().stream().filter(a -> a.getArtifactId().equals("unresolved"))
@@ -151,4 +149,17 @@ class MojoContractTest {
         assertFalse(Files.exists(temp.resolve("argv")));
     }
 
+    @Test void pushUploadsTheExistingBuildLayoutOnly() throws Exception {
+        PushMojo mojo = new PushMojo();
+        initialize(mojo, project());
+        set(mojo, "image", "registry.test/app:v2");
+        MojoExecutionException missing = assertThrows(MojoExecutionException.class, mojo::execute);
+        assertTrue(missing.getMessage().contains("brewlet:build"), missing.getMessage());
+        assertFalse(Files.exists(temp.resolve("argv")));
+        Path layout = Files.createDirectories(temp.resolve("target/brewlet/oci"));
+        Files.writeString(layout.resolve("index.json"), "{}");
+        mojo.execute();
+        assertEquals(List.of("push", "registry.test/app:v2", "--store", layout.toString()),
+                Files.readAllLines(temp.resolve("argv")));
+    }
 }
