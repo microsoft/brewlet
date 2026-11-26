@@ -85,7 +85,7 @@ package that layout unchanged and write a launch descriptor that matches it.
 | [Quarkus fast-jar](#quarkus) (default) | The **whole** `quarkus-app/` directory | `java -jar /app/quarkus-run.jar` |
 | Quarkus uber-jar | The single `*-runner.jar` | `java -jar /app/app.jar` |
 | [Plain Java thin JAR](#plain-java-applications-and-the-maven-plugin) | Application JAR plus dependency JARs | `java --class-path '/app/app.jar:/app/lib/*' com.example.Main` |
-| [WAR or EAR on a platform-provided application server](#war-and-ear-applications-on-a-platform-provided-servlet-container) | The `.war` or `.ear`, plus any server configuration the platform delegates to the application | The server's own bootstrap class from the runtime image, for example `java -classpath /usr/local/tomcat/bin/bootstrap.jar:... org.apache.catalina.startup.Bootstrap start` |
+| [WAR or EAR on a platform-provided application server](#war-and-ear-applications-on-a-platform-provided-application-server) | The `.war` or `.ear`, plus any server configuration the platform delegates to the application | The server's own bootstrap class from the runtime image, for example `java -classpath /usr/local/tomcat/bin/bootstrap.jar:... org.apache.catalina.startup.Bootstrap start` |
 
 Two mistakes cause most first-run failures:
 
@@ -461,21 +461,23 @@ plugin does not understand framework packaging formats:
   Spring Boot recipes above rather than the plugin.
 - For **WAR** and **EAR** projects, package the archive with the generic CLI
   as shown in
-  [WAR and EAR applications](#war-and-ear-applications-on-a-platform-provided-servlet-container);
+  [WAR and EAR applications](#war-and-ear-applications-on-a-platform-provided-application-server);
   the plugin does not handle these packaging types.
 
 There is no Gradle plugin. Gradle builds call the same `brewlet build` and
 `brewlet push` commands, for example from an `Exec` task or a CI step after
 `./gradlew build`.
 
-## WAR and EAR applications on a platform-provided servlet container
+## WAR and EAR applications on a platform-provided application server
 
 An application server can move into infrastructure along with the JVM. The
 platform team builds a runtime image containing the JDK and, for example,
 Apache Tomcat, while the application artifact carries only the WAR, any
 server configuration the platform leaves to the application, and
 `launch.json`. Brewlet treats the WAR/EAR as an ordinary file and needs no
-WAR/EAR-specific packaging logic.
+WAR/EAR-specific packaging logic. A servlet container such as Tomcat runs
+WARs, while an EAR needs a full Jakarta EE server such as WildFly or Open
+Liberty in the runtime image; the pattern below is the same for both.
 
 The descriptor starts the server's bootstrap class directly from the runtime
 image instead of a wrapper script such as `catalina.sh`. For Tomcat, point

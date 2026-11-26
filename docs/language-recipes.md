@@ -100,7 +100,7 @@ generates the Java launch arguments; it does not deploy Kubernetes resources.
 
 The artifact is not limited to JARs. A WAR or EAR can run on an application server
 supplied by the runtime image; see
-[WAR and EAR applications](java.md#war-and-ear-applications-on-a-platform-provided-servlet-container).
+[WAR and EAR applications](java.md#war-and-ear-applications-on-a-platform-provided-application-server).
 
 JPMS modules, AppCDS archives and Java agents work when you package the files
 and write the matching JVM arguments in `launch.json`. Brewlet does not rewrite
