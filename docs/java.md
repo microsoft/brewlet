@@ -445,14 +445,15 @@ resolved dependencies to `/app/lib`, and generates classpath (or JPMS module)
 arguments:
 
 ```sh
-mvn package sh.brewlet:brewlet-maven-plugin:0.11.0:build \
-  sh.brewlet:brewlet-maven-plugin:0.11.0:push \
+mvn package sh.brewlet:brewlet-maven-plugin:0.12.0:build \
+  sh.brewlet:brewlet-maven-plugin:0.12.0:push \
   -Dbrewlet.image=registry.example.com/apps/orders:v2 \
   -Dbrewlet.platforms=linux/amd64,linux/arm64 \
   -Dbrewlet.mainClass=com.example.Main
 ```
 
-Use the plugin version matching your `brewlet` CLI; see the
+The `build` goal was introduced in 0.12.0; use a matching CLI and install the
+plugin from matching source if that version is not yet published. See the
 [Maven plugin reference](maven-plugin.md) for all goals and options. The
 plugin does not understand framework packaging formats:
 
