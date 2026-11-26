@@ -24,7 +24,7 @@ Three consequences shape everything else in this guide:
 - **Maven or Gradle still builds the application.** Brewlet only packages the
   files your build produced, plus an explicit launch descriptor. It does not
   resolve dependencies, read `pom.xml`/`build.gradle`, discover a main class,
-  unpack nested JARs or interpret WARs. The application artifact holds ordinary
+  unpack nested JARs or interpret WARs/EARs. The application artifact holds ordinary
   files, so it is not limited to a JAR, let alone a fat JAR.
 - **Each library lives on one side of the line.** By default the application
   ships its libraries in `/app`. A platform team can instead move selected
@@ -61,7 +61,7 @@ Ask your platform team for:
   `/usr/bin/java -jar`; with it, omit `command`, use `"args": ["/app/app.jar"]`
   and pass JVM options through `JDK_JAVA_OPTIONS`.
 - **Application server**, if the runtime image provides one (for example
-  Tomcat), and its installation path.
+  Apache Tomcat), and its installation path.
 - **Supported platforms** (`linux/amd64`, `linux/arm64`).
 - **Approved mount locations** outside `/app`, such as `/tmp`, if any (see
   [writable files](#writable-files)).
@@ -74,7 +74,7 @@ Java 17 or later.
 The key decision is which files go into `/app` and which `java` command starts
 them. Brewlet does not require a particular Java archive format: an executable
 JAR, a thin JAR with a dependency directory, a framework's own directory layout
-and a WAR served by an application server in the runtime image all package the
+and a WAR/EAR served by an application server in the runtime image all package the
 same way. Framework build plugins already produce a runnable layout; you
 package that layout unchanged and write a launch descriptor that matches it.
 
