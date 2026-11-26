@@ -34,7 +34,7 @@ entrypoints, select interpreters or inject VM tuning.
 | Application workload | Runtime infrastructure |
 | --- | --- |
 | Application files, including libraries, under `/app`. | Runtime image root, userland and authoritative PATH. |
-| `launch.json` with explicit argv, environment and working directory. | Approved runtime IDs and digest sources. |
+| Optional command, arguments, environment and working directory in `launch.json`. | Runtime image `ENTRYPOINT`/`CMD`, approved IDs and digest sources. |
 | Supported OCI platforms. | Pool placement, Eager/OnDemand policy and runtime compatibility. |
 | Reviewed native Kubernetes workloads and resources. | Node provisioning, authorization, fencing and cleanup. |
 

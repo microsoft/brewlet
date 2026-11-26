@@ -90,17 +90,17 @@
   };
   document.querySelectorAll("code[data-lang]").forEach(highlight);
   const examples = {
-    python: {entrypoint: ["python3"], args: ["/app/src/main.py"], layer: "./src:/app/src",
-      note: "This example has no third-party dependencies. Package any libraries your application needs as ordinary files under /app."},
-    java: {entrypoint: ["java"], args: ["-jar", "/app/app.jar"], layer: "./target/app:/app",
-      note: "Place your executable JAR at target/app/app.jar first. The optional Maven producer can prepare classpath or module layers for you."},
-    node: {entrypoint: ["node"], args: ["/app/src/server.js"], layer: "./src:/app/src",
-      note: "This example uses Node's built-in modules. Package node_modules explicitly when your application needs external dependencies."},
-    dotnet: {entrypoint: ["dotnet"], args: ["/app/App.dll"], layer: "./publish:/app",
+    python: {args: ["/app/src/main.py"], layer: "./src:/app/src",
+      note: "The distroless Python runtime's ENTRYPOINT is /usr/bin/python3.13. Package any libraries your application needs as ordinary files under /app."},
+    java: {command: ["/usr/bin/java"], args: ["-jar", "/app/app.jar"], layer: "./target/app:/app",
+      note: "This assumes /usr/bin/java and a runtime that does not already start Java. Place your JAR at target/app/app.jar first. The optional Maven producer can prepare classpath or module layers."},
+    node: {args: ["/app/src/server.js"], layer: "./src:/app/src",
+      note: "The distroless Node.js runtime's ENTRYPOINT is /nodejs/bin/node. Package node_modules explicitly when your application needs external dependencies."},
+    dotnet: {command: ["/usr/bin/dotnet"], args: ["/app/App.dll"], layer: "./publish:/app",
       note: "Publish your framework-dependent application into ./publish first. Its target framework and native dependencies must match the approved runtime."},
-    php: {entrypoint: ["php"], args: ["-S", "0.0.0.0:8000", "/app/index.php"], layer: "./src:/app",
+    php: {command: ["/usr/local/bin/php"], args: ["-S", "0.0.0.0:8000", "/app/index.php"], layer: "./src:/app",
       note: "This example uses PHP's built-in web server. Run composer install in your pipeline and package vendor/ explicitly; extensions come from the approved runtime."},
-    wasm: {entrypoint: ["/usr/local/bin/wasmtime"], args: ["run", "/app/guest.wasm"], layer: "./wasm:/app",
+    wasm: {command: ["/usr/local/bin/wasmtime"], args: ["run", "/app/guest.wasm"], layer: "./wasm:/app",
       note: "This example runs a WASIp1 module on an approved Wasmtime host runtime. Grant guest access explicitly, for example with --dir, and build for the Linux platforms your hosts support."}
   };
   const tabs = [...document.querySelectorAll("[data-language]")];
@@ -115,7 +115,7 @@
     panel.setAttribute("aria-labelledby", tab.id);
     document.getElementById("launch-code").textContent = JSON.stringify({
       schemaVersion: 1,
-      process: {entrypoint: example.entrypoint, args: example.args, workingDir: "/app"}
+      process: {command: example.command, args: example.args, workingDir: "/app"}
     }, null, 2);
     document.getElementById("package-code").textContent =
       `brewlet build registry.example.com/apps/api:v2 \\\n  --platform linux/arm64 \\\n  --launch launch.json \\\n  --layer ${example.layer}\nbrewlet push registry.example.com/apps/api:v2`;

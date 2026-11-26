@@ -128,11 +128,10 @@ kubectl wait --for=condition=Ready \
         <div class="column-heading"><span class="number">02</span><div><h2 id="application">Build + deploy</h2><p>Application team | ordinary Kubernetes</p></div></div>
         <h3>Describe the process: launch.json</h3>
         <pre>{"schemaVersion":1,"process":{
-  "command":["python3"],
   "args":["/app/src/main.py"],
   "workingDir":"/app"
 }}</pre>
-        <p class="note">Explicit executable, arguments and platforms. No language detection or dependency resolution. Use an absolute executable if the runtime has no PATH.</p>
+        <p class="note">This assumes the approved runtime's <code>ENTRYPOINT</code> starts Python. If it has no <code>ENTRYPOINT</code>, set <code>process.command</code> to the interpreter. Match the launch fields to your runtime image.</p>
         <h3>Package, publish + exercise locally</h3>
         <pre>APP=registry.example.com/apps/api:v2
 brewlet build "$APP" --platform linux/amd64 \

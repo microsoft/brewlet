@@ -52,7 +52,8 @@ The build runs MkDocs in strict mode, generates third-party notices from
 installed dependency license texts, removes unused non-English search
 extensions as main does, and verifies every built local link/fragment.
 Contract checks cover the build tooling (source-link hook, link parser,
-tutorial observer) and notices, not the wording of the site content.
+tutorial observer), interactive launch examples and notices, not the wording
+of other site content.
 
 ## Printable cheat sheet
 

@@ -64,7 +64,7 @@ FORM: Adapt the existing main landing structure; no invented performance or prod
           <div class="artifact-stack">
             <div class="stack-label"><span>Application workload</span><code>application@sha256:…</code></div>
             <div class="layer app-layer"><strong>Your application</strong><span>Code + dependencies</span></div>
-            <div class="layer launch-layer"><code>launch.json</code><span>Explicit process + platforms</span></div>
+            <div class="layer launch-layer"><code>launch.json</code><span>Process configuration</span></div>
           </div>
           <div class="compose-link"><span aria-hidden="true">+</span><span>Composed at container creation</span></div>
           <div class="artifact-stack runtime-stack">
@@ -126,7 +126,10 @@ FORM: Adapt the existing main landing structure; no invented performance or prod
 
     <section class="section" id="examples" aria-labelledby="examples-title">
       <div class="container">
-        <div class="section-heading"><h2 id="examples-title">Package your app and its launch contract.</h2></div>
+        <div class="section-heading">
+          <h2 id="examples-title">Package your app and its launch contract.</h2>
+          <p>The runtime image's <code>ENTRYPOINT</code>, if present, precedes the <code>command</code> and <code>args</code> in <code>launch.json</code>. Match both fields to the selected runtime: if its entrypoint already starts the interpreter, omit <code>command</code> and avoid repeating any arguments it supplies, as in the Python and Node.js examples. Without Pod overrides, omitting both fields inherits the runtime image's <code>CMD</code>. <a href="docs/applications/#kubernetes-overrides-and-environment">See Kubernetes overrides</a>.</p>
+        </div>
         <div class="language-tabs" role="tablist" aria-label="Application language examples">
           <button id="tab-python" type="button" role="tab" aria-selected="true" aria-controls="example-panel" data-language="python">Python</button>
           <button id="tab-java" type="button" role="tab" aria-selected="false" aria-controls="example-panel" tabindex="-1" data-language="java">Java</button>
@@ -140,7 +143,6 @@ FORM: Adapt the existing main landing structure; no invented performance or prod
             <div class="code-block"><div class="code-heading"><span>launch.json</span><button type="button" class="copy-button" data-copy="launch-code" hidden>Copy</button></div><pre tabindex="0"><code id="launch-code" data-lang="json">{
   "schemaVersion": 1,
   "process": {
-    "command": ["python3"],
     "args": ["/app/src/main.py"],
     "workingDir": "/app"
   }
@@ -149,7 +151,7 @@ FORM: Adapt the existing main landing structure; no invented performance or prod
   --platform linux/arm64 \
   --launch launch.json \
   --layer ./src:/app/src
-brewlet push registry.example.com/apps/api:v2</code></pre><p class="code-caption" id="example-note">This example has no third-party dependencies. Package app-specific libraries under <code>/app</code>; shared libraries can come from the approved golden runtime.</p></div>
+brewlet push registry.example.com/apps/api:v2</code></pre><p class="code-caption" id="example-note">The distroless Python runtime's <code>ENTRYPOINT</code> is <code>/usr/bin/python3.13</code>. Package any libraries your application needs as ordinary files under <code>/app</code>.</p></div>
           </div>
         </div>
         <div class="deployment-example">
