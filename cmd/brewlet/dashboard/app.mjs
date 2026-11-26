@@ -1,6 +1,7 @@
 import { escapeHTML as e, runtimeHealth, profileHealth, nodeHealth, runtimeProfiles, filteredResources, shortDigest, formatTime, rotationLabel, runtimeGenerations, nodeConvergence, movedFrom } from "./model.mjs";
 
 const $ = id => document.getElementById(id);
+const sessionTokenKey = "brewlet.dashboard.kubernetes-token";
 let token = new URLSearchParams(location.hash.slice(1)).get("token") || "";
 if (token) history.replaceState(null, "", location.pathname + location.search);
 const state = { view: "runtimes", snapshot: null, selected: null, query: "", filter: "", refreshing: false, stale: true, rotating: false, busy: false, preview: null, image: "" };
@@ -30,7 +31,11 @@ function operationError(message) {
   else notify(message);
 }
 
-function signOut(message = "") {
+function signOut(message = "", clearStoredToken = true) {
+  if (clearStoredToken) {
+    try { sessionStorage.removeItem(sessionTokenKey); }
+    catch { message = `${message ? `${message} ` : ""}Browser session storage is unavailable; the saved sign-in could not be cleared.`; }
+  }
   sessionAbort.abort();
   sessionAbort = new AbortController();
   sessionVersion++;
@@ -92,6 +97,10 @@ async function refresh() {
     if (version !== sessionVersion) return;
     state.snapshot = snapshot;
     state.stale = false;
+    if (authMode === "kubernetes") {
+      try { sessionStorage.setItem(sessionTokenKey, token); }
+      catch { notify("Browser session storage is unavailable. You will need to sign in again after reloading."); }
+    }
     $("authentication").hidden = true;
     $("summary").hidden = document.querySelector(".resource-ledger").hidden = false;
     $("sign-out").hidden = authMode !== "kubernetes";
@@ -438,7 +447,14 @@ async function bootstrap() {
     $("access-mode").textContent = config.allowWrite ? "Rotation enabled" : "Read-only";
     if (authMode === "kubernetes") {
       $("session-boundary").textContent = "Per-operator Kubernetes identity";
-      signOut();
+      signOut("", false);
+      if (secureSignIn) {
+        try { token = sessionStorage.getItem(sessionTokenKey) || ""; }
+        catch { notify("Browser session storage is unavailable. You will need to sign in again after reloading."); }
+        if (token) await refresh();
+      } else {
+        signOut();
+      }
     } else if (token) {
       await refresh();
     } else {

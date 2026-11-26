@@ -44,7 +44,7 @@ FORM: KubeRay-inspired resource lists and drill-downs, adapted to Brewlet's Runt
           <form id="sign-in-form">
             <label for="kubernetes-token">Kubernetes bearer token</label>
             <input id="kubernetes-token" type="password" required autocomplete="off" spellcheck="false" aria-describedby="token-help">
-            <p id="token-help">Kept only in this page's memory. Reloading or signing out clears the session. Never use an administrator token for routine viewing.</p>
+            <p id="token-help">Kept in this tab's session storage so reloading preserves sign-in. Signing out or closing the tab clears the session. Never use an administrator token for routine viewing.</p>
             <div id="sign-in-error" class="error-message" role="alert" hidden></div>
             <button id="sign-in" type="submit" class="primary">Sign in</button>
           </form>

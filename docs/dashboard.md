@@ -112,9 +112,13 @@ There is no built-in OIDC login or token refresh flow. Do not bind the roles to
 the dashboard's own ServiceAccount. These bindings and any reader
 ServiceAccounts are administrator-managed; Helm does not remove them.
 
-Tokens stay in page memory, never URL parameters or browser storage. Reloading
-requires signing in again; **Sign out** clears the token, inventory, evidence
-and previews, including in-flight results. Signing out does not revoke the
+Installed-dashboard tokens stay in the tab's browser session storage, never URL
+parameters or persistent local storage, so reloading preserves sign-in. Closing
+the tab ends the browser session; **Sign out** clears the saved token, inventory,
+evidence and previews, including in-flight results. Browser session restoration
+may restore session storage, so sign out explicitly on shared workstations.
+If browser storage is unavailable, sign-in works only until the page reloads.
+Signing out does not revoke the
 Kubernetes token or undo an already-submitted operation. Rejected/expired
 credentials return to sign-in.
 
