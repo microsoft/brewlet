@@ -112,9 +112,13 @@ final class JavaProducer {
         return command;
     }
 
-    /** Publishes the layout written by {@link #command} unchanged. */
+    /**
+     * Publishes the image {@link #command} wrote under {@code image}, unchanged. {@code --source}
+     * stops the CLI from falling back to another reference's build left in the shared layout.
+     */
     static List<String> pushCommand(String executable, String image, Path store) {
-        return new ArrayList<>(List.of(executable, "push", image, "--store", store.toString()));
+        return new ArrayList<>(List.of(executable, "push", image, "--store", store.toString(),
+                "--source", image));
     }
 
     private static void requireFile(Path file) throws IOException {

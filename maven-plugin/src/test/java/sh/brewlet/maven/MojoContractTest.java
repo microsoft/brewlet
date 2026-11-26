@@ -159,7 +159,7 @@ class MojoContractTest {
         Path layout = Files.createDirectories(temp.resolve("target/brewlet/oci"));
         Files.writeString(layout.resolve("index.json"), "{}");
         mojo.execute();
-        assertEquals(List.of("push", "registry.test/app:v2", "--store", layout.toString()),
-                Files.readAllLines(temp.resolve("argv")));
+        assertEquals(List.of("push", "registry.test/app:v2", "--store", layout.toString(),
+                "--source", "registry.test/app:v2"), Files.readAllLines(temp.resolve("argv")));
     }
 }

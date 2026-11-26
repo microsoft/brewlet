@@ -32,7 +32,8 @@ contacts a registry; `push` uploads that layout unchanged. Package, build and
 publish in the same Maven invocation:
 
 ```sh
-mvn package sh.brewlet:brewlet-maven-plugin:0.11.1:build sh.brewlet:brewlet-maven-plugin:0.11.1:push \
+mvn package sh.brewlet:brewlet-maven-plugin:0.11.1:build \
+  sh.brewlet:brewlet-maven-plugin:0.11.1:push \
   -Dbrewlet.image=registry.example.com/apps/example:v2 \
   -Dbrewlet.platforms=linux/amd64,linux/arm64 \
   -Dbrewlet.mainClass=example.Main
