@@ -18,7 +18,7 @@ for a complete workflow.
 
 | Workload | Guide focus |
 | --- | --- |
-| [Java](java.md) | Thin JARs, Maven, classpath/module choices and packaged dependencies. |
+| [Java](java.md) | Executable, thin and framework JAR layouts, WARs and EARs on a platform-provided servlet container or application server, Maven, classpath/module choices and packaged dependencies. |
 | [Python](python.md) | Import layout, resolved dependencies, interpreter ABI and read-only execution. |
 | [Node.js](nodejs.md) | ES modules/CommonJS, dependency paths and native addons. |
 | [.NET](dotnet.md) | Framework-dependent publishing, managed/native assets and runtime compatibility. |
@@ -97,6 +97,10 @@ Package a directory containing `app.jar` at `/app` and dependency files at
 `/app/lib`, or use the optional Maven producer described in
 [application packaging](applications.md#optional-maven-producer). The plugin
 generates the Java launch arguments; it does not deploy Kubernetes resources.
+
+The artifact is not limited to JARs. A WAR or EAR can run on an application server
+supplied by the runtime image; see
+[WAR and EAR applications](java.md#war-and-ear-applications-on-a-platform-provided-servlet-container).
 
 JPMS modules, AppCDS archives and Java agents work when you package the files
 and write the matching JVM arguments in `launch.json`. Brewlet does not rewrite

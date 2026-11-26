@@ -1,10 +1,10 @@
 # Java workloads
 
 This guide explains how to adapt an existing Java application, such as a Spring
-Boot or Quarkus service built with Maven or Gradle, so that it runs on a
-platform-managed Java runtime. It is a reference, not a script to run from top
-to bottom. Copy the snippets into your project and change the values marked in
-each section.
+Boot or Quarkus service built with Maven or Gradle or a WAR or EAR deployed to
+an application server, so that it runs on a platform-managed Java runtime. It
+is a reference, not a script to run from top to bottom. Copy the snippets into
+your project and change the values marked in each section.
 
 ## How it works
 
@@ -13,9 +13,9 @@ Brewlet splits ownership along a different line:
 
 | Concern | Owner | Where it lives |
 | --- | --- | --- |
-| Java runtime (JDK/JRE or custom `jlink` image, CA certificates, OS libraries) | Platform team | An approved [runtime image](runtime-images.md), selected by ID |
+| Java runtime (JDK/JRE or custom `jlink` image, CA certificates, OS libraries) and, optionally, an application server such as Tomcat | Platform team | An approved [runtime image](runtime-images.md), selected by ID |
 | Shared libraries the platform chooses to standardize (optional) | Platform team | The same runtime image, as linked modules or JARs |
-| Application classes, resources and every other library JAR | Application team | Application artifact, mounted read-only at `/app` |
+| Application files in whatever form the launcher expects (JARs, WARs, EARs, class directories, resources) and every other library | Application team | Application artifact, mounted read-only at `/app` |
 | How the JVM starts (main class, `-jar`, JVM options, arguments) | Application team | `launch.json` in the application artifact |
 | Replicas, resources, probes, config, Secrets, writable volumes | Application team | Kubernetes manifests |
 
@@ -23,8 +23,9 @@ Three consequences shape everything else in this guide:
 
 - **Maven or Gradle still builds the application.** Brewlet only packages the
   files your build produced, plus an explicit launch descriptor. It does not
-  resolve dependencies, read `pom.xml`/`build.gradle`, discover a main class or
-  unpack nested JARs.
+  resolve dependencies, read `pom.xml`/`build.gradle`, discover a main class,
+  unpack nested JARs or interpret WARs. The application artifact holds ordinary
+  files, so it is not limited to a JAR, let alone a fat JAR.
 - **Each library lives on one side of the line.** By default the application
   ships its libraries in `/app`. A platform team can instead move selected
   libraries into the runtime image, for example as JPMS modules linked into a
@@ -59,6 +60,8 @@ Ask your platform team for:
   below assume no `ENTRYPOINT`. Distroless Java's `ENTRYPOINT` is
   `/usr/bin/java -jar`; with it, omit `command`, use `"args": ["/app/app.jar"]`
   and pass JVM options through `JDK_JAVA_OPTIONS`.
+- **Application server**, if the runtime image provides one (for example
+  Tomcat), and its installation path.
 - **Supported platforms** (`linux/amd64`, `linux/arm64`).
 - **Approved mount locations** outside `/app`, such as `/tmp`, if any (see
   [writable files](#writable-files)).
@@ -69,8 +72,11 @@ Java 17 or later.
 ## Choose a packaging strategy
 
 The key decision is which files go into `/app` and which `java` command starts
-them. Framework build plugins already produce a runnable layout; you package
-that layout unchanged and write a launch descriptor that matches it.
+them. Brewlet does not require a particular Java archive format: an executable
+JAR, a thin JAR with a dependency directory, a framework's own directory layout
+and a WAR served by an application server in the runtime image all package the
+same way. Framework build plugins already produce a runnable layout; you
+package that layout unchanged and write a launch descriptor that matches it.
 
 | Application format | What you package | Launch command |
 | --- | --- | --- |
@@ -79,6 +85,7 @@ that layout unchanged and write a launch descriptor that matches it.
 | [Quarkus fast-jar](#quarkus) (default) | The **whole** `quarkus-app/` directory | `java -jar /app/quarkus-run.jar` |
 | Quarkus uber-jar | The single `*-runner.jar` | `java -jar /app/app.jar` |
 | [Plain Java thin JAR](#plain-java-applications-and-the-maven-plugin) | Application JAR plus dependency JARs | `java --class-path '/app/app.jar:/app/lib/*' com.example.Main` |
+| [WAR or EAR on a platform-provided application server](#war-and-ear-applications-on-a-platform-provided-servlet-container) | The `.war` or `.ear`, plus any server configuration the platform delegates to the application | The server's own bootstrap class from the runtime image, for example `java -classpath /usr/local/tomcat/bin/bootstrap.jar:... org.apache.catalina.startup.Bootstrap start` |
 
 Two mistakes cause most first-run failures:
 
@@ -452,10 +459,71 @@ plugin does not understand framework packaging formats:
   fast-jar recipe above.
 - For **Spring Boot**, the repackaged JAR is not a classpath JAR. Use the
   Spring Boot recipes above rather than the plugin.
+- For **WAR** and **EAR** projects, package the archive with the generic CLI
+  as shown in
+  [WAR and EAR applications](#war-and-ear-applications-on-a-platform-provided-servlet-container);
+  the plugin does not handle these packaging types.
 
 There is no Gradle plugin. Gradle builds call the same `brewlet build` and
 `brewlet push` commands, for example from an `Exec` task or a CI step after
 `./gradlew build`.
+
+## WAR and EAR applications on a platform-provided servlet container
+
+An application server can move into infrastructure along with the JVM. The
+platform team builds a runtime image containing the JDK and, for example,
+Apache Tomcat, while the application artifact carries only the WAR, any
+server configuration the platform leaves to the application, and
+`launch.json`. Brewlet treats the WAR/EAR as an ordinary file and needs no
+WAR/EAR-specific packaging logic.
+
+The descriptor starts the server's bootstrap class directly from the runtime
+image instead of a wrapper script such as `catalina.sh`. For Tomcat, point
+`catalina.home` at the server installation in the runtime image and
+`catalina.base` at configuration under `/app`:
+
+```json
+{
+  "schemaVersion": 1,
+  "process": {
+    "command": ["/opt/java/openjdk/bin/java"],
+    "args": [
+      "-Dcatalina.home=/usr/local/tomcat",
+      "-Dcatalina.base=/app/tomcat",
+      "-Djava.io.tmpdir=/tmp",
+      "-classpath",
+      "/usr/local/tomcat/bin/bootstrap.jar:/usr/local/tomcat/bin/tomcat-juli.jar",
+      "org.apache.catalina.startup.Bootstrap",
+      "start"
+    ],
+    "workingDir": "/app"
+  }
+}
+```
+
+Package the WAR and configuration as separate layers:
+
+```sh
+brewlet build registry.example.com/apps/shop:v1 \
+  --platform linux/amd64 --platform linux/arm64 \
+  --launch launch.json \
+  --layer build/webapps:/app/webapps \
+  --layer conf:/app/tomcat/conf
+```
+
+Because `/app` is read-only, configure the server so it does not write beside
+the application: keep the WAR packed (`unpackWARs="false"`), disable
+background redeployment (`autoDeploy="false"`) and send JSP compilation and
+temporary files to an approved writable mount such as `/tmp` (see
+[writable files](#writable-files)).
+
+The [Tomcat example](https://github.com/microsoft/brewlet/tree/main/examples/tomcat)
+runs an unchanged `ROOT.war` with JSP compilation on a platform-owned
+JDK and Tomcat image, locally and on a cluster. The
+[hardened Tomcat example](https://github.com/microsoft/brewlet/tree/main/examples/tomcat-hardened)
+goes further: the platform owns Catalina's configuration and launcher in the
+runtime image, and the application team supplies only the WAR. Both are
+experiments rather than release-gating tests.
 
 ## Libraries provided by the runtime image
 
@@ -870,3 +938,5 @@ example built with the Maven producer lives in the
 and runs weekly against `main` in the
 [language example workflow](https://github.com/microsoft/brewlet/blob/main/.github/workflows/language-e2e.yml).
 It does not gate pull requests or releases; see [verification](verification.md).
+The [Tomcat example](https://github.com/microsoft/brewlet/tree/main/examples/tomcat)
+records a manual experiment with a WAR on a platform-provided servlet container.

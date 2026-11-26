@@ -4,7 +4,9 @@ The optional `sh.brewlet:brewlet-maven-plugin` packages a Java project's
 application JAR and resolved dependencies as Brewlet application layers. It
 invokes the language-neutral Brewlet CLI; it does not install a runtime,
 select a Pod runtime image, generate Kubernetes manifests or deploy workloads.
-For a walkthrough and framework-specific alternatives, see
+It handles JAR projects only; other Java artifacts, such as a WAR or EAR for a
+platform-provided application server, are packaged with the generic CLI. For a
+walkthrough and framework-specific alternatives, see
 [Java applications](java.md).
 
 ## Requirements
