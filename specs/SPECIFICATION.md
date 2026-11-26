@@ -206,7 +206,7 @@ defines which of them are qualification fixtures):
 
 | Workload | Application contribution | Approved Linux runtime infrastructure |
 | --- | --- | --- |
-| Java | JARs and explicitly laid-out library files | A compatible JRE/JDK |
+| Java | JARs, WARs, EARs, class directories and explicitly laid-out library files | A compatible JRE/JDK, custom `jlink` runtime, or an application server such as Apache Tomcat |
 | Python | Source/bytecode and packaged dependency files | A compatible Python interpreter/userland |
 | Node.js | JavaScript and packaged dependency files | A compatible Node.js runtime/userland |
 | .NET | Assemblies, runtime configuration and packaged dependency files | A compatible CLR/userland, or an explicitly chosen root for self-contained output |
