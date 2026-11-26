@@ -64,8 +64,16 @@ p code, li code, dd code { font-size: .9em; background: var(--cp-accent-soft); b
 .section-heading { display: flex; align-items: start; gap: 4rem; justify-content: space-between; margin-bottom: 3rem; }
 .section-heading h2 { max-width: 20ch; margin-bottom: 0; }
 .section-heading > p { color: var(--cp-text-muted); max-width: 40ch; margin-top: .25rem; }
+.patch-events { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.5rem; }
+.patch-events article { padding: 1.25rem 1.5rem; border-top: 2px solid var(--cp-accent); background: var(--cp-surface); }
+.patch-events h3 { margin-bottom: .5rem; }
+.patch-events p { margin-bottom: 0; color: var(--cp-text-muted); }
+.patch-summary { margin: 2rem 0 0; max-width: 78ch; font-size: 1.125rem; }
 .ownership-comparison { display: grid; grid-template-columns: 1fr 1fr; gap: 4rem; }
 .ownership-comparison p { color: var(--cp-text-muted); }
+.ownership-roles { display: grid; grid-template-columns: 1fr 1fr; gap: 4rem; margin-top: 3rem; }
+.ownership-roles > div { padding-top: 1.25rem; border-top: 1px solid var(--cp-border-strong); }
+.ownership-roles p { margin-bottom: 0; color: var(--cp-text-muted); }
 .image-stack { margin-top: 1.5rem; border: 1px solid var(--cp-border-strong); border-radius: .75rem; background: var(--cp-surface); overflow: hidden; }
 .image-stack.infra { margin-top: 0; border-style: dashed; background: var(--cp-bg-elevated); }
 .image-stack-label { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; padding: .5rem 1rem; font-size: .75rem; color: var(--cp-text-muted); text-transform: uppercase; letter-spacing: .06em; }
@@ -114,6 +122,9 @@ pre { margin: 0; padding: 1.5rem; overflow-x: auto; font-size: .8125rem; line-he
 .deployment-example p { color: var(--cp-text-muted); }
 .rotation-layout, .quickstart { display: grid; grid-template-columns: 1fr 1fr; gap: 5rem; align-items: center; }
 .rotation-layout p, .quickstart p { color: var(--cp-text-muted); }
+.quickstart-checklist { padding: 1.5rem 2rem; border: 1px solid var(--cp-border); border-radius: .75rem; background: var(--cp-surface); }
+.quickstart-checklist ol { margin-bottom: 0; padding-left: 1.5rem; }
+.quickstart-checklist li { padding-block: .5rem; }
 .guarantees { margin: 0; }
 .guarantees div { padding-block: 1.5rem; border-top: 1px solid var(--cp-border); }
 .guarantees dt { font-size: 1.125rem; font-weight: 650; margin-bottom: .5rem; }
@@ -148,7 +159,7 @@ pre { margin: 0; padding: 1.5rem; overflow-x: auto; font-size: .8125rem; line-he
   .menu-toggle:not([hidden]) { display: block; }
   .navigation nav { flex-basis: 100%; flex-wrap: wrap; padding-bottom: .5rem; }
   .navigation[data-enhanced] nav:not([data-open]) { display: none; }
-  .hero-grid, .ownership-comparison, .devoxx-layout, .code-pair, .deployment-example, .rotation-layout, .quickstart, .cheat-sheet-layout, .faq-layout { grid-template-columns: 1fr; }
+  .hero-grid, .patch-events, .ownership-comparison, .ownership-roles, .devoxx-layout, .code-pair, .deployment-example, .rotation-layout, .quickstart, .cheat-sheet-layout, .faq-layout { grid-template-columns: 1fr; }
   .devoxx-layout { gap: 2rem; }
   .hero-grid { gap: 2.5rem; }
   .hero h1 { font-size: clamp(2.8rem, 9.5vw, 4rem); }

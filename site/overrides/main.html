@@ -6,7 +6,7 @@
     {% set social_title = (page.meta.title or page.title) ~ " - " ~ config.site_name %}
     {% set social_description = page.meta.description or config.site_description %}
     {% set social_image = "https://brewlet.sh/assets/images/social-card.png" %}
-    {% set social_alt = "Brewlet: Ship the app. Not the runtime. Application code and dependencies composed with an infrastructure-supplied runtime on Kubernetes." %}
+    {% set social_alt = "Brewlet: Update runtimes without rebuilding application images. A platform-approved golden runtime composes with the application on Kubernetes." %}
     <meta property="og:type" content="website">
     <meta property="og:site_name" content="{{ config.site_name | e }}">
     <meta property="og:title" content="{{ social_title | striptags | e }}">
