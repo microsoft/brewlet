@@ -43,8 +43,9 @@ flowchart TB
 
 The platform launcher also rejects arguments and nonempty `JAVA_TOOL_OPTIONS`,
 `JDK_JAVA_OPTIONS`, `_JAVA_OPTIONS`, `JAVA_OPTS` and `CATALINA_OPTS`. The runtime
-image's Docker `ENTRYPOINT` is useful for Docker but is **not** the Brewlet
-enforcement mechanism.
+image's `ENTRYPOINT` starts this launcher under Brewlet as well as Docker.
+Argument and environment validation happens in the launcher itself, not in a
+Docker-specific enforcement path.
 
 ## Launcher semantics
 

@@ -65,6 +65,7 @@ acceptance:
 site-contract-check:
 	PYTHONDONTWRITEBYTECODE=1 $(SITE_PYTHON) -m unittest discover -s site/scripts -p 'test_*.py' -v
 	node --check site/assets/js/site.js
+	node --test site/scripts/test_site.js
 
 site-build: site-contract-check
 	$(SITE_PYTHON) site/scripts/build.py
