@@ -164,7 +164,8 @@ Replace the example plugin version with the release reported by
 `brewlet version`.
 
 ```sh
-mvn package sh.brewlet:brewlet-maven-plugin:0.11.0:push \
+mvn package sh.brewlet:brewlet-maven-plugin:0.11.0:build \
+  sh.brewlet:brewlet-maven-plugin:0.11.0:push \
   -Dbrewlet.image=registry.example.com/apps/orders:v2 \
   -Dbrewlet.platforms=linux/amd64,linux/arm64 \
   -Dbrewlet.mainClass=example.Main

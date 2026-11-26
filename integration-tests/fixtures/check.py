@@ -220,7 +220,7 @@ def main():
         run(["mvn", "-B", "-q", "-f", ROOT / "maven-plugin/pom.xml", "install"])
         run(["mvn", "-B", "-q", "-f", java / "app/pom.xml",
              "package",
-             PLUGIN + "push",
+             PLUGIN + "build",
              f"-Dbrewlet.executable={brewlet}",
              f"-Dbrewlet.store={work / 'oci-java-maven'}",
              "-Dbrewlet.image=fixtures/java-maven:v2",

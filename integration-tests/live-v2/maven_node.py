@@ -18,7 +18,7 @@ def prepare(h):
     goal = "sh.brewlet:brewlet-maven-plugin:" + json.loads((ROOT / "release.json").read_text())["version"] + ":"
     common = [f"-Dbrewlet.executable={wrapper}", "-Dbrewlet.platforms=linux/amd64,linux/arm64"]
     layout = h.work / "oci-maven-application"
-    h.run(["mvn", "-B", "-q", "-f", pom, "package", goal + "push", *common,
+    h.run(["mvn", "-B", "-q", "-f", pom, "package", goal + "build", *common,
            f"-Dbrewlet.store={layout}", "-Dbrewlet.image=fixtures/java-maven-application:v2"],
           env=environment, timeout=300)
     target, roles = artifact_target(layout)

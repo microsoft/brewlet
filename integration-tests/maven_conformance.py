@@ -48,7 +48,7 @@ def publication_case(executable, project, work, case):
     layout = work / f'conformance-{case["name"]}-oci'
     command = [
         "mvn", "-B", "-q", "-f", str(project), "package",
-        PLUGIN + "push",
+        PLUGIN + "build",
         f"-Dbrewlet.executable={executable}",
         f"-Dbrewlet.launch={source}",
         f"-Dbrewlet.store={layout}",

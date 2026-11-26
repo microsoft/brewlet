@@ -17,11 +17,22 @@ abstract class AbstractJavaMojo extends AbstractMojo {
     @Parameter(property = "brewlet.executable", defaultValue = "brewlet")
     protected String executable;
 
-    @Parameter(property = "brewlet.store")
+    @Parameter(property = "brewlet.image", required = true)
+    protected String image;
+
+    /** OCI layout written by {@code build} and read by {@code push}. */
+    @Parameter(property = "brewlet.store", defaultValue = "${project.build.directory}/brewlet/oci")
     protected File store;
 
-    @Parameter(property = "brewlet.module")
-    protected String module;
+    protected void requireImage() throws MojoExecutionException {
+        if (image == null || image.isBlank()) {
+            throw new MojoExecutionException("brewlet.image is required");
+        }
+    }
+
+    protected Path layout() {
+        return store == null ? Path.of(project.getBuild().getDirectory(), "brewlet", "oci") : store.toPath();
+    }
 
     protected Path output() throws IOException {
         Path base = Files.createDirectories(Path.of(project.getBuild().getDirectory(), "brewlet"));
