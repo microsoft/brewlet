@@ -34,6 +34,9 @@ func TestUninstallCoordinatorSchedulesOnFencedNodesWithoutRuntimePrivilege(t *te
 		}
 		found = true
 		spec := job.Spec.Template.Spec
+		if spec.NodeSelector[corev1.LabelOSStable] != "linux" {
+			t.Fatalf("coordinator must select Linux nodes: %v", spec.NodeSelector)
+		}
 		if len(spec.Tolerations) != 1 || spec.Tolerations[0] != (corev1.Toleration{
 			Key: StartupTaint, Operator: corev1.TolerationOpEqual,
 			Value: "provisioning", Effect: corev1.TaintEffectNoSchedule,

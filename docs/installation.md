@@ -25,6 +25,11 @@ shim binaries or containerd configuration, and control-plane nodes are excluded
 unless a profile explicitly enables them. Review existing containerd
 configuration on the target pools before you start.
 
+The Helm chart schedules its operator, admission webhook, optional dashboard
+and uninstall hook on Linux nodes. At least one suitable Linux node must be
+available for these components. NodeProfiles do not filter targets by OS, so
+ensure every pool selected for Brewlet provisioning contains only Linux nodes.
+
 The commands below install the latest release into the cluster selected by
 your current kubectl context. Changing the release of an existing installation
 is not a supported in-place upgrade; see [Upgrades](#upgrades).

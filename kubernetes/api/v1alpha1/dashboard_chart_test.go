@@ -83,6 +83,9 @@ func TestDashboardChart(t *testing.T) {
 			t.Fatal("dashboard needs a private Service and separate ServiceAccount")
 		}
 		pod := deployment.Spec.Template.Spec
+		if pod.NodeSelector[corev1.LabelOSStable] != "linux" {
+			t.Fatalf("dashboard must select Linux nodes: %v", pod.NodeSelector)
+		}
 		if pod.ServiceAccountName != account.Name || *deployment.Spec.Replicas != 1 || deployment.Spec.Strategy.Type != appsv1.RecreateDeploymentStrategyType {
 			t.Fatal("deployment identity or single-process ticket lifecycle changed")
 		}

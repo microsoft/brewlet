@@ -62,6 +62,8 @@ spec:
     spec:
       serviceAccountName: brewlet-uninstall
       restartPolicy: Never
+      nodeSelector:
+        kubernetes.io/os: linux
       tolerations:
         - key: startup-taint.cluster-autoscaler.kubernetes.io/brewlet
           operator: Equal
