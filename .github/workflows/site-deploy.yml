@@ -10,6 +10,10 @@ on:
       - "LICENSE.txt"
       - ".github/workflows/site-pages.yml"
       - ".github/workflows/site-deploy.yml"
+  # Republish /docs/ from the new latest release once a tagged release succeeds.
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
   workflow_dispatch:
 
 permissions:
@@ -21,7 +25,10 @@ concurrency:
 
 jobs:
   build:
-    if: github.repository == 'microsoft/brewlet' && github.ref == 'refs/heads/main'
+    if: >-
+      github.repository == 'microsoft/brewlet' && github.ref == 'refs/heads/main' &&
+      (github.event_name != 'workflow_run' ||
+       (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'))
     uses: ./.github/workflows/site-pages.yml
     with:
       expected_sha: ${{ github.sha }}

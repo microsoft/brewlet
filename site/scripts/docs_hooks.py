@@ -6,12 +6,25 @@ import re
 
 from mkdocs.structure.files import File
 
-SOURCE = "https://github.com/microsoft/brewlet/blob/main/"
+# Release builds link repository sources at their tag; edits always target main.
+SOURCE = f"https://github.com/microsoft/brewlet/blob/{os.environ.get('BREWLET_DOCS_REF') or 'main'}/"
 EDIT = "https://github.com/microsoft/brewlet/edit/main/"
 ROOT = Path(__file__).resolve().parents[2]
 SPECIFICATION = ROOT / "specs/SPECIFICATION.md"
 SPECIFICATION_PAGE = "specification.md"
 LINK = re.compile(r"(?s)(```.*?```|`[^`\n]+`)|\[([^\]]+)\]\(([^)]+)\)")
+
+
+def on_config(config):
+    # Main's docs are nested below the release docs (/docs/main/); keep links to the site root working.
+    subdir = os.environ.get("BREWLET_DOCS_SUBDIR", "").strip("/")
+    if subdir:
+        up = "../" * len(subdir.split("/"))
+        config.site_url = f"{config.site_url}{subdir}/"
+        config.extra["homepage"] = up + config.extra["homepage"]
+        config.theme["favicon"] = up + config.theme["favicon"]
+        config.extra_css = [up + css if css.startswith("../") else css for css in config.extra_css]
+    return config
 
 
 def on_files(files, config):
