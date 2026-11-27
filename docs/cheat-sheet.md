@@ -47,7 +47,7 @@ application images, and Kubernetes image volumes, see
 [![Apply the release CRDs and install the Helm chart, approve a runtime, select node pools with a NodeProfile, and verify readiness before running an application.](assets/cheat-sheet/cluster-install.svg)](assets/cheat-sheet/cluster-install.svg)
 
 Use an isolated cluster or explicitly controlled node pools. Target nodes need
-Linux, systemd, cgroup v2, containerd 2.x with overlayfs, runc, and crictl.
+Linux, systemd, cgroup v2, containerd 2.x with overlayfs and CRI, and runc.
 You also need Helm, kubectl, registry access, and permission to install
 cluster-scoped resources. Provisioning is privileged and modifies node and
 containerd configuration. See the [installation guide](installation.md) for

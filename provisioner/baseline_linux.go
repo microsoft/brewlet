@@ -28,10 +28,13 @@ func (b HostBaseline) Validate(ctx context.Context) error {
 	if err := validateEffectiveConfig(output); err != nil {
 		return err
 	}
-	live := exec.CommandContext(ctx, "nsenter", "--mount="+b.HostRoot+"/proc/1/ns/mnt", "--root="+b.HostRoot+"/proc/1/root", "--wd=/", "--", "crictl", "--runtime-endpoint", "unix:///run/containerd/containerd.sock", "info", "-o", "json")
-	liveBytes, err := live.Output()
+	live, err := hostCRIStatus(ctx, b.HostRoot, true)
 	if err != nil {
-		return fmt.Errorf("running CRI handler validation requires host crictl: %w", err)
+		return fmt.Errorf("running CRI handler validation: %w", err)
+	}
+	liveBytes, err := json.Marshal(map[string]any{"info": live.Info})
+	if err != nil {
+		return fmt.Errorf("encoding CRI status info: %w", err)
 	}
 	if err := validateLiveConfig(liveBytes); err != nil {
 		return err

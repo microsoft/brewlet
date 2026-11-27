@@ -13,6 +13,7 @@ func TestLiveCRIConfigurationRequiresHandlerAndBothAnnotations(t *testing.T) {
 	if err := validateLiveConfig(valid); err != nil {
 		t.Fatal(err)
 	}
+
 	for _, data := range []string{
 		`{}`,
 		`{"config":{"containerd":{"runtimes":{"brewlet":{"runtimeType":"io.containerd.runc.v2","PodAnnotations":["brewlet.sh/*"]}}}}}`,
@@ -22,7 +23,25 @@ func TestLiveCRIConfigurationRequiresHandlerAndBothAnnotations(t *testing.T) {
 			t.Fatalf("accepted %s", data)
 		}
 	}
+
 }
+
+func TestLiveCRIConfigurationAcceptsVerboseStatusInfo(t *testing.T) {
+	valid := `{"info":{"config":"{\"containerd\":{\"runtimes\":{\"brewlet\":{\"runtimeType\":\"io.containerd.brewlet.v2\",\"PodAnnotations\":[\"runtime-image.brewlet.sh/*\",\"runtime-generation.brewlet.sh/*\"]}}}}"}}`
+	if err := validateLiveConfig([]byte(valid)); err != nil {
+		t.Fatal(err)
+	}
+	for _, invalid := range []string{
+		`{"info":{}}`,
+		`{"info":{"config":"not json"}}`,
+		`{"info":{"config":"{}"}}`,
+	} {
+		if err := validateLiveConfig([]byte(invalid)); err == nil {
+			t.Fatalf("accepted invalid verbose CRI info %s", invalid)
+		}
+	}
+}
+
 func TestEffectiveBaselineDeniesMissingOrUnsafePackedLayerRetention(t *testing.T) {
 	for _, version := range []string{"2", "3", "4"} {
 		desired, err := configuredRuntime([]byte("version=" + version))
