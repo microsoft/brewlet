@@ -1,0 +1,65 @@
+/* Documentation version selector and development banner, injected by site/scripts/build.py into every docs version. */
+.brewlet-version {
+  position: relative;
+  flex-shrink: 0;
+  margin: 0 .4rem;
+  font-size: .7rem;
+  line-height: 1.4;
+}
+.brewlet-version > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+  padding: .2rem .55rem;
+  border: 1px solid var(--cp-border-strong);
+  border-radius: .3rem;
+  color: var(--cp-text);
+  cursor: pointer;
+  list-style: none;
+  white-space: nowrap;
+}
+.brewlet-version > summary::-webkit-details-marker { display: none; }
+.brewlet-version > summary::after {
+  content: "";
+  width: .3rem;
+  height: .3rem;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: translateY(-.1rem) rotate(45deg);
+}
+.brewlet-version[open] > summary::after { transform: translateY(.1rem) rotate(-135deg); }
+.brewlet-version > summary:hover { border-color: var(--cp-link); color: var(--cp-link); }
+.brewlet-version > summary:focus-visible,
+.brewlet-version__list a:focus-visible { outline: 2px solid var(--cp-link); outline-offset: 2px; }
+.brewlet-version__list {
+  position: absolute;
+  top: calc(100% + .3rem);
+  right: 0;
+  z-index: 5;
+  min-width: 12rem;
+  margin: 0;
+  padding: .3rem 0;
+  list-style: none;
+  background: var(--cp-bg-elevated);
+  border: 1px solid var(--cp-border);
+  border-radius: .3rem;
+  box-shadow: 0 .4rem 1rem var(--cp-shadow);
+}
+.brewlet-version__list a {
+  display: block;
+  padding: .35rem .8rem;
+  color: var(--cp-text);
+  white-space: nowrap;
+}
+.brewlet-version__list a:hover { color: var(--cp-link); background: var(--cp-surface); }
+.brewlet-version__list a[aria-current] { font-weight: 700; }
+.brewlet-version-banner {
+  padding: .5rem 1rem;
+  background: var(--cp-accent-soft);
+  border-bottom: 1px solid var(--cp-border);
+  color: var(--cp-text);
+  font-size: .7rem;
+  text-align: center;
+}
+.brewlet-version-banner p { margin: 0; }
+.brewlet-version-banner a { color: var(--cp-link); text-decoration: underline; }

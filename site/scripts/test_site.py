@@ -3,6 +3,7 @@
 import importlib.util
 from pathlib import Path
 import unittest
+import unittest.mock
 
 SPEC = importlib.util.spec_from_file_location("docs_hooks", Path(__file__).with_name("docs_hooks.py"))
 HOOKS = importlib.util.module_from_spec(SPEC)
@@ -89,6 +90,57 @@ class SiteTests(unittest.TestCase):
         self.assertIn("size: A3 landscape", source)
         self.assertEqual({tag for tag, _ in page.links}, {"a"})
         self.assertTrue({"platform", "application", "operations"}.issubset(page.ids))
+
+    def test_nested_main_docs_keep_site_root_links(self):
+        from types import SimpleNamespace
+        config = SimpleNamespace(site_url="https://brewlet.sh/docs/", extra={"homepage": "../"},
+                                 theme={"favicon": "../assets/images/favicon.svg"},
+                                 extra_css=["../assets/css/theme.css", "stylesheets/brewlet-docs.css"])
+        with unittest.mock.patch.dict("os.environ", {"BREWLET_DOCS_SUBDIR": "main"}):
+            HOOKS.on_config(config)
+        self.assertEqual(config.site_url, "https://brewlet.sh/docs/main/")
+        self.assertEqual(config.extra["homepage"], "../../")
+        self.assertEqual(config.theme["favicon"], "../../assets/images/favicon.svg")
+        self.assertEqual(config.extra_css, ["../../assets/css/theme.css", "stylesheets/brewlet-docs.css"])
+
+    def test_version_selector_maps_pages_and_falls_back_to_docs_home(self):
+        import tempfile
+        build = load("build")
+        header = '<html><head></head><body><header class="md-header"><label class="md-header__button md-icon" for="__search"></label></header></body></html>'
+        with tempfile.TemporaryDirectory() as temp:
+            output = Path(temp)
+            docs = output / "docs"
+            for name in ("index.html", "java/index.html", "old/index.html", "404.html",
+                         "main/index.html", "main/java/index.html", "main/new/index.html"):
+                (docs / name).parent.mkdir(parents=True, exist_ok=True)
+                (docs / name).write_text(header)
+            (docs / "main/print.html").write_text("<html><head></head><body>standalone</body></html>")
+            with unittest.mock.patch.multiple(build, OUTPUT=output, DOCS=docs):
+                build.add_version_selector("v1.2.3")
+            release_java = (docs / "java/index.html").read_text()
+            self.assertIn('<a href="./" aria-current="page">Latest release (v1.2.3)</a>', release_java)
+            self.assertIn('<a href="../main/java/">Development (main)</a>', release_java)
+            self.assertIn('href="../../assets/css/docs-version.css"', release_java)
+            self.assertNotIn("brewlet-version-banner", release_java)
+            self.assertIn('<a href="../main/">Development (main)</a>', (docs / "old/index.html").read_text())
+            main_new = (docs / "main/new/index.html").read_text()
+            self.assertIn('<a href="../../">Latest release (v1.2.3)</a>', main_new)
+            self.assertIn('Switch to the latest release (v1.2.3)', main_new)
+            self.assertNotIn("brewlet-version", (docs / "404.html").read_text())
+            self.assertNotIn("brewlet-version", (docs / "main/print.html").read_text())
+
+    def test_release_tag_must_be_a_release_version(self):
+        build = load("build")
+        for ref in ("main", "v1.2", "v1.2.3;rm"):
+            with self.subTest(ref=ref), self.assertRaisesRegex(SystemExit, "Invalid release tag"):
+                build.release_ref(ref)
+
+
+def load(name):
+    spec = importlib.util.spec_from_file_location(f"site_{name}", Path(__file__).with_name(f"{name}.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 if __name__ == "__main__":

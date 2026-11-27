@@ -31,6 +31,22 @@ fenced runtime provisioning and the shim's local validation/lease/composition.
 the mobile SVG rearranges the same flow for narrow screens. Both SVGs have
 accessible descriptions and use the site's light color scheme.
 
+## Documentation versions
+
+`/docs/` serves the documentation of the latest release, built from its tag,
+while `/docs/main/` serves the current `main` branch. Every page header has a
+version menu ("Latest release (vX.Y.Z)" / "Development (main)") that opens the
+same page in the other version, or that version's home page when the page does
+not exist there. Pages under `/docs/main/` also carry a banner pointing readers
+back to the released documentation. The menu is static HTML injected at build
+time and verified by the link check, so it needs no runtime version index.
+
+The Pages workflow resolves the release from GitHub's latest-release API and
+passes it as `BREWLET_DOCS_RELEASE`; site deployment also reruns after each
+successful Release workflow. Locally, `build.py` uses the newest stable
+`vX.Y.Z` tag unless `--release-ref` or `BREWLET_DOCS_RELEASE` selects another,
+so fetch tags first (`git fetch --tags`).
+
 ## Build and preview
 
 ```sh
