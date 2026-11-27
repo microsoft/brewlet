@@ -16,7 +16,7 @@ links, permissions and whiteouts) independently in Java. It does not need the
 `brewlet` executable:
 
 ```sh
-mvn sh.brewlet:brewlet-maven-plugin:0.13.0:conformance \
+mvn sh.brewlet:brewlet-maven-plugin:0.13.1:conformance \
   -Dbrewlet.fixtures=/path/to/conformance/artifact-v1.json \
   -Dbrewlet.conformanceResult=/path/to/results.json
 ```
@@ -32,8 +32,8 @@ contacts a registry; `push` uploads that layout unchanged. Package, build and
 publish in the same Maven invocation:
 
 ```sh
-mvn package sh.brewlet:brewlet-maven-plugin:0.13.0:build \
-  sh.brewlet:brewlet-maven-plugin:0.13.0:push \
+mvn package sh.brewlet:brewlet-maven-plugin:0.13.1:build \
+  sh.brewlet:brewlet-maven-plugin:0.13.1:push \
   -Dbrewlet.image=registry.example.com/apps/example:v2 \
   -Dbrewlet.platforms=linux/amd64,linux/arm64 \
   -Dbrewlet.mainClass=example.Main
