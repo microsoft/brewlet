@@ -164,8 +164,8 @@ Use matching CLI and plugin versions. If the plugin release is not published,
 build and install it from the same source as the CLI.
 
 ```sh
-mvn package sh.brewlet:brewlet-maven-plugin:0.13.0:build \
-  sh.brewlet:brewlet-maven-plugin:0.13.0:push \
+mvn package sh.brewlet:brewlet-maven-plugin:0.13.1:build \
+  sh.brewlet:brewlet-maven-plugin:0.13.1:push \
   -Dbrewlet.image=registry.example.com/apps/orders:v2 \
   -Dbrewlet.platforms=linux/amd64,linux/arm64 \
   -Dbrewlet.mainClass=example.Main

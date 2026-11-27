@@ -26,7 +26,7 @@ the plugin from matching source:
 mvn -f maven-plugin/pom.xml install
 ```
 
-Use the plugin version matching the CLI; the examples below use `0.13.0`.
+Use the plugin version matching the CLI; the examples below use `0.13.1`.
 
 ## Goals
 
@@ -41,8 +41,8 @@ The `build` and `push` goals mirror the CLI's
 build and publish in one Maven command:
 
 ```sh
-mvn package sh.brewlet:brewlet-maven-plugin:0.13.0:build \
-  sh.brewlet:brewlet-maven-plugin:0.13.0:push \
+mvn package sh.brewlet:brewlet-maven-plugin:0.13.1:build \
+  sh.brewlet:brewlet-maven-plugin:0.13.1:push \
   -Dbrewlet.image=registry.example.com/apps/orders:v2 \
   -Dbrewlet.platforms=linux/amd64,linux/arm64 \
   -Dbrewlet.mainClass=com.example.Main
@@ -58,7 +58,7 @@ for example with `brewlet run` or `brewlet inspect`.
 Package the project before invoking the goal in the same Maven command:
 
 ```sh
-mvn package sh.brewlet:brewlet-maven-plugin:0.13.0:build \
+mvn package sh.brewlet:brewlet-maven-plugin:0.13.1:build \
   -Dbrewlet.image=registry.example.com/apps/orders:v2 \
   -Dbrewlet.platforms=linux/amd64,linux/arm64 \
   -Dbrewlet.mainClass=com.example.Main
@@ -106,7 +106,7 @@ For example, configure lists and the compiler target in the project POM:
     <plugin>
       <groupId>sh.brewlet</groupId>
       <artifactId>brewlet-maven-plugin</artifactId>
-      <version>0.13.0</version>
+      <version>0.13.1</version>
       <configuration>
         <javaArgs>
           <javaArg>-Xmx512m</javaArg>
@@ -130,7 +130,7 @@ Runtime rotation can change the JDK build, so archive use is best-effort.
 ### `push`
 
 ```sh
-mvn sh.brewlet:brewlet-maven-plugin:0.13.0:push \
+mvn sh.brewlet:brewlet-maven-plugin:0.13.1:push \
   -Dbrewlet.image=registry.example.com/apps/orders:v2
 ```
 
@@ -164,8 +164,8 @@ Set them in the shell or CI step that runs Maven:
 export BREWLET_REGISTRY_USERNAME=ci-bot
 export BREWLET_REGISTRY_PASSWORD="$REGISTRY_TOKEN"
 export SSL_CERT_FILE=/etc/ssl/private-registry-ca.pem   # only for a private CA
-mvn package sh.brewlet:brewlet-maven-plugin:0.13.0:build \
-  sh.brewlet:brewlet-maven-plugin:0.13.0:push \
+mvn package sh.brewlet:brewlet-maven-plugin:0.13.1:build \
+  sh.brewlet:brewlet-maven-plugin:0.13.1:push \
   -Dbrewlet.image=registry.example.com/apps/orders:v2 \
   -Dbrewlet.platforms=linux/amd64,linux/arm64 \
   -Dbrewlet.mainClass=com.example.Main
@@ -189,7 +189,7 @@ of these variables.
 ### `conformance`
 
 ```sh
-mvn sh.brewlet:brewlet-maven-plugin:0.13.0:conformance \
+mvn sh.brewlet:brewlet-maven-plugin:0.13.1:conformance \
   -Dbrewlet.fixtures=/path/to/conformance/artifact-v1.json \
   -Dbrewlet.conformanceResult=/path/to/results.json
 ```
