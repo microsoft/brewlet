@@ -540,6 +540,9 @@ spec:
     containerdRestart: validated
 ```
 
+- `runtimeImages` is required and MUST contain at least one entry; a profile
+  with a missing or empty list is rejected rather than treated as offering no
+  runtimes.
 - `id` is required and unique within the profile. `install` is `Eager`
   (default) or `OnDemand`; any other value is rejected. `idleTTL` is permitted
   only with `OnDemand`.

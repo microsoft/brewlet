@@ -48,7 +48,7 @@ func TestCleanupReceiptsForUninstalledRuntimeObligations(t *testing.T) {
 					t.Fatal(err)
 				}
 				if historical {
-					p.Spec.RuntimeImages = nil
+					p.Spec.RuntimeImages = []api.RuntimeEntry{{ID: "other-runtime", Install: "OnDemand"}}
 				}
 				p.Status.Retirement = &api.Retirement{Generation: w.Authority.Generation, Spec: p.Spec,
 					Targets: p.Status.Targets, Phase: "Cleaning"}

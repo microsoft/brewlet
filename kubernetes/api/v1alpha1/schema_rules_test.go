@@ -2,16 +2,20 @@ package v1alpha1_test
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"testing"
 	"time"
 
+	api "github.com/microsoft/brewlet/kubernetes/api/v1alpha1"
+	"github.com/microsoft/brewlet/kubernetes/policy"
 	"github.com/microsoft/brewlet/pkg/node"
 	ext "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions"
 	extv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apiextensions-apiserver/pkg/apiserver/schema"
 	"k8s.io/apiextensions-apiserver/pkg/apiserver/schema/cel"
 	"k8s.io/apiextensions-apiserver/pkg/apiserver/validation"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	celconfig "k8s.io/apiserver/pkg/apis/cel"
 	"sigs.k8s.io/yaml"
@@ -72,6 +76,33 @@ func TestCRDVolumeMountPathsMatchNodePolicy(t *testing.T) {
 		want := node.ValidateVolumeMountPaths(paths) == nil
 		if got := schemaAccepts(t, &props, value); got != want {
 			t.Errorf("%q: CRD accepts=%v, node policy accepts=%v", paths, got, want)
+		}
+	}
+}
+
+func TestCRDRuntimeImagesRequireAnEntryLikeProfilePolicy(t *testing.T) {
+	props := crdSchema(t, "nodeprofiles.yaml").Properties["spec"]
+	for runtimes, valid := range map[string]bool{
+		``:                    false,
+		`,"runtimeImages":[]`: false,
+		`,"runtimeImages":[{"id":"python-3.12"}]`: true,
+	} {
+		raw := `{"nodePool":{"names":["web"]}` + runtimes + `}`
+		var value map[string]any
+		var spec api.NodeProfileSpec
+		if err := json.Unmarshal([]byte(raw), &value); err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal([]byte(raw), &spec); err != nil {
+			t.Fatal(err)
+		}
+		profile := &api.NodeProfile{ObjectMeta: metav1.ObjectMeta{Name: "web"}, Spec: spec}
+		want := policy.Profile(profile, nil, nil) == nil
+		if want != valid {
+			t.Errorf("%s: profile policy accepts=%v, want %v", raw, want, valid)
+		}
+		if got := schemaAccepts(t, &props, value); got != want {
+			t.Errorf("%s: CRD accepts=%v, profile policy accepts=%v", raw, got, want)
 		}
 	}
 }

@@ -189,6 +189,15 @@ func TestChartValuesSchemaValidation(t *testing.T) {
 		{"invalid-dashboard-quantity", []string{"--set-string", "dashboard.resources.requests.cpu=-1"}},
 		{"missing-profile-pool-name", []string{"--set", "provisioner.profiles[0].name=sample"}},
 		{"invalid-profile-name", []string{"--set", "provisioner.profiles[0].name=BadName"}},
+		{"missing-profile-runtime-images", []string{
+			"--set", "provisioner.profiles[0].name=sample",
+			"--set", "provisioner.profiles[0].spec.nodePool.names[0]=pool-a",
+		}},
+		{"empty-profile-runtime-images", []string{
+			"--set", "provisioner.profiles[0].name=sample",
+			"--set", "provisioner.profiles[0].spec.nodePool.names[0]=pool-a",
+			"--set-json", "provisioner.profiles[0].spec.runtimeImages=[]",
+		}},
 		{"invalid-profile-runtime-id", []string{
 			"--set", "provisioner.profiles[0].name=sample",
 			"--set", "provisioner.profiles[0].spec.nodePool.names[0]=pool-a",

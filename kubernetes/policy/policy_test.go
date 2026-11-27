@@ -65,8 +65,10 @@ func TestProfilePolicy(t *testing.T) {
 		t.Fatal(err)
 	}
 	tests := map[string]func(*api.NodeProfile){
-		"duplicate":  func(p *api.NodeProfile) { p.Spec.RuntimeImages = append(p.Spec.RuntimeImages, p.Spec.RuntimeImages[0]) },
-		"idle eager": func(p *api.NodeProfile) { p.Spec.RuntimeImages[0].IdleTTL = "1h" },
+		"missing runtimes": func(p *api.NodeProfile) { p.Spec.RuntimeImages = nil },
+		"empty runtimes":   func(p *api.NodeProfile) { p.Spec.RuntimeImages = []api.RuntimeEntry{} },
+		"duplicate":        func(p *api.NodeProfile) { p.Spec.RuntimeImages = append(p.Spec.RuntimeImages, p.Spec.RuntimeImages[0]) },
+		"idle eager":       func(p *api.NodeProfile) { p.Spec.RuntimeImages[0].IdleTTL = "1h" },
 		"invalid duration": func(p *api.NodeProfile) {
 			p.Spec.RuntimeImages[0].Install = "OnDemand"
 			p.Spec.RuntimeImages[0].IdleTTL = "-1s"
