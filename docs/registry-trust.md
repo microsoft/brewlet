@@ -58,6 +58,13 @@ directory, `/etc/containerd/certs.d`:
 Credentials are sent only to the registry's own HTTPS origin. Do not distribute
 registry credentials through application environment variables.
 
+The provisioner uses host PID but not host networking, so runtime-source pulls
+leave from its Pod IP over the cluster network. A registry endpoint on the
+node's loopback address is not reachable from the provisioner. Egress rules
+keyed on node addresses, and any NetworkPolicy in the Brewlet namespace, must
+allow the provisioner Pods to reach DNS, the Kubernetes API and the configured
+registries. The node's CNI must be ready before the provisioner can start.
+
 `NodeProfile.spec.registry.mirrors` is governed by
 `security.allowedSourceMirrorHosts`. Destination authorities must be explicit,
 different from their source and allowlisted. Mapping a source does not change

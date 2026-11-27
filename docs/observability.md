@@ -29,6 +29,8 @@ The chart creates:
 Both carry Prometheus scrape annotations. Configure your collector to honor
 them or author reviewed discovery/scrape configuration. The node Service is
 headless and publishes not-ready addresses; scraping it does not assert readiness.
+Node workers use the Pod network, so its endpoints are worker Pod IPs rather
+than node addresses.
 The current chart does not bundle a ServiceMonitor or Grafana dashboard switch.
 
 For local inspection, run in a dedicated terminal, using the namespace you

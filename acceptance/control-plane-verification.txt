@@ -40,7 +40,8 @@ array), BREWLET_MODE, BREWLET_PROFILE_SPEC, SOURCE_ALLOWED_MIRROR_HOSTS (JSON
 array), and NODE_NAME from spec.nodeName. Worker freezes the actual Node UID
 after checking the immutable target set. Host mounts are / -> /host,
 /var/lib/containerd -> /var/lib/containerd, /run/containerd -> /run/containerd.
-The worker has hostPID/hostNetwork and explicit profile tolerations only.
+The worker has hostPID (Pod network, ClusterFirst DNS) and explicit profile
+tolerations only.
 Cleanup completion marker is brewlet.sh/cleanup-complete=<profileUID>/<generation>.
 Its readiness probe executes /brewlet-node --health-check, observing the genuine
 pod-local /run/brewlet/ready completion gate maintained by the node worker.
