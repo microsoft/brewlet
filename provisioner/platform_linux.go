@@ -23,7 +23,7 @@ type metadataReader struct {
 }
 
 // runtimePlatforms never calls Pull/Unpack or reads layer payloads.
-func (i *ContainerdInstaller) runtimePlatforms(ctx context.Context, r *api.RuntimeImage) (*RuntimePlatforms, error) {
+func (i *ContainerdInstaller) runtimePlatforms(ctx context.Context, r *api.RuntimeImage, required []ocispec.Platform) (*RuntimePlatforms, error) {
 	if i.Client == nil {
 		return nil, fmt.Errorf("runtime metadata content client unavailable")
 	}
@@ -124,10 +124,13 @@ func (i *ContainerdInstaller) runtimePlatforms(ctx context.Context, r *api.Runti
 	if target.Digest.String() != r.Status.Digest {
 		return nil, fmt.Errorf("runtime metadata target does not match approved source digest")
 	}
-	return InspectRuntimePlatforms(ctx, target, open)
+	return inspectRuntimePlatforms(ctx, target, open, required)
 }
 func (i *ContainerdInstaller) ValidatePlatforms(ctx context.Context, r *api.RuntimeImage, required []ocispec.Platform) error {
-	declared, err := i.runtimePlatforms(ctx, r)
+	if len(required) == 0 {
+		return fmt.Errorf("NoCompatibleRuntime: offered pool platforms are unknown")
+	}
+	declared, err := i.runtimePlatforms(ctx, r, required)
 	if err != nil {
 		return err
 	}

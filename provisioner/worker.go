@@ -57,7 +57,7 @@ type Worker struct {
 	GCGrace                time.Duration
 	GCSweepInterval        time.Duration
 	Platforms              RuntimePlatformValidator
-	platformProofs         map[string]bool
+	platformProofs         map[string]string
 }
 
 func (w *Worker) check(ctx context.Context) (*control.Snapshot, error) {
@@ -115,7 +115,6 @@ func (w *Worker) Reconcile(ctx context.Context) error {
 	if w.Authority.Mode != "provisioning" {
 		return fmt.Errorf("cleanup requires explicit Cleanup call")
 	}
-	w.platformProofs = map[string]bool{}
 	gcGrace, gcInterval, err := w.collectionPolicy()
 	if err != nil {
 		return errors.Join(err, w.withholdBaseline(ctx))
@@ -180,6 +179,11 @@ func (w *Worker) Reconcile(ctx context.Context) error {
 	for _, entry := range s.Spec.RuntimeImages {
 		offered[entry.ID] = true
 	}
+	for id := range w.platformProofs {
+		if !offered[id] {
+			delete(w.platformProofs, id)
+		}
+	}
 	var failures []error
 	for _, entry := range s.Spec.RuntimeImages {
 		if entry.Install == "" {
@@ -190,6 +194,7 @@ func (w *Worker) Reconcile(ctx context.Context) error {
 		}
 		r, err := w.runtime(ctx, entry.ID)
 		if err != nil {
+			delete(w.platformProofs, entry.ID)
 			if isUpdating(err) {
 				auths, readErr := w.Store.Authorizations()
 				if readErr != nil {

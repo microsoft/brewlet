@@ -73,6 +73,20 @@ func (p *RuntimePlatforms) Covers(required []ocispec.Platform) error {
 // configs. Layer descriptors are checked structurally but never opened, so cold
 // OnDemand validation cannot fetch or unpack a runtime root.
 func InspectRuntimePlatforms(ctx context.Context, target ocispec.Descriptor, open func(ocispec.Descriptor) (io.ReadCloser, error)) (*RuntimePlatforms, error) {
+	return inspectRuntimePlatforms(ctx, target, open, nil)
+}
+
+// A nil required set inspects the full index. Scoped inspection still opens
+// undeclared entries to discover their platforms from digest-verified configs.
+func inspectRuntimePlatforms(ctx context.Context, target ocispec.Descriptor, open func(ocispec.Descriptor) (io.ReadCloser, error), required []ocispec.Platform) (*RuntimePlatforms, error) {
+	wanted := map[string]bool{}
+	for _, p := range required {
+		normalized, err := NormalizeRuntimePlatform(p)
+		if err != nil {
+			return nil, err
+		}
+		wanted[runtimePlatformKey(normalized)] = true
+	}
 	result := &RuntimePlatforms{entries: map[string]RuntimePlatform{}}
 	read := func(descriptor ocispec.Descriptor) ([]byte, error) {
 		if err := ctx.Err(); err != nil {
@@ -140,6 +154,15 @@ func InspectRuntimePlatforms(ctx context.Context, target ocispec.Descriptor, ope
 				if childDeclaration == nil {
 					childDeclaration = declared
 				}
+				if required != nil && childDeclaration != nil {
+					p, err := NormalizeRuntimePlatform(*childDeclaration)
+					if err != nil {
+						return err
+					}
+					if !wanted[runtimePlatformKey(p)] {
+						continue
+					}
+				}
 				if err := visit(child, childDeclaration, depth+1); err != nil {
 					return err
 				}
@@ -183,6 +206,9 @@ func InspectRuntimePlatforms(ctx context.Context, target ocispec.Descriptor, ope
 				}
 			}
 			key := runtimePlatformKey(selected)
+			if required != nil && !wanted[key] {
+				return nil
+			}
 			if _, exists := result.entries[key]; exists {
 				return fmt.Errorf("NoCompatibleRuntime: ambiguous normalized runtime platform %s", platforms.Format(selected))
 			}

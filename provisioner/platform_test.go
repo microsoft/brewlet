@@ -15,6 +15,7 @@ import (
 
 type platformStore struct {
 	blobs      map[digest.Digest][]byte
+	opens      map[digest.Digest]int
 	layerOpens int
 }
 
@@ -37,6 +38,10 @@ func (s *platformStore) manifest(t *testing.T, p ocispec.Platform) ocispec.Descr
 	return m
 }
 func (s *platformStore) open(d ocispec.Descriptor) (io.ReadCloser, error) {
+	if s.opens == nil {
+		s.opens = map[digest.Digest]int{}
+	}
+	s.opens[d.Digest]++
 	if d.MediaType == ocispec.MediaTypeImageLayerGzip {
 		s.layerOpens++
 		return nil, io.ErrUnexpectedEOF
@@ -46,6 +51,99 @@ func (s *platformStore) open(d ocispec.Descriptor) (io.ReadCloser, error) {
 		return nil, io.EOF
 	}
 	return io.NopCloser(bytes.NewReader(data)), nil
+}
+
+func TestScopedRuntimePlatformsSkipUnrequiredGraphs(t *testing.T) {
+	for _, nested := range []bool{false, true} {
+		name := "manifest"
+		if nested {
+			name = "nested-index"
+		}
+		t.Run(name, func(t *testing.T) {
+			s := &platformStore{blobs: map[digest.Digest][]byte{}}
+			amd := s.manifest(t, ocispec.Platform{OS: "linux", Architecture: "amd64"})
+			foreignPlatform := ocispec.Platform{OS: "linux", Architecture: "riscv64"}
+			foreign := s.manifest(t, foreignPlatform)
+			if nested {
+				foreign = s.put(t, ocispec.MediaTypeImageIndex, ocispec.Index{Versioned: specs.Versioned{SchemaVersion: 2}, Manifests: []ocispec.Descriptor{foreign}})
+				foreign.Platform = &foreignPlatform
+			}
+			delete(s.blobs, foreign.Digest)
+			index := s.put(t, ocispec.MediaTypeImageIndex, ocispec.Index{Versioned: specs.Versioned{SchemaVersion: 2}, Manifests: []ocispec.Descriptor{amd, foreign}})
+			required := []ocispec.Platform{{OS: "linux", Architecture: "x86_64", Variant: "v1"}}
+			result, err := inspectRuntimePlatforms(context.Background(), index, s.open, required)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := result.Covers(required); err != nil {
+				t.Fatal(err)
+			}
+			if s.opens[foreign.Digest] != 0 || s.layerOpens != 0 {
+				t.Fatal("scoped inspection opened an unrelated graph or layer", s.opens)
+			}
+			if _, err := InspectRuntimePlatforms(context.Background(), index, s.open); err == nil {
+				t.Fatal("full-index inspection did not inspect the missing foreign graph")
+			}
+		})
+	}
+}
+
+func TestScopedRuntimePlatformsDiscoverUndeclaredEntries(t *testing.T) {
+	s := &platformStore{blobs: map[digest.Digest][]byte{}}
+	amd := s.manifest(t, ocispec.Platform{OS: "linux", Architecture: "amd64"})
+	arm := s.manifest(t, ocispec.Platform{OS: "linux", Architecture: "arm64"})
+	amd.Platform, arm.Platform = nil, nil
+	index := s.put(t, ocispec.MediaTypeImageIndex, ocispec.Index{Versioned: specs.Versioned{SchemaVersion: 2}, Manifests: []ocispec.Descriptor{amd, arm}})
+	required := []ocispec.Platform{{OS: "linux", Architecture: "amd64"}}
+	result, err := inspectRuntimePlatforms(context.Background(), index, s.open, required)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := result.Covers(required); err != nil {
+		t.Fatal(err)
+	}
+	if s.opens[amd.Digest] != 1 || s.opens[arm.Digest] != 1 || len(result.entries) != 1 {
+		t.Fatal("undeclared entries were not discovered or scoped", s.opens, result.entries)
+	}
+}
+
+func TestScopedRuntimePlatformsRejectInvalidRequiredMetadata(t *testing.T) {
+	for _, failure := range []string{"missing", "config-mismatch", "ambiguous-alias", "nested-mismatch", "corrupt"} {
+		t.Run(failure, func(t *testing.T) {
+			s := &platformStore{blobs: map[digest.Digest][]byte{}}
+			p := ocispec.Platform{OS: "linux", Architecture: "amd64"}
+			manifest := s.manifest(t, p)
+			children := []ocispec.Descriptor{manifest}
+			switch failure {
+			case "missing":
+				children = []ocispec.Descriptor{s.manifest(t, ocispec.Platform{OS: "linux", Architecture: "arm64"})}
+			case "config-mismatch":
+				wrong := s.manifest(t, ocispec.Platform{OS: "linux", Architecture: "arm64"})
+				wrong.Platform = &p
+				children = []ocispec.Descriptor{wrong}
+			case "ambiguous-alias":
+				alias := manifest
+				alias.Platform = &ocispec.Platform{OS: "linux", Architecture: "x86_64", Variant: "v1"}
+				children = append(children, alias)
+			case "nested-mismatch":
+				child := s.manifest(t, ocispec.Platform{OS: "linux", Architecture: "arm64"})
+				nested := s.put(t, ocispec.MediaTypeImageIndex, ocispec.Index{Versioned: specs.Versioned{SchemaVersion: 2}, Manifests: []ocispec.Descriptor{child}})
+				nested.Platform = &p
+				children = []ocispec.Descriptor{nested}
+			case "corrupt":
+				s.blobs[manifest.Digest] = []byte(`{"schemaVersion":2}`)
+			}
+			index := s.put(t, ocispec.MediaTypeImageIndex, ocispec.Index{Versioned: specs.Versioned{SchemaVersion: 2}, Manifests: children})
+			required := []ocispec.Platform{p}
+			result, err := inspectRuntimePlatforms(context.Background(), index, s.open, required)
+			if err == nil {
+				err = result.Covers(required)
+			}
+			if err == nil {
+				t.Fatal("invalid required platform metadata accepted")
+			}
+		})
+	}
 }
 func TestRuntimePlatformMetadataCoversPoolWithoutOpeningLayers(t *testing.T) {
 	s := &platformStore{blobs: map[digest.Digest][]byte{}}
