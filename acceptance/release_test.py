@@ -3,11 +3,14 @@
 import copy
 import io
 import json
+import os
 from pathlib import Path
+import shutil
 import tarfile
 import tempfile
 import unittest
 from unittest.mock import patch
+import zipfile
 
 from scripts import release as r
 from scripts import release_assurance as a
@@ -106,6 +109,40 @@ class PackagingTests(unittest.TestCase):
         self.assertEqual(9, len(names))
         self.assertIn("brewlet-0.13.0.tgz", names)
         self.assertIn("brewlet-maven-plugin-0.13.0-javadoc.jar", names)
+
+    def test_packaged_chart_profile_renders_with_current_schema(self):
+        if not shutil.which("helm"):
+            if os.environ.get("CI"):
+                self.fail("Helm is required in CI for chart contract tests")
+            self.skipTest("Helm unavailable")
+        config = copy.deepcopy(r.policy())
+        config["cliTargets"] = []
+        digest = "sha256:" + "a" * 64
+        with tempfile.TemporaryDirectory() as temp:
+            output = Path(temp)
+            chart = shutil.copytree(r.ROOT / "kubernetes/charts/brewlet", output / "chart")
+            values = chart / "values.yaml"
+            text = values.read_text()
+            for repository in config["images"].values():
+                text = text.replace(repository + ":" + config["version"], repository + "@" + digest)
+            values.write_text(text)
+            shutil.copyfile(r.ROOT / "LICENSE.txt", chart / "LICENSE.txt")
+            r.run(["helm", "package", chart, "--destination", output])
+            base = "brewlet-maven-plugin-" + config["version"]
+            (output / (base + ".pom")).write_text(
+                '<project xmlns="http://maven.apache.org/POM/4.0.0">'
+                f'<groupId>{config["maven"]["groupId"]}</groupId>'
+                f'<artifactId>{config["maven"]["artifactId"]}</artifactId>'
+                f'<version>{config["version"]}</version></project>')
+            for suffix in (".jar", "-sources.jar", "-javadoc.jar"):
+                with zipfile.ZipFile(output / (base + suffix), "w") as jar:
+                    jar.writestr("META-INF/LICENSE.txt", (r.ROOT / "LICENSE.txt").read_bytes())
+                    jar.writestr("META-INF/NOTICE.txt", "fixture notice")
+                    if suffix == ".jar":
+                        jar.writestr("META-INF/maven/plugin.xml",
+                                     f'<plugin><version>{config["version"]}</version></plugin>')
+            with patch.object(r, "image_identity", return_value={"digest": digest}):
+                r.validate_payloads(output, config)
 
 
 class AssuranceTests(unittest.TestCase):
