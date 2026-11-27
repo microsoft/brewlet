@@ -37,6 +37,8 @@ spec:
       labels: {app.kubernetes.io/name: brewlet-dashboard}
     spec:
       serviceAccountName: brewlet-dashboard
+      nodeSelector:
+        kubernetes.io/os: linux
       securityContext:
         runAsNonRoot: true
         runAsUser: 65532

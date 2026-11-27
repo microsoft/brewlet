@@ -2,6 +2,7 @@ package v1alpha1
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"os"
 	"os/exec"
@@ -9,6 +10,7 @@ import (
 	"testing"
 
 	admissionv1 "k8s.io/api/admissionregistration/v1"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	nodev1 "k8s.io/api/node/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -17,6 +19,50 @@ import (
 	"k8s.io/apiserver/pkg/admission/plugin/policy/validating"
 	"k8s.io/apiserver/pkg/cel/environment"
 )
+
+func TestChartControlPlaneLinuxNodeSelectors(t *testing.T) {
+	requireHelm(t)
+	out, err := exec.Command("helm", "template", "test", "../../charts/brewlet", "--namespace", "brewlet-system").CombinedOutput()
+	if err != nil {
+		t.Fatalf("template: %v: %s", err, out)
+	}
+	found := map[string]bool{"brewlet-operator": false, "brewlet-admission": false}
+	decoder := kyaml.NewYAMLOrJSONDecoder(bytes.NewReader(out), 4096)
+	for {
+		var doc json.RawMessage
+		if err := decoder.Decode(&doc); err == io.EOF {
+			break
+		} else if err != nil {
+			t.Fatal(err)
+		}
+		var item struct {
+			Kind     string
+			Metadata struct{ Name string }
+		}
+		if err := json.Unmarshal(doc, &item); err != nil {
+			t.Fatal(err)
+		}
+		if item.Kind != "Deployment" {
+			continue
+		}
+		if _, ok := found[item.Metadata.Name]; !ok {
+			continue
+		}
+		var deployment appsv1.Deployment
+		if err := json.Unmarshal(doc, &deployment); err != nil {
+			t.Fatal(err)
+		}
+		if deployment.Spec.Template.Spec.NodeSelector[corev1.LabelOSStable] != "linux" {
+			t.Errorf("%s must select Linux nodes: %v", deployment.Name, deployment.Spec.Template.Spec.NodeSelector)
+		}
+		found[deployment.Name] = true
+	}
+	for name, present := range found {
+		if !present {
+			t.Errorf("%s deployment not rendered", name)
+		}
+	}
+}
 
 func TestRuntimeClassOverhead(t *testing.T) {
 	requireHelm(t)
