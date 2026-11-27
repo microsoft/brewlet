@@ -445,8 +445,8 @@ resolved dependencies to `/app/lib`, and generates classpath (or JPMS module)
 arguments:
 
 ```sh
-mvn package sh.brewlet:brewlet-maven-plugin:0.12.0:build \
-  sh.brewlet:brewlet-maven-plugin:0.12.0:push \
+mvn package sh.brewlet:brewlet-maven-plugin:0.13.0:build \
+  sh.brewlet:brewlet-maven-plugin:0.13.0:push \
   -Dbrewlet.image=registry.example.com/apps/orders:v2 \
   -Dbrewlet.platforms=linux/amd64,linux/arm64 \
   -Dbrewlet.mainClass=com.example.Main
