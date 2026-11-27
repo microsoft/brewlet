@@ -15,7 +15,7 @@ Nodes that will run Brewlet workloads need:
 
 - Linux with cgroup v2 and systemd/systemctl
 - containerd 2.x on its default socket, using the overlayfs snapshotter
-- runc and crictl
+- runc and a functioning containerd CRI service
 
 See [the node runbook](../provisioner/README.md) for the exact requirements.
 

@@ -40,6 +40,7 @@ type HostActivation struct {
 	ProfileUID       string
 	NodeUID          string
 	runHost          func(context.Context, ...string) error
+	runCRI           func(context.Context, bool) error
 	validateBaseline func(context.Context) error
 }
 
@@ -70,6 +71,14 @@ func (a HostActivation) host(ctx context.Context, args ...string) error {
 		return fmt.Errorf("host %s: %w: %.2048s", args[0], err, out)
 	}
 	return nil
+}
+
+func (a HostActivation) checkCRI(ctx context.Context, verbose bool) error {
+	if a.runCRI != nil {
+		return a.runCRI(ctx, verbose)
+	}
+	_, err := hostCRIStatus(ctx, a.HostRoot, verbose)
+	return err
 }
 
 // restartContainerd clears systemd's start rate limit first so back-to-back
@@ -295,10 +304,13 @@ func (a HostActivation) Ensure(ctx context.Context, policy string, fence func(co
 	if err := fence(ctx); err != nil {
 		return err
 	}
-	for _, command := range [][]string{{"containerd", "--version"}, {"crictl", "--version"}, {"systemctl", "is-active", "--quiet", "containerd"}} {
+	for _, command := range [][]string{{"containerd", "--version"}, {"systemctl", "is-active", "--quiet", "containerd"}} {
 		if err := a.host(ctx, command...); err != nil {
 			return fmt.Errorf("host activation prerequisite missing: %w", err)
 		}
+	}
+	if err := a.checkCRI(ctx, false); err != nil {
+		return fmt.Errorf("host activation prerequisite missing: %w", err)
 	}
 	record, err := a.load()
 	if os.IsNotExist(err) {
@@ -537,7 +549,7 @@ func (a HostActivation) Restore(ctx context.Context, fence func(context.Context)
 		if err := a.host(ctx, "systemctl", "is-active", "--quiet", "containerd"); err != nil {
 			return err
 		}
-		if err := a.host(ctx, "crictl", "--runtime-endpoint", "unix:///run/containerd/containerd.sock", "info", "-o", "json"); err != nil {
+		if err := a.checkCRI(ctx, true); err != nil {
 			return err
 		}
 	}

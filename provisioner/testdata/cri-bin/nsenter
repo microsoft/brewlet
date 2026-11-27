@@ -1,0 +1,5 @@
+#!/bin/sh
+case "$*" in
+  *"containerd config dump"*) exec /bin/cat "$BREWLET_TEST_CONFIG" ;;
+  *) exit 127 ;;
+esac

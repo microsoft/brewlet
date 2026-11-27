@@ -34,9 +34,9 @@ See the [CLI reference](docs/cli-reference.md) for commands and artifact options
 Releases publish matching operator/admission and provisioner images; see
 [installation](docs/installation.md). To build them from a checkout instead,
 use a clean checkout without credentials or private work directories in the
-Docker build context. The host must supply containerd 2.x, systemd/systemctl,
-crictl, cgroup v2 and the supported overlayfs layout. The default containerd
-socket is currently required.
+Docker build context. The host must supply containerd 2.x with CRI,
+systemd/systemctl, cgroup v2 and the supported overlayfs layout. The default
+containerd socket is currently required.
 
 ```sh
 docker build -f kubernetes/Dockerfile \

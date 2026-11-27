@@ -61,7 +61,7 @@ func activationFixture(t *testing.T) (HostActivation, []byte, *[]string) {
 	a := HostActivation{HostRoot: filepath.Join(dir, "host"), InventoryRoot: filepath.Join(dir, "runtimes"), SourceBinary: source, ProfileUID: "profile-one", NodeUID: "node-one", runHost: func(_ context.Context, args ...string) error {
 		calls = append(calls, strings.Join(args, " "))
 		return nil
-	}, validateBaseline: func(context.Context) error { return nil }}
+	}, runCRI: func(context.Context, bool) error { return nil }, validateBaseline: func(context.Context) error { return nil }}
 	return a, original, &calls
 }
 func TestActivationJournalCommitAndRestorationUnit(t *testing.T) {

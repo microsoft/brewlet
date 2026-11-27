@@ -97,10 +97,11 @@ Owned shim upgrades retain the original cleanup backup and a prior-committed
 binary rollback target. A failed upgrade restores the preceding committed
 binary instead of uninstalling a previously healthy handler.
 
-The host must already provide `containerd`, `systemctl`, and `crictl`;
-preflight checks all three before installation. Unmanaged shim binaries/handlers
-are not adopted, and external changes block reversal rather than being
-overwritten. Both image bases are digest-pinned.
+The host must already provide `containerd` and `systemctl`; preflight checks
+both and verifies the containerd CRI socket before installation. The
+provisioner queries CRI directly and does not require host `crictl`. Unmanaged
+shim binaries/handlers are not adopted, and external changes block reversal
+rather than being overwritten. Both image bases are digest-pinned.
 
 The operator mounts the node at `/host`, plus `/var/lib/containerd` and
 `/run/containerd` at their original paths. The default containerd socket and
