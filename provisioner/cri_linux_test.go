@@ -120,9 +120,12 @@ func activationWithCRI(t *testing.T) (HostActivation, []byte, *fakeCRIRuntime) {
 		}
 		return nil
 	}
-	bin := t.TempDir()
-	nsenter := "#!/bin/sh\ncase \"$*\" in *'containerd config dump') exec /bin/cat \"$BREWLET_TEST_CONFIG\";; *) exit 127;; esac\n"
-	if err := os.WriteFile(filepath.Join(bin, "nsenter"), []byte(nsenter), 0755); err != nil {
+	bin := filepath.Join("testdata", "cri-bin")
+	if _, err := os.Stat(filepath.Join(bin, "nsenter")); err != nil {
+		bin = filepath.Join("/src/provisioner", bin)
+	}
+	bin, err := filepath.Abs(bin)
+	if err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin)
