@@ -108,6 +108,68 @@ func TestRuntimeClassOverhead(t *testing.T) {
 	}
 }
 
+func TestChartValuesSchemaValidation(t *testing.T) {
+	requireHelm(t)
+	command := func(args ...string) ([]byte, error) {
+		base := []string{"template", "test", "../../charts/brewlet", "--namespace", "brewlet-system"}
+		return exec.Command("helm", append(base, args...)...).CombinedOutput()
+	}
+	valid := []string{
+		"--set-string", "operator.rotationRestarts.nodeProgressDeadline=+1h30m",
+		"--set-string", "provisioner.gc.sweepInterval=1µs",
+		"--set", "provisioner.profiles[0].name=sample",
+		"--set", "provisioner.profiles[0].spec.nodePool.names[0]=pool-a",
+		"--set", "provisioner.profiles[0].spec.runtimeImages[0].id=java-21",
+		"--set", "provisioner.profiles[0].spec.runtimeImages[0].install=OnDemand",
+		"--set-string", "provisioner.profiles[0].spec.runtimeImages[0].idleTTL=72h",
+	}
+	if output, err := command(valid...); err != nil {
+		t.Fatalf("valid values rejected: %v: %s", err, output)
+	}
+	for _, tc := range []struct {
+		name string
+		args []string
+	}{
+		{"unknown-root-key", []string{"--set", "typo=true"}},
+		{"unknown-nested-key", []string{"--set", "operator.rotationRestart.enabled=true"}},
+		{"wrong-type", []string{"--set", "metrics.enabled=1"}},
+		{"unsupported-enum", []string{"--set", "admission.nodeProfileFailurePolicy=Sometimes"}},
+		{"invalid-duration", []string{"--set", "operator.rotationRestarts.nodeProgressDeadline=10d"}},
+		{"fractional-integer", []string{"--set", "operator.rotationRestarts.maxConcurrent=1.5"}},
+		{"nonpositive-concurrency", []string{"--set", "operator.rotationRestarts.maxConcurrent=0"}},
+		{"invalid-node-port", []string{"--set", "metrics.nodePort=65536"}},
+		{"nonpositive-uninstall-timeout", []string{"--set", "uninstall.timeoutSeconds=0"}},
+		{"unknown-dashboard-resource", []string{"--set", "dashboard.resources.unknown=1"}},
+		{"invalid-dashboard-quantity", []string{"--set-string", "dashboard.resources.requests.cpu=-1"}},
+		{"missing-profile-pool-name", []string{"--set", "provisioner.profiles[0].name=sample"}},
+		{"invalid-profile-name", []string{"--set", "provisioner.profiles[0].name=BadName"}},
+		{"invalid-profile-runtime-id", []string{
+			"--set", "provisioner.profiles[0].name=sample",
+			"--set", "provisioner.profiles[0].spec.nodePool.names[0]=pool-a",
+			"--set", "provisioner.profiles[0].spec.runtimeImages[0].id=Bad_ID",
+		}},
+		{"idle-ttl-requires-on-demand", []string{
+			"--set", "provisioner.profiles[0].name=sample",
+			"--set", "provisioner.profiles[0].spec.nodePool.names[0]=pool-a",
+			"--set", "provisioner.profiles[0].spec.runtimeImages[0].id=java-21",
+			"--set", "provisioner.profiles[0].spec.runtimeImages[0].install=Eager",
+			"--set-string", "provisioner.profiles[0].spec.runtimeImages[0].idleTTL=72h",
+		}},
+		{"unsupported-profile-rollout", []string{
+			"--set", "provisioner.profiles[0].name=sample",
+			"--set", "provisioner.profiles[0].spec.nodePool.names[0]=pool-a",
+			"--set", "provisioner.profiles[0].spec.runtimeImages[0].id=java-21",
+			"--set", "provisioner.profiles[0].spec.rollout.containerdRestart=always",
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if output, err := command(tc.args...); err == nil {
+				t.Fatalf("invalid values accepted: %s", output)
+			}
+		})
+	}
+}
+
 func TestChartDefaultRBACAndUnsupportedFeatureGuards(t *testing.T) {
 	requireHelm(t)
 	command := func(args ...string) ([]byte, error) {

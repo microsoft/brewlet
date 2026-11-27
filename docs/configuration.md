@@ -33,36 +33,41 @@ below says which stage rejects an invalid value.
 
 | Stage | When it runs | What happens on an invalid value |
 | --- | --- | --- |
-| Schema | `helm install`, `upgrade`, `template` and `lint` | Helm refuses to render. `values.schema.json` covers only `runtimeClass` and `dashboard`; both reject unknown keys. |
+| Schema | `helm install`, `upgrade`, `template` and `lint` | Helm refuses to render for incorrect types, unsupported enum values, invalid formats, out-of-range numbers, missing required values or unknown keys. |
 | Template | Chart rendering | Helm fails with a message naming the value. |
 | API server | Helm applies the rendered objects | The install or upgrade fails because Kubernetes rejects the object. |
 | Operator | `brewlet-operator` startup | The operator exits and its Pod enters `CrashLoopBackOff`; the reason is in its logs. Without `--wait`, Helm can still report success, so check the Pod after changing these values. |
 | Profile policy | `NodeProfile` admission, operator and node worker | The affected `NodeProfile`s are rejected or reported invalid and not provisioned. |
 
-Keys outside `runtimeClass` and `dashboard` are not schema-validated. A
-misspelled key such as `operator.rotationRestart.enabled` is ignored without
-error, and the default stays in effect. Check the rendered result with
-`helm template` or `helm get values` when in doubt.
+All chart values are declared in `values.schema.json`, and unknown keys are
+rejected at every level. Some semantic constraints cannot be checked by the
+schema: for example, durations must be positive, mirror hosts must be valid
+registry authorities, and namespaces must exist. Their consuming operator,
+profile policy or Kubernetes API checks them at runtime or apply time. Use
+`helm template` to check the rendered result.
 
 Durations are [Go duration](https://pkg.go.dev/time#ParseDuration) strings: one
-or more decimal numbers, each followed by a unit of `ns`, `us`, `ms`, `s`, `m` or
-`h`, such as `90s`, `10m` or `1h30m`. Days (`d`) and bare numbers such as `600`
-are not accepted.
+or more decimal numbers, each followed by a unit of `ns`, `us` (also `µs` or
+`μs`), `ms`, `s`, `m` or `h`, such as `90s`, `10m` or `1h30m`. Days (`d`) and
+bare numbers such as `600` are not accepted. The schema checks the format;
+operator and worker startup checks that durations are positive.
 
 ### Images
 
 | Key | Type | Default | Valid values and constraints | Checked by |
 | --- | --- | --- | --- | --- |
-| `operator.image` | string | `ghcr.io/microsoft/brewlet-operator:VERSION` | Image reference by tag or `@sha256:` digest. Also runs the uninstall pre-delete Job. | API server, kubelet pull |
-| `admission.image` | string | `ghcr.io/microsoft/brewlet-admission:VERSION` | Image reference. Used only when `admission.enabled` is `true`. | API server, kubelet pull |
-| `provisioner.image` | string | `ghcr.io/microsoft/brewlet-node-provisioner:VERSION` | Image reference for the privileged node worker, including the shim. Must not be empty. Workers pull it with `IfNotPresent`. | Operator, kubelet pull |
+| `operator.image` | string | `ghcr.io/microsoft/brewlet-operator:VERSION` | Non-empty image reference by tag or `@sha256:` digest. Also runs the uninstall pre-delete Job. | Schema, kubelet pull |
+| `admission.image` | string | `ghcr.io/microsoft/brewlet-admission:VERSION` | Non-empty image reference. Used only when `admission.enabled` is `true`. | Schema, kubelet pull |
+| `provisioner.image` | string | `ghcr.io/microsoft/brewlet-node-provisioner:VERSION` | Non-empty image reference for the privileged node worker, including the shim. Workers pull it with `IfNotPresent`. | Schema, kubelet pull |
 | `dashboard.image` | string | `ghcr.io/microsoft/brewlet-dashboard:VERSION` | Non-empty image reference. Used only when `dashboard.enabled` is `true`. | Schema, kubelet pull |
 
 All images must come from the same Brewlet release as the chart. Override them
 only to point at a mirror of the same release. The chart has no
 `imagePullSecrets` value: nodes must be able to pull these images without
-per-Pod credentials. Only the dashboard has a pull-policy value; the operator
-and admission Pods use the Kubernetes default for their image reference.
+per-Pod credentials. Schema validation requires only a non-empty image string;
+the kubelet validates the image reference when pulling it. Only the dashboard
+has a pull-policy value; the operator and admission Pods use the Kubernetes
+default for their image reference.
 
 ### Operator and rotation restarts
 
@@ -71,12 +76,12 @@ These values live under `operator.rotationRestarts`. All of them except
 
 | Key | Type | Default | Valid values and constraints | Checked by |
 | --- | --- | --- | --- | --- |
-| `enabled` | boolean | `false` | `true` or `false`. Lets the operator restart workloads that set `brewlet.sh/restart-on-rotation: "true"` after a runtime rotation. | — |
-| `maxConcurrent` | integer | `5` | Whole number of at least `1`. The cluster-wide maximum of workload restart rollouts in progress at once. | Operator |
-| `nodeProgressDeadline` | duration | `10m` | Positive duration. How long a node may fail to make rotation progress before the operator quarantines it. **Applies even when restarts are disabled.** | Operator |
-| `workloadProgressDeadline` | duration | `10m` | Positive duration. The longest the operator watches one workload's restart rollout. | Operator |
-| `namespaces` | list of strings | `[]` | Empty means every namespace except the protected ones. Otherwise each entry must be a DNS-1123 label (lowercase letters, digits and `-`, at most 63 characters, starting and ending with a letter or digit). List each namespace once. Entries must not be the release namespace or appear in `protectedNamespaces`. Each namespace must exist before you install or upgrade. | Template, operator, API server |
-| `protectedNamespaces` | list of strings | `[kube-system, kube-public, kube-node-lease]` | Namespace names, matched exactly. Restarts are always refused in these namespaces, even when they are listed in `namespaces`. Add namespaces as needed; removing the defaults removes that protection. | Template |
+| `enabled` | boolean | `false` | `true` or `false`. Lets the operator restart workloads that set `brewlet.sh/restart-on-rotation: "true"` after a runtime rotation. | Schema |
+| `maxConcurrent` | integer | `5` | Whole number of at least `1`. The cluster-wide maximum of workload restart rollouts in progress at once. | Schema, operator |
+| `nodeProgressDeadline` | duration | `10m` | Positive duration. How long a node may fail to make rotation progress before the operator quarantines it. **Applies even when restarts are disabled.** | Schema, operator |
+| `workloadProgressDeadline` | duration | `10m` | Positive duration. The longest the operator watches one workload's restart rollout. | Schema, operator |
+| `namespaces` | list of strings | `[]` | Empty means every namespace except the protected ones. Otherwise each entry must be a DNS-1123 label (lowercase letters, digits and `-`, at most 63 characters, starting and ending with a letter or digit). List each namespace once. Entries must not be the release namespace or appear in `protectedNamespaces`. Each namespace must exist before you install or upgrade. | Schema, Template, operator, API server |
+| `protectedNamespaces` | list of strings | `[kube-system, kube-public, kube-node-lease]` | Namespace names, matched exactly. Restarts are always refused in these namespaces, even when they are listed in `namespaces`. Add namespaces as needed; removing the defaults removes that protection. | Schema, Template |
 
 Setting `enabled: true` installs, in addition to the operator flags:
 
@@ -100,11 +105,11 @@ workload must also opt in on its controller metadata; see
 
 | Key | Type | Default | Valid values and constraints | Checked by |
 | --- | --- | --- | --- | --- |
-| `provisioner.gc.grace` | duration | `1h` | Positive duration. How long a node keeps a runtime generation that no Pod leases before collecting it. | Operator, node worker |
-| `provisioner.gc.sweepInterval` | duration | `1m` | Positive duration. How often node workers collect unused runtime generations and cached layers. | Operator, node worker |
-| `provisioner.profiles` | list of objects | `[]` | `NodeProfile`s for Helm to manage. Each entry has exactly `name` and `spec`, described below. | Template, API server, profile policy |
-| `provisioner.profiles[].name` | string | — | A valid Kubernetes object name: a DNS-1123 subdomain of lowercase letters, digits, `-` and `.`, at most 253 characters. Unique across all `NodeProfile`s, including those created outside Helm. | API server |
-| `provisioner.profiles[].spec` | object | — | A `NodeProfile` spec. All [NodeProfile](#nodeprofile) constraints apply. The chart also requires a non-empty `spec.nodePool.names`; create a catch-all profile, which selects every node no other profile claims, outside the chart. | Template, API server, profile policy |
+| `provisioner.gc.grace` | duration | `1h` | Positive duration. How long a node keeps a runtime generation that no Pod leases before collecting it. | Schema, operator, node worker |
+| `provisioner.gc.sweepInterval` | duration | `1m` | Positive duration. How often node workers collect unused runtime generations and cached layers. | Schema, operator, node worker |
+| `provisioner.profiles` | list of objects | `[]` | `NodeProfile`s for Helm to manage. Each entry has exactly `name` and `spec`, described below. | Schema, Template, API server, profile policy |
+| `provisioner.profiles[].name` | string | — | A valid Kubernetes object name: a DNS-1123 subdomain of lowercase letters, digits, `-` and `.`, at most 253 characters. | Schema, API server |
+| `provisioner.profiles[].spec` | object | — | A `NodeProfile` spec. All [NodeProfile](#nodeprofile) constraints apply. The chart also requires a non-empty `spec.nodePool.names`; create a catch-all profile, which selects every node no other profile claims, outside the chart. | Schema, Template, API server, profile policy |
 
 Profiles created by the chart are owned by the Helm release. Change them
 through Helm values; Helm overwrites direct edits. Removing an entry deletes that
@@ -114,7 +119,7 @@ through Helm values; Helm overwrites direct edits. Removing an entry deletes tha
 
 | Key | Type | Default | Valid values and constraints | Checked by |
 | --- | --- | --- | --- | --- |
-| `security.allowedSourceMirrorHosts` | list of strings | `[]` | Registry authorities that `NodeProfile.spec.registry.mirrors` may point to. Each entry is a host name or IP address with an optional port, such as `mirror.example.com` or `10.0.0.5:5000`. No scheme, path, `@`, comma, surrounding whitespace, wildcard or duplicate entry. Matching is exact; subdomains are not included. | Profile policy |
+| `security.allowedSourceMirrorHosts` | list of strings | `[]` | Registry authorities that `NodeProfile.spec.registry.mirrors` may point to. Each entry is a host name or IP address with an optional port, such as `mirror.example.com` or `10.0.0.5:5000`. No scheme, path, `@`, comma, surrounding whitespace, wildcard or duplicate entry. Matching is exact; subdomains are not included. | Schema, profile policy |
 
 An invalid entry makes **every** `NodeProfile` fail validation, including
 profiles that declare no mirrors. The list is passed to the operator, the
@@ -125,8 +130,8 @@ admission webhook and each node worker. See
 
 | Key | Type | Default | Valid values and constraints | Checked by |
 | --- | --- | --- | --- | --- |
-| `admission.enabled` | boolean | `true` | `true` or `false`. See below. | — |
-| `admission.nodeProfileFailurePolicy` | string | `Fail` | `Fail` or `Ignore`, case-sensitive. Failure policy of the `NodeProfile` and `RuntimeImage` validating webhooks when the admission service is unreachable. | API server |
+| `admission.enabled` | boolean | `true` | `true` or `false`. See below. | Schema |
+| `admission.nodeProfileFailurePolicy` | string | `Fail` | `Fail` or `Ignore`, case-sensitive. Failure policy of the `NodeProfile` and `RuntimeImage` validating webhooks when the admission service is unreachable. | Schema, API server |
 
 With `admission.enabled: false`, the chart installs no admission Deployment and
 no mutating or validating webhooks. Pods that select a runtime then do not get
@@ -170,7 +175,7 @@ The dashboard image is listed under [Images](#images).
 
 | Key | Type | Default | Valid values and constraints | Checked by |
 | --- | --- | --- | --- | --- |
-| `uninstall.timeoutSeconds` | integer | `240` | Whole number from `1` to `86400`. How long the pre-delete hook waits for profile cleanup. The hook Job's deadline is this value plus 10 seconds. | Template, operator |
+| `uninstall.timeoutSeconds` | integer | `240` | Whole number from `1` to `86400`. How long the pre-delete hook waits for profile cleanup. The hook Job's deadline is this value plus 10 seconds. | Schema, Template, operator |
 
 Set `helm uninstall --timeout` longer than this value. See
 [uninstallation](uninstallation.md).
@@ -179,8 +184,8 @@ Set `helm uninstall --timeout` longer than this value. See
 
 | Key | Type | Default | Valid values and constraints | Checked by |
 | --- | --- | --- | --- | --- |
-| `metrics.enabled` | boolean | `false` | `true` or `false`. Exposes operator metrics on port `8080` through the `brewlet-operator-metrics` Service, and node metrics through the headless `brewlet-node-metrics` Service. Both carry `prometheus.io` scrape annotations. | — |
-| `metrics.nodePort` | integer | `9090` | TCP port from `1` to `65535`. Used only when `metrics.enabled` is `true`. | Operator |
+| `metrics.enabled` | boolean | `false` | `true` or `false`. Exposes operator metrics on port `8080` through the `brewlet-operator-metrics` Service, and node metrics through the headless `brewlet-node-metrics` Service. Both carry `prometheus.io` scrape annotations. | Schema |
+| `metrics.nodePort` | integer | `9090` | TCP port from `1` to `65535`. Used only when `metrics.enabled` is `true`. | Schema, operator |
 
 Node workers use host networking, so `metrics.nodePort` is bound on the host
 network of every Brewlet node. Choose a port that is free on those nodes and
