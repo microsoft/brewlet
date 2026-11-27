@@ -72,6 +72,7 @@ class SiteTests(unittest.TestCase):
         page = module.Page((ROOT / "site/index.html").read_text())
         self.assertIn("cheat-sheet", page.ids)
         self.assertIn(("a", "#cheat-sheet"), page.links)
+        self.assertIn(("a", "docs/native/"), page.links)
         self.assertIn(("a", "docs/cheat-sheet/"), page.links)
         self.assertIn(("a", "docs/assets/cheat-sheet/brewlet-cheat-sheet.pdf"), page.links)
         self.assertIn(("img", "docs/assets/cheat-sheet/preview.png"), page.links)
