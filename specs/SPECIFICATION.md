@@ -1,19 +1,12 @@
 # Brewlet specification
 
-- **Status:** authoritative contract for the **breaking** Brewlet 1.0.0 implementation,
-  not an additive mode of Brewlet 0.x. Implementation and qualification are
-  distinct: see the [baseline ledger](../acceptance/requirements.json) (Part I),
-  and the [scoped qualification records](../acceptance/RESULTS.md).
+- **Status:** authoritative contract for the Brewlet 1.0.0 implementation.
+  Implementation and qualification are distinct: see the
+  [baseline ledger](../acceptance/requirements.json) (Part I), and the
+  [scoped qualification records](../acceptance/RESULTS.md).
 - **Release identity:** [`release.json`](../release.json).
-- **Origin:** consolidates approved Proposal 0009 (Part I, §1–§15); section
-  numbers are unchanged from that proposal.
-- **Reference main:** `fa7085335b220e29df6affbece4558c5f1259ecb`.
-- **0.x contracts retained and generalized:** runnable-image delivery
-  (SPEC §4.4), copy-from-image node roots (SPEC §5.3),
-  `NodeProfile` pool selection and rollout (SPEC §5.6), the runc-backed shim (SPEC §6),
-  `RuntimeClass/brewlet` (SPEC §7), and the admission webhook (SPEC §8.3)
 
-Brewlet 1.0.0 defines a language-agnostic core contract. Developers publish
+Brewlet defines a language-agnostic core contract. Developers publish
 **application artifacts** (code and any libraries or other dependencies as
 ordinary application files) to an OCI registry. Platform teams approve
 **runtime images** — digest-pinned "golden" base images such as a JRE, a Python
@@ -25,28 +18,13 @@ container. `runtimeClassName: brewlet` is Pod-wide; containers without a
 selection retain ordinary OCI behavior. The node-resident shim composes each
 selected container's approved runtime with its application at launch time.
 
-Bare `§N` references cite sections of this specification. References written
-as `SPEC §N` instead cite the **0.x** design reference,
-[`SPECIFICATION.md` at main commit `fa70853`](https://github.com/microsoft/brewlet/blob/fa7085335b220e29df6affbece4558c5f1259ecb/specs/SPECIFICATION.md),
-which this document replaces.
-
-Brewlet 1.0.0 is a rewrite inspired by Brewlet 0.x on `main`.
-`SPEC §N` references provide design context only;
-this document defines the implemented 1.0.0 contract for runtime images and
-workload execution. This is not a claim of a stable production release.
+This document defines the contract for runtime images and workload execution.
+This is not a claim of a stable production release.
 
 Release numbering is independent of artifact schema versions, Kubernetes API
 versions and containerd shim interface versions.
 
 The key words MUST, MUST NOT, SHOULD, and MAY describe the 1.0.0 contract.
-
-**Approved upstream-runtime amendment (2026-10-19).** Compatible upstream OCI
-runtime images, including shell-free distroless images, need not be rebuilt
-solely to create an account named `app`, an existing home, or executable-search
-directories. The numeric identity and execution-safety contract below remains
-mandatory. Application content is isolated from any runtime `/app` content;
-it never merges with that content. Historical acceptance predating this
-amendment does not verify these changed requirements.
 
 ---
 
@@ -58,16 +36,13 @@ amendment does not verify these changed requirements.
 
 ## 1. Summary
 
-Brewlet 0.x separates a Java application from its JDK at launch time. On
-inspection, almost nothing in that separation is Java-specific:
+Brewlet composes an application artifact with its approved runtime image at
+launch time:
 
-- A JDK "root" (SPEC §5.3) is already the **complete root filesystem** of an
-  administrator-approved, digest-pinned image, copied read-only onto the node.
-- The application image (SPEC §4.4) is already a set of ordinary
-  `tar+gzip` layers plus a small launch descriptor.
-- The shim (SPEC §6) already overlays the two and delegates to runc.
-
-Brewlet 1.0.0 expresses this flow in language-neutral terms:
+- A runtime image supplies the complete root filesystem and is copied
+  read-only onto the node after platform approval.
+- An application artifact contains ordinary layers and a small launch descriptor.
+- The shim combines the runtime root and application layers, then delegates to runc.
 
 ```text
  Platform operator                          Developer / CI
@@ -91,12 +66,12 @@ Brewlet 1.0.0 expresses this flow in language-neutral terms:
 
 ## 2. Motivation
 
-- **Every language has the same problem.** Base-image sprawl, slow CVE
-  remediation in language runtimes and userland, and per-team Dockerfiles are not
-  Java problems. Python, Node.js, .NET, WebAssembly guests hosted by native
-  engines, Ruby, and even static Go binaries (which
-  still need CA bundles, tzdata, and a hardened userland) benefit from a
-  centrally governed runtime that ships separately from application bytes.
+- **Runtime maintenance is shared across ecosystems.** Base-image sprawl, slow
+  CVE remediation in language runtimes and userland, and per-team Dockerfiles
+  are shared problems. Shipping centrally governed runtimes separately from
+  application bytes helps teams using Python, Node.js, .NET, Java, WebAssembly guests
+  hosted by native engines, Ruby, and even static Go binaries that still need
+  CA bundles, tzdata, and a hardened userland.
 - **One core serves every ecosystem.** A generic runtime-image inventory and
   argv-based launch configuration apply across languages without per-language
   matching or flag parsing.
@@ -106,7 +81,7 @@ Brewlet 1.0.0 expresses this flow in language-neutral terms:
   converge, without touching application repositories or manifests.
 - **Shared runtime pages.** One read-only runtime root per ID per node is shared by
   every container that uses it, preserving Brewlet's density and pull-cost
-  benefits for every language rather than only for the JVM.
+  benefits across ecosystems.
 
 ## 3. Goals
 
@@ -134,14 +109,11 @@ Brewlet 1.0.0 expresses this flow in language-neutral terms:
 - Keep the `brewlet` CLI language-agnostic: it packages and validates
   hand-written descriptors and never derives launch or platform fields from
   application content (§11.1).
-- Keep the Maven plugin as an optional **Java producer** of 1.0.0 artifacts, the
-  only place where Java-specific intelligence lives (§11.2).
 
 ## 4. Non-goals
 
-- Compatibility or migration tooling for previous Brewlet releases. 1.0.0 is a
-  total pivot; previous artifacts, descriptors, and deployments are outside
-  this specification's contract.
+- Compatibility with previous Brewlet releases or migration of their artifacts,
+  descriptors, and deployments.
 - Per-workload digest pinning of the runtime. A workload that must pin an exact
   runtime digest should use an ordinary image with the stock runc RuntimeClass, or
   a dedicated, narrowly scoped runtime image ID (§7.4).
@@ -176,10 +148,10 @@ Brewlet 1.0.0 expresses this flow in language-neutral terms:
 
 ### 6.1 Shape
 
-An application artifact is a **runnable OCI image** in the sense of SPEC §4.4: kubelet
-pulls it with the standard image path, and the shim reads it from the containerd
-content store by digest. It MUST be published as an OCI image index when it
-targets more than one platform, and MAY be a single image manifest otherwise.
+An application artifact is a **runnable OCI image** that kubelet pulls through
+the standard image path and the shim reads from the containerd content store by
+digest. It MUST be published as an OCI image index when it targets more than one
+platform, and MAY be a single image manifest otherwise.
 
 Each platform manifest MUST contain:
 
@@ -261,10 +233,10 @@ and use the golden image's interpreter instead of shipping such a virtualenv.
 
 The launch layer is a tar containing exactly one regular file, `launch.json`, at
 the archive root. It is a layer rather than a config blob or annotation so that
-kubelet can pull and unpack the image unchanged (as SPEC §4.4 requires of every layer)
-while the configuration remains a content-addressed object covered by the
-manifest digest and any signature over it. The shim reads it from the content
-store and **never mounts it** into the sandbox.
+kubelet can pull and unpack the image unchanged while the configuration remains
+a content-addressed object covered by the manifest digest and any signature
+over it. The shim reads it from the content store and **never mounts it** into
+the sandbox.
 
 ```json
 {
@@ -320,11 +292,10 @@ Workloads select an approved runtime explicitly. Authors are responsible for
 testing applications against the selected runtime.
 
 The launch configuration intentionally contains **no** language-specific fields.
-Everything a 0.x `jvm.config` expressed (`mainJar`, `entry.mode`, `addOpens`,
-system properties, preview flags, AppCDS hints) becomes plain argv. Outside the
-Java ecosystem, the application author writes `launch.json` by hand and the CLI
-packages it unchanged (§11.1); for Java projects the Maven plugin MAY generate it
-(§11.2).
+Runtime-specific options such as a main class, module mode, system properties,
+preview flags, or AppCDS settings are expressed as ordinary argv. Application
+authors can write or generate `launch.json`; the CLI packages it unchanged
+(§11.1).
 
 ### 6.4 Image config
 
@@ -359,11 +330,10 @@ comparison. OCI `architecture`, `os`, `variant`, and `rootfs.diff_ids` must matc
 the declared platform and verified layers. Non-execution metadata such as
 `created`, `author`, and `history` is ignored.
 
-The CLI, Maven plugin, and shim MUST share published conformance fixtures for
-valid and invalid descriptors, canonical mirrors, layer paths and links,
-permissions, whiteouts, and platform declarations. Acceptance requires all
-three implementations to produce the same normalized process fields and
-reason codes; separate language implementations do not justify contract drift.
+The CLI and shim MUST share published conformance fixtures for valid and
+invalid descriptors, canonical mirrors, layer paths and links, permissions,
+whiteouts, and platform declarations. Acceptance requires both implementations
+to produce the same normalized process fields and reason codes.
 
 `launch.json` remains the authoritative, versioned document inspected by tooling.
 A future baked exporter would need to honor the same launch contract; no such
@@ -401,11 +371,16 @@ status:
   `[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*`
   and be at most 55 characters: lowercase DNS subdomain components, allowing
   dots as in `python-3.12`, with no empty component. This also makes
-  `brewlet.sh/runtime.<id>` a valid label key (§9). Admission, the shim, CLI,
-  and Maven plugin use the same grammar.
+  `brewlet.sh/runtime.<id>` a valid label key (§9). Admission, the shim and CLI
+  use the same grammar.
 - `spec.source.image` MUST be a canonical `repo@sha256:<64 lowercase hex>`
-  reference, subject to the existing source policy and mirror allowlist (SPEC §5.3).
-  Tags are rejected.
+  reference. Tags are rejected. Registry mirrors declared in
+  `NodeProfile.spec.registry.mirrors` map source authorities to destination
+  authorities with an optional repository prefix. The destination authority
+  MUST differ from the source and match the configured
+  `security.allowedSourceMirrorHosts` allowlist exactly; any repository-prefix
+  rewrite MUST preserve the source digest. Invalid source or mirror policy MUST
+  prevent pulls, host mutation, and readiness advertisement.
 - `spec.user.uid` and `spec.user.gid` are required, MUST be non-zero, and are
   immutable: they identify approved numeric defaults (§7.2, §8.4) and are part of
   the ID's compatibility promise.
@@ -480,9 +455,9 @@ Software requiring named-account/NSS lookup must use a suitable runtime.
 Runtime roots MUST NOT contain setuid/setgid binaries or file capabilities;
 the provisioner rejects such roots rather than silently changing approved
 bytes. Runtime images SHOULD be minimal, SHOULD NOT contain package managers,
-and SHOULD carry an SBOM referrer. The provisioner
-applies the existing safe-extraction rules (SPEC §5.3) and records
-`.brewlet-source` with the resolved digest.
+and SHOULD carry an SBOM referrer. The provisioner materializes the
+digest-verified image root read-only and records `.brewlet-source` with the
+resolved digest.
 
 Alongside each root the provisioner persists immutable, root-owned metadata:
 inventory ID and UID, generation, source and platform manifest digests,
@@ -496,8 +471,9 @@ not pod-supplied environment or user data, as the runtime authority.
 **Approving third-party images.** A compatible upstream digest may be approved
 unchanged. Shells, package managers and account-management utilities are not
 required inside the runtime: the host provisioner inspects files without
-executing image code. If a source violates retained privilege or compatibility
-policy, a platform team may derive and approve a new image in its own pipeline.
+executing image code. If a source violates the privilege or compatibility
+requirements, a platform team may derive and approve a new image in its own
+pipeline.
 For example, it may remove setuid/setgid bits before publication:
 
 ```dockerfile
@@ -517,9 +493,8 @@ a new ID. This is the contract that makes digest-free workload references safe.
 
 ### 7.3 Placement and rotation (`NodeProfile`)
 
-`NodeProfile` keeps pool selection, tolerations, mirrors, and rollout policy, and
-replaces `jdks` with one list of runtime image
-entries:
+`NodeProfile` declares the runtime images offered to its node pools, along with
+their installation and rollout policy:
 
 ```yaml
 apiVersion: node.brewlet.sh/v1alpha1
@@ -548,8 +523,8 @@ spec:
   only with `OnDemand`.
 - Unknown IDs make the profile not ready (`UnknownRuntimeImage`) without blocking
   other IDs.
-- `Eager` IDs are installed when the node joins the pool and gate node readiness
-  as in 0.x. A profile containing only `OnDemand` entries MUST be able to
+- `Eager` IDs are installed when the node joins the pool and gate node readiness.
+  A profile containing only `OnDemand` entries MUST be able to
   publish `brewlet.sh/runtime=ready` after validating the shim, handler,
   annotation forwarding, ownership, and local authorizations, without fetching
   a runtime root. Its approved IDs advertise `available`, so the first pod can
@@ -565,9 +540,8 @@ spec:
   `current` resolution, and collection share a per-ID lock. Shim restart
   recovers leases from durable records and live task/mount evidence; uncertainty
   blocks collection. A lease is released only after the task, exec processes,
-  and rootfs mounts are gone. A non-current generation is reclaimed once it
-  has no leases and has aged past the grace period. This closes the 0.x roadmap
-  item on reference-counted root collection for the general case.
+  and rootfs mounts are gone. A non-current generation is reclaimed only after
+  it has no leases and has aged past the grace period.
 - Provisioning configures containerd's runtime-handler pod-annotation
   allow-list to forward `runtime-image.brewlet.sh/*` and
   `runtime-generation.brewlet.sh/*` into each application container's OCI
@@ -638,8 +612,8 @@ itself:
    is fully installed and validated.
 
 **Ownership fencing.** On-demand processing MUST use the same exclusive
-ownership and claim-fencing protocol as eager provisioning (SPEC §5.6); it is
-not an independent writer authority. Before any host mutation, the worker
+ownership and claim-fencing requirements as eager provisioning; it is not an
+independent writer authority. Before any host mutation, the worker
 MUST verify the Node UID, the UID-bound node claim, its literal
 `BREWLET_PROFILE_UID`, and durable provisioning authority for the current
 profile UID and generation. The profile MUST not be deleting or retiring this
@@ -908,8 +882,9 @@ spec:
 - Selection is scoped to one Pod. Two Pods may use the same container name with
   different runtime IDs. Names MUST be unique among a Pod's regular, init, and
   ephemeral containers.
-- A selected container's application `image:` MUST be digest-pinned, exactly
-  as in 0.x (SPEC §4.4); the shim's protected CRI identity checks are unchanged.
+- A selected container's application `image:` MUST be digest-pinned. The shim
+  verifies its identity using protected CRI metadata and the content-store
+  descriptor (§8.2).
 - Only selected containers require Brewlet artifacts, inventory approval,
   numeric identities, read-only roots, and Brewlet mount/process policy.
   Unselected regular, init, sidecar, and ephemeral containers use ordinary OCI
@@ -928,10 +903,12 @@ spec:
 1. **Classify the container** from the protected CRI container name and that
    name's Pod selection annotation. An unselected container delegates unchanged
    to runc; it does not resolve an artifact or runtime.
-2. **Resolve the artifact** for a selected container exactly as SPEC §6.4 does today (protected CRI metadata,
-   content-store digest verification, strict platform match). Recognize a 1.0.0
-   artifact by `brewlet.sh/artifact-version=1` and a final `brewlet.sh/layer=launch`
-   layer; any other application container image fails with `UnsupportedArtifact`.
+2. **Resolve the artifact** for a selected container using protected CRI
+   metadata. Verify the manifest digest and descriptor size against the
+   content-store bytes and require a strict platform match. Recognize an
+   artifact by `brewlet.sh/artifact-version=1` and a final
+   `brewlet.sh/layer=launch` layer; any other application container image fails
+   with `UnsupportedArtifact`.
 3. **Load and validate** `launch.json` (§6.3) and the image-config mirror (§6.4).
 4. **Resolve the runtime image** by the protected container name from the Pod
    annotations, carried into the OCI runtime spec by CRI. Check live node-local authorization,
@@ -956,8 +933,7 @@ spec:
    non-read-only OCI root with `ReadOnlyRootRequired`; missing admission cannot
    restore writable-root behavior. Packaged `/app` is explicitly mounted
    read-only as well. Writable application data uses explicit Kubernetes
-   volumes, not writes to a private copy of runtime files. This deliberately
-   replaces the earlier writable-root/CRI-flag-preservation contract.
+   volumes, not writes to a private copy of runtime files.
 7. **Generate `config.json`** from the CRI-provided spec with the process fields
    of §8.3 and the user of §8.4; resources, mounts, namespaces, and the CNI
    network namespace pass through unchanged. No language-specific arguments are
@@ -1147,7 +1123,7 @@ For every `runtimeClassName: brewlet` pod on CREATE, `brewlet-admission`:
   affinity, architecture, taints, resource, or volume constraints.
 - **Defaults** only selected containers and denies root for them (§8.4), and
   **overwrites** `brewlet.sh/artifact-*` hints using a selected regular
-  container (SPEC §8.3).
+  container (§9.1).
 - **Does not** read the application artifact from the registry, and therefore
   never defaults per-container runtime selections from it. Artifact-side
   constraints (layer rules and platforms) are enforced by
@@ -1189,8 +1165,8 @@ This section and §9.2–§9.3 define the 1.0.0 capability-label contract.
 
 The startup fence is the `NoSchedule` taint
 `startup-taint.cluster-autoscaler.kubernetes.io/brewlet=provisioning`.
-The [0.x startup-taint contract](https://github.com/microsoft/brewlet/blob/fa7085335b220e29df6affbece4558c5f1259ecb/specs/CAPABILITY_LABELS.md#startup-taint)
-is retained with the v2 capability keys and the following requirements:
+Nodes carrying templated Brewlet capability labels MUST be fenced from
+workloads until provisioning establishes readiness:
 
 - Autoscaler simulation-only labels, such as EKS node-template tags with
   `PropagateAtLaunch=false`, MUST match the profile inventory but MUST NOT
@@ -1286,23 +1262,14 @@ or reschedule the bound pod.
 
 ## 10. `RuntimeClass`
 
-`RuntimeClass/brewlet` retains one handler, one scheduling selector, and one
-overhead (SPEC §7). Its selector remains `brewlet.sh/runtime=ready`, with the
-generalized readiness and startup-fence semantics of §7.3 and §9.1–§9.2.
+`RuntimeClass/brewlet` uses one handler, one scheduling selector, and one
+overhead. Its selector is `brewlet.sh/runtime=ready`, with readiness and
+startup-fence semantics defined by §7.3 and §9.1–§9.2.
 Runtime image selection is per container rather than per RuntimeClass
 (see §15 for the rejected per-ID RuntimeClass alternative). `overhead.podFixed`
 covers only shim and staging overhead.
 
-## 11. What happens to Java
-
-Re-expressed generically:
-
-| 0.x concept | 1.0.0 equivalent |
-|---|---|
-| JDK `temurin-21` in `NodeProfile.jdks` | `RuntimeImage java-21` built from the same digest-pinned JDK image |
-| `jvm.config` | `launch.json` argv generated by the Maven plugin |
-| Classpath / module-path layers | Ordinary application files under `/app/lib` or `/app/mods`, referenced from argv |
-| Shipped AppCDS archive | An ordinary file in an application layer plus `-XX:SharedArchiveFile=… -Xshare:auto` in argv. Because rotations change the exact JDK build, the archive is best-effort by design. |
+## 11. Producers
 
 ### 11.1 The `brewlet` CLI: language-agnostic packaging
 
@@ -1375,31 +1342,19 @@ perform, and can print the resource instead of applying it for GitOps.
 `runtime remove` MUST refuse while workloads or node profiles still bind the
 runtime unless explicitly forced. `list`, `status` and `doctor` are read-only.
 
-### 11.2 The Maven plugin: Java-specific producer
+### 11.2 Other producers
 
-The Maven plugin is the one place where Java knowledge remains. It MAY:
-
-- generate `launch.json` argv from the project: main class or JPMS module,
-  classpath or module path, `--enable-preview`, `--add-opens`, and system
-  properties;
-- package dependencies as ordinary application files (for example under
-  `/app/lib` and `/app/mods`);
-- attach a prebuilt AppCDS archive as an ordinary application file and add the matching
-  flags to argv.
-
-Its output is an ordinary 1.0.0 artifact that the shim treats exactly like one
-produced by the CLI. A developer can always replace the generated `launch.json`
-with a hand-written one. The plugin does not generate Kubernetes manifests and
-does not write per-container runtime-selection annotations; choosing runtimes for a workload
-remains an explicit decision in the reviewed manifest.
+Other tools MAY prepare application files and launch descriptors for the CLI or
+produce artifacts independently. Their artifacts MUST conform to §6; runtime
+selection remains an explicit workload decision.
 
 ## 12. Security model
 
 - **Trust roots.** The only executable bytes outside `/app` are runtime roots
   extracted from administrator-approved, digest-pinned `RuntimeImage` sources,
   apart from explicitly mounted Kubernetes volumes. The application image is
-  verified by digest exactly as in 0.x; ordinary-image sidecars cannot bypass
-  this contract.
+  verified by digest before it is read or staged (§8.2); ordinary-image
+  sidecars cannot bypass this contract.
 - **Runtime file-path confinement.** §6.2 confines application layers to
   `/app`, and §7.2 isolates and hides the runtime's `/app`. This
   prevents layer replacement of runtime paths, not loading application-bundled
@@ -1432,9 +1387,9 @@ remains an explicit decision in the reviewed manifest.
 - **Restart RBAC is opt-in.** The operator's permission to patch Deployments,
   StatefulSets, and DaemonSets exists only when rotation restarts are enabled
   in the chart (§7.6).
-- **Unchanged boundaries.** The privileged provisioner, host-path layout under
-  `/opt/brewlet`, fail-open admission, and runc isolation retain their 0.x
-  properties and caveats (SPEC §11).
+- **Trust boundaries.** The privileged provisioner, host-path layout under
+  `/opt/brewlet`, fail-open admission, and runc isolation are part of the
+  deployment threat model (§7, §8.2, §9).
 
 ## 13. Observability
 
@@ -1507,7 +1462,7 @@ The qualification matrix MUST include Python, the single native-language
 qualification fixture, and WebAssembly. Java, Node.js, .NET and PHP remain
 example fixtures that use the same producer, artifact and explicit launch
 contract; each runs the real-node runtime contract weekly against `main` as a
-job of one non-gating matrix workflow (Java also through the Maven producer).
+job of one non-gating matrix workflow.
 Python and the WebAssembly examples are also jobs of that workflow. Those runs are
 not qualification evidence and do not gate pull requests, promotion or
 release. A native-language result does not implicitly qualify a Wasm guest. The WebAssembly cases cover both the Wasmtime WASIp1

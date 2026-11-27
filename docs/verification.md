@@ -1,8 +1,8 @@
 # Verification and limitations
 
-This page explains what Brewlet 0.8.1 has been tested against, what it does not
-claim, and how to read fail-closed runtime errors. The sections on validation
-workflows are for maintainers and contributors.
+This page explains what has been verified, what Brewlet does not claim, and
+how to read fail-closed runtime errors. The sections on validation workflows
+are for maintainers and contributors.
 
 ## What has been verified
 
@@ -43,8 +43,8 @@ and the [validation status report](https://github.com/microsoft/brewlet/blob/mai
 - Shared application processes or heaps, or automatic JVM/interpreter tuning.
 - Signature verification of application images or application dependency
   inventories; see [security](security.md#supply-chain-scope).
-- Compatibility with descriptors, artifact formats or workload APIs from
-  Brewlet 0.7.x or earlier.
+- Compatibility with descriptors, artifact formats, workload APIs, or
+  persisted state from previous releases.
 - A built-in vulnerability (CVE) scanner or package inventory.
 
 ## Interpreting failures

@@ -26,8 +26,7 @@ the plugin from matching source:
 mvn -f maven-plugin/pom.xml install
 ```
 
-Use the plugin version matching the CLI; the examples below use `0.13.1`,
-which includes the `build` goal introduced in `0.12.0`.
+Use the plugin version matching the CLI; the examples below use `0.13.1`.
 
 ## Goals
 

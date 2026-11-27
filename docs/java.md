@@ -452,8 +452,8 @@ mvn package sh.brewlet:brewlet-maven-plugin:0.13.1:build \
   -Dbrewlet.mainClass=com.example.Main
 ```
 
-The `build` goal was introduced in 0.12.0; use a matching CLI and install the
-plugin from matching source if that version is not yet published. See the
+Use matching CLI and plugin versions; if the plugin release is not published,
+build and install it from the same source as the CLI. See the
 [Maven plugin reference](maven-plugin.md) for all goals and options. The
 plugin does not understand framework packaging formats:
 

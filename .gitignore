@@ -12,6 +12,8 @@
 /acceptance/results/
 /scripts/__pycache__/
 /dist/
+/.vscode/settings.json
+/integration-tests/fixtures/dotnet/**/obj/
 /integration-tests/**/__pycache__/
 *.test
 .DS_Store

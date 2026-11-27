@@ -26,9 +26,8 @@ only when both `launch.json` fields are omitted and the Pod supplies neither
 does replace the launch command and ignores its args unless Pod `args` is also
 set; Pod `args` alone replaces only launch args. Runtime WorkingDir and User do
 not define the application process. Entrypoint and Cmd are recorded in the
-installed runtime generation; republish runtime generations installed by
-earlier Brewlet releases so the node has them. Brewlet does not build or
-silently sanitize the approved image.
+installed runtime generation. Brewlet does not build or silently sanitize the
+approved image.
 
 ### Harden a fixed runtime launcher
 
@@ -39,8 +38,7 @@ application must pass through the same startup policy. Brewlet never lets Pod
 warning; Pod `args` replaces only launch args. Check
 `brewlet k8s runtime status ID` to see the `ENTRYPOINT` and `CMD` observed per
 node and platform. OnDemand runtimes report this information only after
-installation; nodes with older runtime metadata can show it as unknown until a
-new runtime generation is installed.
+installation.
 
 Treat the launcher as a strict boundary:
 

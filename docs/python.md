@@ -45,7 +45,7 @@ repository. It is a standard-library HTTP server that imports a separate
 
 ```sh
 WORK="$(mktemp -d)"
-git clone --quiet --depth 1 --branch v0.8.1 https://github.com/microsoft/brewlet.git "$WORK/brewlet"
+git clone --quiet --depth 1 --branch v0.13.0 https://github.com/microsoft/brewlet.git "$WORK/brewlet"
 FIXTURE="$WORK/brewlet/integration-tests/fixtures/python"
 mkdir "$WORK/src" "$WORK/dependencies"
 chmod 0755 "$WORK/src" "$WORK/dependencies"

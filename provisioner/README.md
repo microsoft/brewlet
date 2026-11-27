@@ -62,7 +62,7 @@ contains split CRI runtime and image plugin tables, activation updates those
 tables instead of adding a handler to the ignored legacy table. This mandatory packed-layer
 retention prevents GC between CRI unpack and the first verified shim stage;
 an unpacked snapshot or a warm cache is not a substitute for cold source bytes
-(specification §8.2 / retained 0.x SPEC §6.4).
+(specification §8.2).
 The transaction restarts containerd only after syntax validation and commits
 only after effective-config retention and live CRI handler/annotation checks.
 An exposed live CRI `discardUnpackedLayers` must also be false; its absence

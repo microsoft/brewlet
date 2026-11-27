@@ -184,7 +184,6 @@ attestations or credentials are failures, not optional checks.
 | Transition | Policy and current evidence |
 | --- | --- |
 | Same candidate, clean reinstall | The only eligible test pair. No automated drain/reinstall test exists; not required for beta publication. |
-| 0.7.x or earlier to 0.8.x | No supported in-place upgrade or state reuse. Re-packaging is necessary for a clean 0.8.x installation; cross-release transitions remain unsupported. |
 | Between different betas/prereleases | Unsupported until immutable source/target artifacts, cleanup/recovery limits and genuine evidence are explicitly reviewed. |
 | Helm/binary downgrade or mixed releases | No compatibility or rollback promise. |
 
