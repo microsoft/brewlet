@@ -71,6 +71,13 @@ different from their source and allowlisted. Mapping a source does not change
 the approved digest or excuse missing content. Even unused malformed policies
 fail validation.
 
+Workers inspect digest-verified runtime metadata for platforms required by live
+nodes in pools offering the runtime, skipping unrelated declared platform
+graphs. Successful proofs are cached in memory for the inventory UID, approved
+digest and required platform set; changes to that identity or set require fresh
+validation. Authorization and ownership fencing are still checked on each
+reconcile. Worker restarts require validation again.
+
 For an air-gapped deployment, mirror the required platform graphs, configs and
 layers, verify digest preservation and platform coverage, and arrange trusted
 node access before readiness. A mirror declaration alone is not proof that

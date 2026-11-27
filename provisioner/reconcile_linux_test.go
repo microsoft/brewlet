@@ -82,6 +82,53 @@ func TestOnDemandOnlyFakeAPINeverFetchesAndReleasesFence(t *testing.T) {
 	}
 }
 
+func TestReconcileReusesPlatformProofWithoutBypassingRevocation(t *testing.T) {
+	w, _ := authorityFixture(t)
+	requireRootWorkdir(t, w)
+	w.Baseline = baselineSuccess{}
+	w.Installer = new(neverInstall)
+	validator := new(countedPlatforms)
+	w.Platforms = validator
+	approveStatic(t, w)
+	ctx := context.Background()
+	if err := w.Reconcile(ctx); err != nil {
+		t.Fatal(err)
+	}
+	validator.err = fmt.Errorf("registry quota exhausted")
+	for range 3 {
+		if err := w.Reconcile(ctx); err != nil {
+			t.Fatal("unchanged approved runtime lost readiness", err)
+		}
+	}
+	if validator.calls != 1 {
+		t.Fatal("reconcile repeated immutable metadata validation", validator.calls)
+	}
+	n := new(corev1.Node)
+	if err := w.Client.Get(ctx, client.ObjectKey{Name: "node"}, n); err != nil {
+		t.Fatal(err)
+	}
+	if n.Labels["brewlet.sh/runtime.static"] != "available" {
+		t.Fatal("validated runtime lost its scheduling capability", n.Labels)
+	}
+	r := new(api.RuntimeImage)
+	if err := w.Client.Get(ctx, client.ObjectKey{Name: "static"}, r); err != nil {
+		t.Fatal(err)
+	}
+	r.Status.Conditions[0].Status = metav1.ConditionFalse
+	if err := w.Client.Update(ctx, r); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Reconcile(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Client.Get(ctx, client.ObjectKey{Name: "node"}, n); err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := n.Labels["brewlet.sh/runtime.static"]; exists || len(w.platformProofs) != 0 {
+		t.Fatal("cached proof retained revoked capability", n.Labels, w.platformProofs)
+	}
+}
+
 func TestUnauthorizedRequestRemovalAndLoggingRequireFreshOwner(t *testing.T) {
 	for _, valid := range []bool{true, false} {
 		t.Run(fmt.Sprint(valid), func(t *testing.T) {

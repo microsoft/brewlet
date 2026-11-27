@@ -23,6 +23,20 @@ import (
 type baselineFailure struct{}
 type fixturePlatforms struct{}
 
+type countedPlatforms struct {
+	calls int
+	err   error
+	after func()
+}
+
+func (v *countedPlatforms) ValidatePlatforms(context.Context, *api.RuntimeImage, []ocispec.Platform) error {
+	v.calls++
+	if v.after != nil {
+		v.after()
+	}
+	return v.err
+}
+
 func (fixturePlatforms) ValidatePlatforms(context.Context, *api.RuntimeImage, []ocispec.Platform) error {
 	return nil
 }
@@ -105,5 +119,78 @@ func TestExpiredInventoryApprovalIsNotAuthority(t *testing.T) {
 	}
 	if _, err := w.runtime(context.Background(), "static"); err == nil {
 		t.Fatal("stale approval accepted")
+	}
+}
+
+func TestRuntimePlatformProofCacheInvalidatesChangedTargetsAndPools(t *testing.T) {
+	for _, change := range []string{"digest", "inventory-uid", "offered-platforms"} {
+		t.Run(change, func(t *testing.T) {
+			w, _ := authorityFixture(t)
+			validator := new(countedPlatforms)
+			w.Platforms = validator
+			r := &api.RuntimeImage{ObjectMeta: metav1.ObjectMeta{Name: "static", UID: "epoch-one"}, Status: api.RuntimeImageStatus{Digest: "sha256:" + strings.Repeat("a", 64)}}
+			ctx := context.Background()
+			for range 2 {
+				if err := w.validateRuntimePlatforms(ctx, r); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if validator.calls != 1 {
+				t.Fatal("unchanged target revalidated", validator.calls)
+			}
+			switch change {
+			case "digest":
+				r.Status.Digest = "sha256:" + strings.Repeat("b", 64)
+			case "inventory-uid":
+				r.UID = "epoch-two"
+			case "offered-platforms":
+				arch := "amd64"
+				if goruntime.GOARCH == arch {
+					arch = "arm64"
+				}
+				n := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "other", UID: "other-node"}, Status: corev1.NodeStatus{NodeInfo: corev1.NodeSystemInfo{OperatingSystem: "linux", Architecture: arch}}}
+				if err := w.Client.Create(ctx, n); err != nil {
+					t.Fatal(err)
+				}
+			}
+			for range 2 {
+				if err := w.validateRuntimePlatforms(ctx, r); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if validator.calls != 2 || len(w.platformProofs) != 1 {
+				t.Fatal("changed target did not replace its cached proof", validator.calls, w.platformProofs)
+			}
+		})
+	}
+}
+
+func TestRuntimePlatformProofCacheDoesNotCacheFailuresOrBypassFencing(t *testing.T) {
+	w, _ := authorityFixture(t)
+	ctx := context.Background()
+	r := &api.RuntimeImage{ObjectMeta: metav1.ObjectMeta{Name: "static", UID: "epoch-one"}, Status: api.RuntimeImageStatus{Digest: "sha256:" + strings.Repeat("a", 64)}}
+	validator := &countedPlatforms{err: errors.New("registry unavailable")}
+	w.Platforms = validator
+	for range 2 {
+		if err := w.validateRuntimePlatforms(ctx, r); err == nil {
+			t.Fatal("failed metadata validation accepted")
+		}
+	}
+	validator.err = nil
+	validator.after = func() { w.Authority.NodeUID = "replacement" }
+	if err := w.validateRuntimePlatforms(ctx, r); err == nil || len(w.platformProofs) != 0 {
+		t.Fatal("unfenced validation cached", err, w.platformProofs)
+	}
+	w.Authority.NodeUID = "node-one"
+	validator.after = nil
+	if err := w.validateRuntimePlatforms(ctx, r); err != nil {
+		t.Fatal(err)
+	}
+	if validator.calls != 4 {
+		t.Fatal("failed validation was not retried", validator.calls)
+	}
+	w.Authority.NodeUID = "replacement"
+	if err := w.validateRuntimePlatforms(ctx, r); err == nil {
+		t.Fatal("cached proof bypassed fresh ownership fence")
 	}
 }

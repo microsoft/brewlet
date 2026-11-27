@@ -24,6 +24,7 @@ import (
 	"github.com/microsoft/brewlet/kubernetes/policy"
 	"github.com/microsoft/brewlet/pkg/node"
 	"github.com/opencontainers/image-spec/identity"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
 type ContainerdInstaller struct {
@@ -64,11 +65,11 @@ func (i *ContainerdInstaller) Stage(ctx context.Context, r *api.RuntimeImage, ba
 	if i.Snapshotter == "" {
 		i.Snapshotter = "overlayfs"
 	}
-	declared, err := i.runtimePlatforms(ctx, r)
+	wanted := platforms.Normalize(platforms.DefaultSpec())
+	declared, err := i.runtimePlatforms(ctx, r, []ocispec.Platform{wanted})
 	if err != nil {
 		return "", m, err
 	}
-	wanted := platforms.Normalize(platforms.DefaultSpec())
 	selected, err := declared.Select(wanted)
 	if err != nil {
 		return "", m, err

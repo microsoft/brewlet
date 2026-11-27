@@ -18,9 +18,10 @@ func (w *Worker) validateRuntimePlatforms(ctx context.Context, r *api.RuntimeIma
 		keys = append(keys, runtimePlatformKey(p))
 	}
 	key := string(r.UID) + "\x00" + r.Status.Digest + "\x00" + strings.Join(keys, ",")
-	if w.platformProofs[key] {
+	if w.platformProofs[r.Name] == key {
 		return nil
 	}
+	delete(w.platformProofs, r.Name)
 	validator := w.Platforms
 	if validator == nil {
 		validator, _ = w.Installer.(RuntimePlatformValidator)
@@ -35,8 +36,8 @@ func (w *Worker) validateRuntimePlatforms(ctx context.Context, r *api.RuntimeIma
 		return err
 	}
 	if w.platformProofs == nil {
-		w.platformProofs = map[string]bool{}
+		w.platformProofs = map[string]string{}
 	}
-	w.platformProofs[key] = true
+	w.platformProofs[r.Name] = key
 	return nil
 }
