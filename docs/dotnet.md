@@ -54,7 +54,7 @@ main `App.dll` and a separate `Greeting.dll` dependency, and pins .NET SDK
    from the project directory so the pinned SDK is used:
 
     ```sh
-    git clone --depth 1 --branch v0.8.1 https://github.com/microsoft/brewlet.git
+    git clone --depth 1 --branch v0.13.0 https://github.com/microsoft/brewlet.git
     cp -R brewlet/integration-tests/fixtures/dotnet dotnet-demo
     cd dotnet-demo
     dotnet publish App/App.csproj --configuration Release \

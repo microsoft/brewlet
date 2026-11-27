@@ -27,15 +27,14 @@ integration tests, website, and user-facing documentation.
 ## Project status
 
 > [!IMPORTANT]
-> **All 0.x releases are betas and are not stable.** They can break or change
-> incompatibly between versions. General availability (GA)
-> will be 1.0.0.
+> **Pre-GA beta:** Versions below 1.0.0 are not stable and may change
+> incompatibly. Evaluate them in a disposable environment, not in production
+> or a shared cluster.
 
-Brewlet is a clean-slate, pre-GA implementation under active development.
-Beta releases are published on
-[GitHub Releases](https://github.com/microsoft/brewlet/releases). Evaluate them
-in a disposable environment, not a production or shared cluster. Do not
-substitute the 0.x CLI, chart, artifact format or runbooks.
+Brewlet is under active development. Releases are published on
+[GitHub Releases](https://github.com/microsoft/brewlet/releases). Use components
+from the same release; in-place upgrades are not supported. See the
+[compatibility policy](docs/compatibility-policy.md).
 
 The [acceptance ledger](acceptance/requirements.json) records scoped successful
 local evidence for the current requirements. This is not cloud-provider autoscaling
@@ -52,7 +51,7 @@ distinct from real-node evidence. See the
 - [Package and deploy applications](docs/applications.md)
 - [Prerelease distribution and recovery](docs/supported-release.md)
 - [Specification](specs/SPECIFICATION.md)
-- [Reference provenance](REFERENCE.md)
+- [Project reference](REFERENCE.md)
 
 ## How it works
 
@@ -183,10 +182,9 @@ from source, running tests, and contribution expectations.
 
 ## Releases
 
-Brewlet is pre-GA. [`release.json`](release.json) defines the release
-identity. Every 0.x release (0.8.0 onward previews the 1.0.0 line) is a beta:
-published as the latest GitHub release, but not stable and free to break or pivot.
-GA will be 1.0.0.
+[`release.json`](release.json) defines the release identity. See the
+[release distribution runbook](docs/supported-release.md) for publication
+channels and supported transitions.
 
 | Artifact | Intended location |
 | --- | --- |
@@ -203,10 +201,6 @@ passed CI on `main` builds, verifies and publishes every artifact automatically.
 See the [maintainer release checklist](RELEASE.md), the
 [release distribution runbook](docs/supported-release.md) and the
 [compatibility policy](docs/compatibility-policy.md).
-
-The current rewrite is inspired by Brewlet 0.x at
-`fa7085335b220e29df6affbece4558c5f1259ecb`; its specification, label contract
-and runbooks are not carried forward. See [reference provenance](REFERENCE.md).
 
 ## License
 

@@ -22,13 +22,12 @@ CLI or GitOps operations.
 
 ## Install on the cluster
 
-The dashboard ships in the published chart (Brewlet 0.9.0 and later), which
-contains the matching CRDs and a digest-pinned dashboard image, so no separate
-image build or override is needed. The commands below install the latest
-release into the cluster selected by your current kubectl context; review the
-prerequisites in [installation](installation.md) first. Use them for a fresh
-installation, not to upgrade an older release. Helm does not upgrade CRDs, so
-apply them before installing the chart:
+The published chart contains the matching CRDs and a digest-pinned dashboard
+image, so no separate image build or override is needed. The commands below
+install the latest release into the cluster selected by your current kubectl
+context; review the prerequisites in [installation](installation.md) first. Use
+them for a fresh installation, not to upgrade an older release. Helm does not
+upgrade CRDs, so apply them before installing the chart:
 
 ```sh
 helm show crds oci://ghcr.io/microsoft/charts/brewlet | kubectl apply -f -
@@ -51,11 +50,6 @@ helm upgrade brewlet \
   --set dashboard.enabled=true \
   --wait --timeout 5m
 ```
-
-For an older release that includes the dashboard, add
-`--version <installed-chart-version>` to the upgrade command instead.
-Find the installed chart version with `helm list -n brewlet`; in-place upgrades
-between releases are unsupported.
 
 The chart installs the dashboard as a ClusterIP service, disabled by default.
 For private-registry mirroring, set `dashboard.image` to your mirrored,

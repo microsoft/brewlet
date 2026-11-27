@@ -160,8 +160,8 @@ All app/init/sidecar/ephemeral containers in the Pod require v1 artifacts.
 Java-specific project knowledge lives in the separately packaged Maven plugin.
 It can prepare classpath/module argv and package the application and its
 dependencies as ordinary files in app layers.
-The `build` goal was introduced in 0.12.0. Use a matching CLI and plugin, and
-install the plugin from matching source if that version is not yet published.
+Use matching CLI and plugin versions. If the plugin release is not published,
+build and install it from the same source as the CLI.
 
 ```sh
 mvn package sh.brewlet:brewlet-maven-plugin:0.13.0:build \

@@ -1,9 +1,9 @@
 # Brewlet cheat sheet
 
-Quick recipes for application developers and platform operators. Brewlet 0.x
-is pre-GA beta software; evaluate it in an isolated environment. This page
-does not replace the [full CLI reference](cli-reference.md) or deployment
-guides. Select a diagram to open it at full size.
+Quick recipes for application developers and platform operators. Brewlet is
+pre-GA beta software; evaluate it in an isolated environment. This page does
+not replace the [full CLI reference](cli-reference.md) or deployment guides.
+Select a diagram to open it at full size.
 
 Prefer a printable reference? [Download the one-page infographic (PDF, A3 landscape)](assets/cheat-sheet/brewlet-cheat-sheet.pdf).
 It condenses the core workflows; use the recipes below for complete details.
@@ -361,8 +361,8 @@ workloads. Incomplete evidence returns a partial report and a nonzero exit.
   out of artifacts and use origin-scoped registry credentials.
 - Confirm the current kube context before cluster operations. Review
   `--dry-run` output before applying changes.
-- Brewlet 0.x is pre-GA beta software. Use an isolated evaluation cluster and
-  follow [safe removal and recovery](uninstallation.md).
+- Use an isolated evaluation cluster and follow
+  [safe removal and recovery](uninstallation.md).
 
 ## More help
 

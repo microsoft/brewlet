@@ -25,7 +25,7 @@ filesystem locations.
 For example, to read the notices of a downloaded CLI archive:
 
 ```sh
-tar -xzf brewlet_0.8.1_linux_amd64.tar.gz NOTICE.txt LICENSE.txt
+tar -xzf brewlet_VERSION_linux_amd64.tar.gz NOTICE.txt LICENSE.txt
 ```
 
 ## How notices are generated

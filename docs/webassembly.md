@@ -41,14 +41,14 @@ Other WASI interfaces and native runwasi execution are not covered.
 ## Build the guests
 
 The examples live in the Brewlet repository under
-[`examples/wasm`](https://github.com/microsoft/brewlet/tree/v0.8.1/examples/wasm).
+[`examples/wasm`](https://github.com/microsoft/brewlet/tree/v0.13.0/examples/wasm).
 You need Go and Rust 1.97.1 with the `wasm32-wasip2` target. The committed
 `Cargo.lock` pins the Spin component's dependencies.
 
 1. Get the example sources and create the layer directories:
 
     ```sh
-    git clone --depth 1 --branch v0.8.1 https://github.com/microsoft/brewlet.git
+    git clone --depth 1 --branch v0.13.0 https://github.com/microsoft/brewlet.git
     cd brewlet
     WORK="$PWD/wasm-work"
     mkdir -p "$WORK/wasmtime-app" "$WORK/spin-app" "$WORK/dependencies"
@@ -159,7 +159,7 @@ engine images: a pinned distroless C/C++ userland plus the checksum-verified,
 unchanged upstream release binary. The Wasmtime binary needs the GNU/Linux
 loader and unwinder, so a bare executable-only root or a minimal musl image is
 not enough. The pinned engine releases and base images are listed in
-[`runtimes.json`](https://github.com/microsoft/brewlet/blob/v0.8.1/examples/wasm/runtimes.json).
+[`runtimes.json`](https://github.com/microsoft/brewlet/blob/v0.13.0/examples/wasm/runtimes.json).
 
 Each RuntimeImage must also declare `volumeMountPaths: ["/cache", "/work"]` so
 that the workload's cache and work volumes are admitted. See

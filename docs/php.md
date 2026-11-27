@@ -23,16 +23,6 @@ That workflow packages the fixture, runs it on a real node with Docker Official
 between them. It does not gate pull requests or releases; Python is the only
 qualification fixture (see [verification](verification.md)).
 
-The workflow on this page was also
-verified manually with Brewlet 0.8.1 on a single-node arm64 kind cluster,
-following the [local tutorial](local-kubernetes.md), using the unmodified Docker
-Official `php:8.4.26-cli-alpine` and `php:8.4.27-cli-alpine` images:
-
-- The application served requests as UID 65532 with PHP 8.4.26.
-- After the RuntimeImage was patched to 8.4.27, the running Pod kept 8.4.26.
-  The replacement Pod reported 8.4.27 with the same application digest.
-- `kubectl exec` with `/usr/local/bin/php` used the same runtime.
-
 Choose the runtime image carefully:
 
 - **Alpine variants can be approved unchanged.** The `-cli-alpine` images
@@ -43,10 +33,6 @@ Choose the runtime image carefully:
   stays `Provisioning`. Remove set-ID bits in your golden image pipeline, as
   the [fixture Dockerfiles](https://github.com/microsoft/brewlet/tree/main/integration-tests/fixtures/runtimes)
   do, or use an Alpine variant.
-- **Brewlet 0.8.1 cannot pull runtime images from `docker.io`.** The node
-  provisioner fails with `401 Unauthorized`. Use the same digest from the
-  Docker Official Images mirror at `public.ecr.aws/docker/library/php`, or
-  copy the image into your platform registry. This issue was fixed after 0.8.1.
 
 These images are test inputs, not a security recommendation. Use the runtime
 images your platform team approves. Extensions are part of the runtime: check
