@@ -74,7 +74,15 @@ class InfrastructureWorkflowTests(unittest.TestCase):
         self.assertNotIn("pull_request", triggers)
         build, rest = text.split("\n  package:\n", 1)
         package, deploy = rest.split("\n  deploy:\n", 1)
-        self.assertIn("if: github.repository == 'microsoft/brewlet' && github.ref == 'refs/heads/main'", build)
+        guard = re.search(r"^    if: >-\n((?:      .*\n)+)", build, re.MULTILINE)
+        self.assertIsNotNone(guard)
+        self.assertEqual(
+            "github.repository == 'microsoft/brewlet' && github.ref == 'refs/heads/main' && "
+            "(github.event_name != 'workflow_run' || "
+            "(github.event.workflow_run.conclusion == 'success' && "
+            "github.event.workflow_run.event == 'push'))",
+            " ".join(guard.group(1).split()),
+        )
         self.assertIn("uses: ./.github/workflows/site-pages.yml", build)
         self.assertIn("expected_sha: ${{ github.sha }}", build)
         self.assertNotIn(": write", build)
