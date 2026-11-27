@@ -10,6 +10,21 @@ import subprocess
 from harness import IDS, ROOT, require
 
 
+def worker_address(h):
+    """Pod IP of the running provisioning worker on the owned node."""
+    addresses = []
+    for pod in h.get("pods", namespace=h.control_namespace)["items"]:
+        if pod.get("spec", {}).get("nodeName") != h.node or pod.get("status", {}).get("phase") != "Running":
+            continue
+        if any({v["name"]: v.get("value") for v in c.get("env", [])}.get("BREWLET_MODE") == "provisioning"
+               for c in pod["spec"].get("containers", [])):
+            addresses.append(pod["status"].get("podIP", ""))
+    require(len(addresses) == 1, "could not select the exact running provisioning worker")
+    address = addresses[0]
+    require(bool(re.fullmatch(r"[0-9a-fA-F:.]+", address)), "unexpected worker Pod IP")
+    return "[" + address + "]" if ":" in address else address
+
+
 def metric_samples(text):
     samples = []
     decoder = json.JSONDecoder()
@@ -119,7 +134,7 @@ class Observer:
         h = self.h
         require(self.process.poll() is None, "containerd event observer exited before verification")
         response = h.node_exec("curl", "--fail", "--silent", "--show-error", "--noproxy", "*",
-                               "--max-time", "15", "http://127.0.0.1:9090/metrics")
+                               "--max-time", "15", f"http://{worker_address(h)}:9090/metrics")
         (h.work / "runtime-metrics.txt").write_text(response.stdout)
         samples = metric_samples(response.stdout)
         events = runtime_events(self.path.read_text())

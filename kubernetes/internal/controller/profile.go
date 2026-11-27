@@ -587,10 +587,10 @@ func (r *ProfileReconciler) ensureWorker(ctx context.Context, p *api.NodeProfile
 		Template: corev1.PodTemplateSpec{
 			ObjectMeta: metav1.ObjectMeta{Labels: labels},
 			Spec: corev1.PodSpec{
-				ServiceAccountName:       "brewlet-node",
-				DeprecatedServiceAccount: "brewlet-node",
-				HostPID:                  true, HostNetwork: true,
-				DNSPolicy:                     corev1.DNSClusterFirstWithHostNet,
+				ServiceAccountName:            "brewlet-node",
+				DeprecatedServiceAccount:      "brewlet-node",
+				HostPID:                       true,
+				DNSPolicy:                     corev1.DNSClusterFirst,
 				RestartPolicy:                 corev1.RestartPolicyAlways,
 				SchedulerName:                 corev1.DefaultSchedulerName,
 				TerminationGracePeriodSeconds: int64Ptr(30),
