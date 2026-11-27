@@ -1,24 +1,26 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "type": "object",
+  "additionalProperties": false,
   "required": ["runtimeClass"],
   "properties": {
-    "dashboard": {
+    "operator": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["enabled", "image", "imagePullPolicy", "allowWrite", "publicURL", "resources"],
+      "required": ["image", "rotationRestarts"],
       "properties": {
-        "enabled": {"type": "boolean"},
-        "image": {"type": "string", "minLength": 1},
-        "imagePullPolicy": {"enum": ["Always", "IfNotPresent", "Never"]},
-        "allowWrite": {"type": "boolean"},
-        "publicURL": {"type": "string", "pattern": "^$|^https://[^/@?#\\s]+/?$"},
-        "resources": {
+        "image": {"$ref": "#/definitions/image"},
+        "rotationRestarts": {
           "type": "object",
           "additionalProperties": false,
+          "required": ["enabled", "maxConcurrent", "nodeProgressDeadline", "workloadProgressDeadline", "namespaces", "protectedNamespaces"],
           "properties": {
-            "requests": {"type": "object", "additionalProperties": {"$ref": "#/definitions/nonnegativeQuantity"}},
-            "limits": {"type": "object", "additionalProperties": {"$ref": "#/definitions/nonnegativeQuantity"}}
+            "enabled": {"type": "boolean"},
+            "maxConcurrent": {"type": "integer", "minimum": 1},
+            "nodeProgressDeadline": {"$ref": "#/definitions/duration"},
+            "workloadProgressDeadline": {"$ref": "#/definitions/duration"},
+            "namespaces": {"$ref": "#/definitions/namespaceList"},
+            "protectedNamespaces": {"$ref": "#/definitions/namespaceList"}
           }
         }
       }
@@ -38,9 +40,230 @@
           }
         }
       }
+    },
+    "provisioner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["image", "profiles", "gc"],
+      "properties": {
+        "image": {"$ref": "#/definitions/image"},
+        "profiles": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "spec"],
+            "properties": {
+              "name": {"$ref": "#/definitions/objectName"},
+              "spec": {"$ref": "#/definitions/nodeProfileSpec"}
+            }
+          }
+        },
+        "gc": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["grace", "sweepInterval"],
+          "properties": {
+            "grace": {"$ref": "#/definitions/duration"},
+            "sweepInterval": {"$ref": "#/definitions/duration"}
+          }
+        }
+      }
+    },
+    "security": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["allowedSourceMirrorHosts"],
+      "properties": {
+        "allowedSourceMirrorHosts": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[^\\s/@,*]+$"
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "admission": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "image", "nodeProfileFailurePolicy"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "image": {"$ref": "#/definitions/image"},
+        "nodeProfileFailurePolicy": {"enum": ["Fail", "Ignore"]}
+      }
+    },
+    "dashboard": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "image", "imagePullPolicy", "allowWrite", "publicURL", "resources"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "image": {"$ref": "#/definitions/image"},
+        "imagePullPolicy": {"enum": ["Always", "IfNotPresent", "Never"]},
+        "allowWrite": {"type": "boolean"},
+        "publicURL": {"type": "string", "pattern": "^$|^https://[^/@?#\\s]+/?$"},
+        "resources": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "requests": {"$ref": "#/definitions/resourceList"},
+            "limits": {"$ref": "#/definitions/resourceList"}
+          }
+        }
+      }
+    },
+    "uninstall": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["timeoutSeconds"],
+      "properties": {
+        "timeoutSeconds": {"type": "integer", "minimum": 1, "maximum": 86400}
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "nodePort"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "nodePort": {"type": "integer", "minimum": 1, "maximum": 65535}
+      }
     }
   },
   "definitions": {
+    "image": {
+      "type": "string",
+      "minLength": 1
+    },
+    "duration": {
+      "description": "A Go duration string. Positivity is checked by the consuming binary.",
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^\\+?([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h)(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))*$"
+    },
+    "namespace": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 63,
+      "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+    },
+    "namespaceList": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"$ref": "#/definitions/namespace"}
+    },
+    "objectName": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 253,
+      "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
+    },
+    "nodeProfileSpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["nodePool", "runtimeImages"],
+      "properties": {
+        "nodePool": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["names"],
+          "properties": {
+            "names": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 63,
+                "pattern": "^([A-Za-z0-9]([-A-Za-z0-9_.]*[A-Za-z0-9])?)$"
+              }
+            },
+            "key": {"type": "string"},
+            "includeControlPlane": {"type": "boolean"}
+          }
+        },
+        "runtimeImages": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id"],
+            "properties": {
+              "id": {
+                "type": "string",
+                "maxLength": 55,
+                "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
+              },
+              "install": {"enum": ["Eager", "OnDemand"]},
+              "idleTTL": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "pattern": "^\\+?([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h)(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))*$"
+              }
+            },
+            "allOf": [
+              {
+                "if": {"required": ["idleTTL"]},
+                "then": {"properties": {"install": {"const": "OnDemand"}}, "required": ["install"]}
+              }
+            ]
+          }
+        },
+        "tolerations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["key"],
+            "properties": {
+              "key": {"type": "string", "minLength": 1},
+              "operator": {"enum": ["Equal", "Exists"]},
+              "value": {"type": "string"},
+              "effect": {"enum": ["NoSchedule", "NoExecute", "PreferNoSchedule"]},
+              "tolerationSeconds": {"type": "integer"}
+            },
+            "allOf": [
+              {
+                "if": {"properties": {"operator": {"const": "Exists"}}, "required": ["operator"]},
+                "then": {"properties": {"value": {"maxLength": 0}}}
+              }
+            ]
+          }
+        },
+        "registry": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "mirrors": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        "rollout": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "maxUnavailable": {"type": "integer", "minimum": 1},
+            "containerdRestart": {"enum": ["validated", "none"]}
+          }
+        }
+      }
+    },
+    "resourceList": {
+      "type": "object",
+      "additionalProperties": {"$ref": "#/definitions/nonnegativeQuantity"}
+    },
     "nonnegativeQuantity": {
       "description": "A nonnegative Kubernetes resource Quantity string; the API server remains authoritative for resource validation.",
       "type": "string",
