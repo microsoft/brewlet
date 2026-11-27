@@ -109,8 +109,6 @@ launch time:
 - Keep the `brewlet` CLI language-agnostic: it packages and validates
   hand-written descriptors and never derives launch or platform fields from
   application content (§11.1).
-- Keep the Maven plugin as an optional **Java producer** of 1.0.0 artifacts, the
-  only place where Java-specific intelligence lives (§11.2).
 
 ## 4. Non-goals
 
@@ -296,8 +294,8 @@ testing applications against the selected runtime.
 The launch configuration intentionally contains **no** language-specific fields.
 Runtime-specific options such as a main class, module mode, system properties,
 preview flags, or AppCDS settings are expressed as ordinary argv. Application
-authors can write `launch.json` by hand and the CLI packages it unchanged
-(§11.1); for Java projects the Maven plugin MAY generate it (§11.2).
+authors can write or generate `launch.json`; the CLI packages it unchanged
+(§11.1).
 
 ### 6.4 Image config
 
@@ -332,11 +330,10 @@ comparison. OCI `architecture`, `os`, `variant`, and `rootfs.diff_ids` must matc
 the declared platform and verified layers. Non-execution metadata such as
 `created`, `author`, and `history` is ignored.
 
-The CLI, Maven plugin, and shim MUST share published conformance fixtures for
-valid and invalid descriptors, canonical mirrors, layer paths and links,
-permissions, whiteouts, and platform declarations. Acceptance requires all
-three implementations to produce the same normalized process fields and
-reason codes; separate language implementations do not justify contract drift.
+The CLI and shim MUST share published conformance fixtures for valid and
+invalid descriptors, canonical mirrors, layer paths and links, permissions,
+whiteouts, and platform declarations. Acceptance requires both implementations
+to produce the same normalized process fields and reason codes.
 
 `launch.json` remains the authoritative, versioned document inspected by tooling.
 A future baked exporter would need to honor the same launch contract; no such
@@ -374,8 +371,8 @@ status:
   `[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*`
   and be at most 55 characters: lowercase DNS subdomain components, allowing
   dots as in `python-3.12`, with no empty component. This also makes
-  `brewlet.sh/runtime.<id>` a valid label key (§9). Admission, the shim, CLI,
-  and Maven plugin use the same grammar.
+  `brewlet.sh/runtime.<id>` a valid label key (§9). Admission, the shim and CLI
+  use the same grammar.
 - `spec.source.image` MUST be a canonical `repo@sha256:<64 lowercase hex>`
   reference. Tags are rejected. Registry mirrors declared in
   `NodeProfile.spec.registry.mirrors` map source authorities to destination
@@ -1345,23 +1342,11 @@ perform, and can print the resource instead of applying it for GitOps.
 `runtime remove` MUST refuse while workloads or node profiles still bind the
 runtime unless explicitly forced. `list`, `status` and `doctor` are read-only.
 
-### 11.2 The Maven plugin: Java-specific producer
+### 11.2 Other producers
 
-The Maven plugin is the one place where Java knowledge remains. It MAY:
-
-- generate `launch.json` argv from the project: main class or JPMS module,
-  classpath or module path, `--enable-preview`, `--add-opens`, and system
-  properties;
-- package dependencies as ordinary application files (for example under
-  `/app/lib` and `/app/mods`);
-- attach a prebuilt AppCDS archive as an ordinary application file and add the matching
-  flags to argv.
-
-Its output is an ordinary 1.0.0 artifact that the shim treats exactly like one
-produced by the CLI. A developer can always replace the generated `launch.json`
-with a hand-written one. The plugin does not generate Kubernetes manifests and
-does not write per-container runtime-selection annotations; choosing runtimes for a workload
-remains an explicit decision in the reviewed manifest.
+Other tools MAY prepare application files and launch descriptors for the CLI or
+produce artifacts independently. Their artifacts MUST conform to §6; runtime
+selection remains an explicit workload decision.
 
 ## 12. Security model
 
@@ -1477,7 +1462,7 @@ The qualification matrix MUST include Python, the single native-language
 qualification fixture, and WebAssembly. Java, Node.js, .NET and PHP remain
 example fixtures that use the same producer, artifact and explicit launch
 contract; each runs the real-node runtime contract weekly against `main` as a
-job of one non-gating matrix workflow (Java also through the Maven producer).
+job of one non-gating matrix workflow.
 Python and the WebAssembly examples are also jobs of that workflow. Those runs are
 not qualification evidence and do not gate pull requests, promotion or
 release. A native-language result does not implicitly qualify a Wasm guest. The WebAssembly cases cover both the Wasmtime WASIp1
