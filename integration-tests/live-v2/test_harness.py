@@ -1159,7 +1159,8 @@ class CallbackOrderTests(ProjectWork):
                 instance.node_snapshot = lambda: next(snapshots, fenced)
                 def get(kind, name=None, namespace=None):
                     if kind == "nodeprofile":
-                        return {"spec": {"runtimeImages": []}, "metadata": {"generation": 1},
+                        return {"spec": {"runtimeImages": [{"id": h.IDS["python"], "install": "OnDemand"}]},
+                                "metadata": {"generation": 1},
                                 "status": {"provisioningGeneration": 1}}
                     return ri if kind == "runtimeimage" else {"spec": {}}
                 instance.get = get

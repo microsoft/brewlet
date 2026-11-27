@@ -598,7 +598,8 @@ class FailureReportingTests(unittest.TestCase):
 
     def test_complete_exercise_keeps_assertion_and_both_cleanup_failures(self):
         obj = {"metadata": {"uid": "held-uid", "name": "fixture-admission"},
-               "spec": {"nodePool": {"names": ["unused"]}, "runtimeImages": []}}
+               "spec": {"nodePool": {"names": ["unused"]},
+                        "runtimeImages": [{"id": "python", "install": "OnDemand"}]}}
         def get(kind, *args, **kwargs):
             if kind == "nodeprofiles":
                 return {"items": []}
